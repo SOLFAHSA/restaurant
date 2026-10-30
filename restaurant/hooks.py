@@ -1,5 +1,5 @@
-app_name = "leaf_restaurant"
-app_title = "Leaf Restaurant"
+app_name = "restaurant"
+app_title = "Restaurante"
 app_publisher = "Grintsys"
 app_description = "Restaurant management module for LEAF ERP"
 app_email = "juanm.padilla13@hotmail.com"
@@ -9,15 +9,15 @@ app_license = "MIT"
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/leaf_restaurant/css/leaf_restaurant.css"
-# app_include_js = "/assets/leaf_restaurant/js/leaf_restaurant.js"
+# app_include_css = "/assets/restaurant/css/restaurant.css"
+# app_include_js = "/assets/restaurant/js/restaurant.js"
 
 # include js, css files in header of web template
-# web_include_css = "/assets/leaf_restaurant/css/leaf_restaurant.css"
-# web_include_js = "/assets/leaf_restaurant/js/leaf_restaurant.js"
+# web_include_css = "/assets/restaurant/css/restaurant.css"
+# web_include_js = "/assets/restaurant/js/restaurant.js"
 
 # include custom scss in every website theme (without file extension ".scss")
-# website_theme_scss = "leaf_restaurant/public/scss/website"
+# website_theme_scss = "restaurant/public/scss/website"
 
 # include js, css files in header of web form
 # webform_include_js = {"doctype": "public/js/doctype.js"}
@@ -54,43 +54,43 @@ app_license = "MIT"
 
 # add methods and filters to jinja environment
 # jinja = {
-# 	"methods": "leaf_restaurant.utils.jinja_methods",
-# 	"filters": "leaf_restaurant.utils.jinja_filters"
+# 	"methods": "restaurant.utils.jinja_methods",
+# 	"filters": "restaurant.utils.jinja_filters"
 # }
 
 # Installation
 # ------------
 
-# before_install = "leaf_restaurant.install.before_install"
-# after_install = "leaf_restaurant.install.after_install"
+# before_install = "restaurant.install.before_install"
+# after_install = "restaurant.install.after_install"
 
 # Uninstallation
 # ------------
 
-# before_uninstall = "leaf_restaurant.uninstall.before_uninstall"
-# after_uninstall = "leaf_restaurant.uninstall.after_uninstall"
+# before_uninstall = "restaurant.uninstall.before_uninstall"
+# after_uninstall = "restaurant.uninstall.after_uninstall"
 
 # Integration Setup
 # ------------------
 # To set up dependencies/integrations with other apps
 # Name of the app being installed is passed as an argument
 
-# before_app_install = "leaf_restaurant.utils.before_app_install"
-# after_app_install = "leaf_restaurant.utils.after_app_install"
+# before_app_install = "restaurant.utils.before_app_install"
+# after_app_install = "restaurant.utils.after_app_install"
 
 # Integration Cleanup
 # -------------------
 # To clean up dependencies/integrations with other apps
 # Name of the app being uninstalled is passed as an argument
 
-# before_app_uninstall = "leaf_restaurant.utils.before_app_uninstall"
-# after_app_uninstall = "leaf_restaurant.utils.after_app_uninstall"
+# before_app_uninstall = "restaurant.utils.before_app_uninstall"
+# after_app_uninstall = "restaurant.utils.after_app_uninstall"
 
 # Desk Notifications
 # ------------------
 # See frappe.core.notifications.get_notification_config
 
-# notification_config = "leaf_restaurant.notifications.get_notification_config"
+# notification_config = "restaurant.notifications.get_notification_config"
 
 # Permissions
 # -----------
@@ -129,39 +129,39 @@ app_license = "MIT"
 
 # scheduler_events = {
 # 	"all": [
-# 		"leaf_restaurant.tasks.all"
+# 		"restaurant.tasks.all"
 # 	],
 # 	"daily": [
-# 		"leaf_restaurant.tasks.daily"
+# 		"restaurant.tasks.daily"
 # 	],
 # 	"hourly": [
-# 		"leaf_restaurant.tasks.hourly"
+# 		"restaurant.tasks.hourly"
 # 	],
 # 	"weekly": [
-# 		"leaf_restaurant.tasks.weekly"
+# 		"restaurant.tasks.weekly"
 # 	],
 # 	"monthly": [
-# 		"leaf_restaurant.tasks.monthly"
+# 		"restaurant.tasks.monthly"
 # 	],
 # }
 
 # Testing
 # -------
 
-# before_tests = "leaf_restaurant.install.before_tests"
+# before_tests = "restaurant.install.before_tests"
 
 # Overriding Methods
 # ------------------------------
 #
 # override_whitelisted_methods = {
-# 	"frappe.desk.doctype.event.event.get_events": "leaf_restaurant.event.get_events"
+# 	"frappe.desk.doctype.event.event.get_events": "restaurant.event.get_events"
 # }
 #
 # each overriding function accepts a `data` argument;
 # generated from the base implementation of the doctype dashboard,
 # along with any modifications made in other Frappe apps
 # override_doctype_dashboards = {
-# 	"Task": "leaf_restaurant.task.get_dashboard_data"
+# 	"Task": "restaurant.task.get_dashboard_data"
 # }
 
 # exempt linked doctypes from being automatically cancelled
@@ -175,13 +175,13 @@ app_license = "MIT"
 
 # Request Events
 # ----------------
-# before_request = ["leaf_restaurant.utils.before_request"]
-# after_request = ["leaf_restaurant.utils.after_request"]
+# before_request = ["restaurant.utils.before_request"]
+# after_request = ["restaurant.utils.after_request"]
 
 # Job Events
 # ----------
-# before_job = ["leaf_restaurant.utils.before_job"]
-# after_job = ["leaf_restaurant.utils.after_job"]
+# before_job = ["restaurant.utils.before_job"]
+# after_job = ["restaurant.utils.after_job"]
 
 # User Data Protection
 # --------------------
@@ -211,5 +211,11 @@ app_license = "MIT"
 # --------------------------------
 
 # auth_hooks = [
-# 	"leaf_restaurant.auth.validate"
+# 	"restaurant.auth.validate"
 # ]
+
+# Preserve links to the welcome page used before the app rename.
+website_redirects = [
+    {"source": "/leaf-restaurant-welcome", "target": "/restaurant-welcome"},
+    {"source": r"/leaf-restaurant-welcome\.html", "target": "/restaurant-welcome"},
+]

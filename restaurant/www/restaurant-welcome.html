@@ -1,0 +1,39 @@
+
+{% extends "templates/web.html" %}
+
+{% block title %}Restaurante{% endblock %}
+
+{% block page_content %}
+
+<style>
+    .restaurant-welcome {
+        background: #f8fafc;
+        min-height: 60vh;
+        padding: 60px 20px;
+        border-radius: 16px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+
+    .restaurant-welcome h1 {
+        color: #16324f;
+        font-size: 40px;
+        font-weight: 700;
+    }
+
+    .restaurant-welcome p {
+        color: #64748b;
+        font-size: 18px;
+    }
+</style>
+
+<div class="restaurant-welcome">
+    <h1>Bienvenido al Restaurante</h1>
+    <p>Módulo de gestión de restaurante</p>
+    <small>Desarrollado con LEAF ERP</small>
+</div>
+
+{% endblock %}

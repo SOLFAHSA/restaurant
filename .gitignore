@@ -3,5 +3,5 @@
 *.egg-info
 *.swp
 tags
-leaf_restaurant/docs/current
+restaurant/docs/current
 node_modules/
