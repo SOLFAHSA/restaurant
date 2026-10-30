@@ -1,0 +1,71 @@
+{
+ "charts": [],
+ "content": "[{\"id\": \"restaurant-heading\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Restaurante</span>\", \"col\": 12}}, {\"id\": \"restaurant-products\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Productos y platillos\", \"col\": 4}}, {\"id\": \"restaurant-categories\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Categor\u00edas y subcategor\u00edas\", \"col\": 4}}, {\"id\": \"restaurant-prices\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Precios de productos\", \"col\": 4}}, {\"id\": \"restaurant-config-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"restaurant-config-heading\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Configuraci\u00f3n</span>\", \"col\": 12}}, {\"id\": \"restaurant-price-lists\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Listas de precios\", \"col\": 3}}, {\"id\": \"restaurant-uoms\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Unidades de medida\", \"col\": 3}}, {\"id\": \"restaurant-help-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"restaurant-help-heading\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Ayuda</span>\", \"col\": 12}}, {\"id\": \"restaurant-welcome\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Bienvenida\", \"col\": 3}}]",
+ "creation": "2026-10-30 16:14:58.722032",
+ "custom_blocks": [],
+ "docstatus": 0,
+ "doctype": "Workspace",
+ "for_user": "",
+ "hide_custom": 0,
+ "icon": "restaurant",
+ "idx": 0,
+ "is_hidden": 0,
+ "label": "Restaurante",
+ "links": [],
+ "modified": "2026-10-30 16:47:50.958346",
+ "modified_by": "Administrator",
+ "module": "Restaurant",
+ "name": "Restaurante",
+ "number_cards": [],
+ "owner": "Administrator",
+ "parent_page": "",
+ "public": 1,
+ "quick_lists": [],
+ "roles": [],
+ "sequence_id": 2.5,
+ "shortcuts": [
+  {
+   "doc_view": "List",
+   "icon": "restaurant",
+   "label": "Productos y platillos",
+   "link_to": "Item",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "Tree",
+   "icon": "organization",
+   "label": "Categor\u00edas y subcategor\u00edas",
+   "link_to": "Item Group",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "icon": "tag",
+   "label": "Precios de productos",
+   "link_to": "Item Price",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "icon": "list-alt",
+   "label": "Listas de precios",
+   "link_to": "Price List",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "icon": "quantity-1",
+   "label": "Unidades de medida",
+   "link_to": "UOM",
+   "type": "DocType"
+  },
+  {
+   "color": "Green",
+   "doc_view": "",
+   "label": "Bienvenida",
+   "type": "URL",
+   "url": "/restaurant-welcome"
+  }
+ ],
+ "title": "Restaurante"
+}
