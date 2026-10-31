@@ -1,8 +1,13 @@
 {
  "charts": [],
- "content": "[{\"id\": \"restaurant-heading\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Restaurante</span>\", \"col\": 12}}, {\"id\": \"restaurant-products\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Productos y platillos\", \"col\": 4}}, {\"id\": \"restaurant-categories\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Categor\u00edas y subcategor\u00edas\", \"col\": 4}}, {\"id\": \"restaurant-prices\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Precios de productos\", \"col\": 4}}, {\"id\": \"restaurant-staff-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"restaurant-staff-heading\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Personal</span>\", \"col\": 12}}, {\"id\": \"restaurant-waiters\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Meseros\", \"col\": 4}}, {\"id\": \"restaurant-config-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"restaurant-config-heading\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Configuraci\u00f3n</span>\", \"col\": 12}}, {\"id\": \"restaurant-price-lists\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Listas de precios\", \"col\": 3}}, {\"id\": \"restaurant-uoms\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Unidades de medida\", \"col\": 3}}, {\"id\": \"restaurant-branches\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Sucursales\", \"col\": 3}}, {\"id\": \"restaurant-locations\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Ubicaciones\", \"col\": 3}}, {\"id\": \"restaurant-help-spacer\", \"type\": \"spacer\", \"data\": {\"col\": 12}}, {\"id\": \"restaurant-help-heading\", \"type\": \"header\", \"data\": {\"text\": \"<span class=\\\"h4\\\">Ayuda</span>\", \"col\": 12}}, {\"id\": \"restaurant-welcome\", \"type\": \"shortcut\", \"data\": {\"shortcut_name\": \"Bienvenida\", \"col\": 3}}]",
+ "content": "[{\"id\": \"restaurant-dashboard\", \"type\": \"custom_block\", \"data\": {\"custom_block_name\": \"Restaurant Dashboard\", \"col\": 12}}]",
  "creation": "2026-10-30 16:14:58.722032",
- "custom_blocks": [],
+ "custom_blocks": [
+  {
+   "custom_block_name": "Restaurant Dashboard",
+   "label": "Restaurant Dashboard"
+  }
+ ],
  "docstatus": 0,
  "doctype": "Workspace",
  "for_user": "",
@@ -12,7 +17,7 @@
  "is_hidden": 0,
  "label": "Restaurante",
  "links": [],
- "modified": "2026-10-30 19:50:00.171958",
+ "modified": "2026-10-30 20:59:57.845762",
  "modified_by": "Administrator",
  "module": "Restaurant",
  "name": "Restaurante",

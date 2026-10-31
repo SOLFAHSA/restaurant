@@ -109,3 +109,36 @@ Se conservan los permisos nativos de `Location`, incluidos los de `System Manage
 Los campos se versionan en `restaurant/fixtures/custom_field.json`; las ubicaciones
 y sucursales reales no se exportan como fixtures. Frappe sincroniza la extensión
 al instalar o migrar la app mediante su flujo nativo.
+
+## Pantalla de inicio de Restaurante
+
+El Workspace `/app/restaurante` utiliza el bloque nativo `Custom HTML Block`
+**Restaurant Dashboard**, versionado en `restaurant/fixtures/custom_html_block.json`.
+El HTML, CSS y JavaScript del bloque reproducen las cuatro secciones del mockup:
+Operación diaria, Catálogo, Clientes y reportes, y Configuración. Los estilos están
+aislados en el Shadow DOM del bloque; la barra lateral y los demás Workspaces
+conservan su presentación nativa. Los iconos provienen del sprite SVG de Frappe,
+del conjunto Font Awesome incluido en LEAF y del icono de restaurante existente.
+
+Los accesos de productos, grupos, precios, meseros, ubicaciones y clientes abren
+los documentos nativos. **Punto de venta** abre el POS Awesome ya instalado; no
+representa la implementación del nuevo POS táctil gastronómico. **Reportes**
+ofrece los reportes nativos de ventas. **Configuración** conserva los accesos a
+sucursales, listas de precios, unidades de medida y bienvenida. Los filtros y
+permisos existentes se mantienen.
+
+Las tarjetas de Cuentas, Nueva cuenta, Mesas, Mapa de mesas, Comandas y Cocina KDS
+son referencias visuales pendientes de desarrollo. Su título indica el estado
+y al pulsarlas se informa que todavía no están habilitadas; no crean cuentas
+ni documentos. La tarjeta Mapa de mesas se incluye para reproducir el último
+mockup y no agrega un mapa ni modifica el alcance del POS gastronómico.
+
+Para editar esta portada desde Desk, utiliza el registro **Custom HTML Block →
+Restaurant Dashboard**, modifica sus campos HTML/CSS/JavaScript y exporta los
+fixtures de `restaurant`. Conserva el nombre del bloque porque el Workspace
+lo referencia. En la tabla **Custom Blocks** del Workspace, conserva también
+`label = Restaurant Dashboard`: el renderizador de Frappe v14 busca el bloque
+por esa etiqueta. Cambiarla por «Restaurante» deja la portada sin contenido; los
+títulos visibles en español se definen dentro del HTML, no en esa referencia.
+Después de actualizar la configuración local, recarga el navegador
+con `Ctrl + Shift + R`.

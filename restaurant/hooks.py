@@ -227,6 +227,7 @@ fixtures = [
             ["fieldname", "in", ["restaurant_area", "restaurant_branch"]],
         ],
     },
+    {"dt": "Custom HTML Block", "filters": [["name", "=", "Restaurant Dashboard"]]},
 ]
 
 # Preserve links to the welcome page used before the app rename.
