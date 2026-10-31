@@ -44,3 +44,68 @@ Para un sitio que ya tenía instalada la app con el nombre anterior, respalda su
 6. Reinicia el servidor web y los workers que estuvieran en ejecución.
 
 El procedimiento de registro es idempotente, conserva el orden de las apps instaladas y renombra el módulo mediante la API nativa de Frappe. La ruta anterior de bienvenida redirige a `/restaurant-welcome`.
+
+## Meseros y sucursales
+
+El acceso **Meseros** del Workspace Restaurante utiliza el DocType nativo `Employee`
+y filtra por el cargo (`Designation`) **Mesero**. No crea otro registro de personal
+ni modifica los campos o permisos globales de Empleado.
+
+1. En **Restaurante → Configuración → Sucursales**, registra las sucursales reales
+   con el DocType nativo `Branch`. No es necesario crear otra empresa por sucursal.
+2. En **Restaurante → Personal → Meseros**, pulsa **Nuevo**. Mientras el filtro del
+   cargo siga aplicado, Frappe completa el cargo **Mesero** en la nueva ficha.
+3. Completa los campos obligatorios nativos: nombre, empresa, género, fecha de
+   nacimiento y fecha de ingreso. Selecciona la sucursal y el estado laboral.
+   El nombre completo se construye a partir del nombre y los apellidos.
+4. El teléfono (`cell_number`) es opcional. Una cuenta de usuario también es
+   opcional; este cambio no crea cuentas ni asigna permisos de acceso.
+
+La lista incluye los estados nativos Activo, Inactivo, Suspendido y Retirado.
+El nombre traducido de cada estado depende del idioma de la sesión. El campo
+Sucursal sigue siendo opcional en el esquema nativo: debe seleccionarse al
+registrar un mesero para indicar dónde trabaja. Asociar una sucursal no impone
+por sí solo restricciones de acceso por sucursal.
+
+Los accesos respetan los permisos nativos: Administrator puede administrarlos;
+los responsables de personal requieren los roles correspondientes, como
+`HR User` o `HR Manager`. El filtro de Meseros organiza la vista y puede quitarse;
+no reemplaza los permisos de seguridad.
+
+La app versiona únicamente el cargo **Mesero** en `restaurant/fixtures/designation.json`.
+Los empleados, teléfonos y sucursales de cada sitio no se exportan como fixtures.
+Frappe importa esta configuración al instalar o migrar la app por el flujo nativo.
+
+## Ubicaciones del restaurante
+
+El acceso **Restaurante → Configuración → Ubicaciones** utiliza el DocType nativo
+`Location`. Sus nombres y su jerarquía representan espacios como salones, terrazas
+y áreas VIP. La app no crea un segundo catálogo de ubicaciones.
+
+La extensión declarativa agrega únicamente estos campos a `Location`:
+
+- `restaurant_area`: **Área de restaurante**, identifica las ubicaciones de esta opción.
+  Su valor predeterminado es cero; las ubicaciones generales de otros módulos no
+  se clasifican automáticamente como áreas del restaurante.
+- `restaurant_branch`: **Sucursal**, vínculo al DocType nativo `Branch`. Se muestra
+  cuando la ubicación está marcada como área de restaurante. Es opcional en esta
+  primera versión; selecciónala para identificar a qué sucursal pertenece el espacio.
+
+Para registrar un espacio:
+
+1. Registra primero la sucursal real desde **Sucursales**, si aún no existe.
+2. Abre **Ubicaciones** y pulsa **Nuevo**. Mientras siga aplicado el filtro, Frappe
+   completa la marca **Área de restaurante**.
+3. Escribe un nombre único, por ejemplo **Centro - Salón 1**, y selecciona la sucursal.
+4. Guarda. El mapa y los datos geográficos nativos no son obligatorios.
+
+`Location.location_name` es único en todo el sitio, no por sucursal. Usa nombres
+como **Centro - Terraza** y **Norte - Terraza** cuando dos sucursales tengan espacios
+con el mismo nombre. La jerarquía nativa es opcional: una ubicación padre debe
+estar marcada como grupo para seleccionarse en el formulario.
+
+El filtro organiza la vista y puede quitarse; no constituye aislamiento de permisos.
+Se conservan los permisos nativos de `Location`, incluidos los de `System Manager`.
+Los campos se versionan en `restaurant/fixtures/custom_field.json`; las ubicaciones
+y sucursales reales no se exportan como fixtures. Frappe sincroniza la extensión
+al instalar o migrar la app mediante su flujo nativo.

@@ -217,6 +217,18 @@ app_include_js = ["/assets/restaurant/js/restaurant_icons.js"]
 # 	"restaurant.auth.validate"
 # ]
 
+# Export restaurant configuration without including operational records.
+fixtures = [
+    {"dt": "Designation", "filters": [["name", "=", "Mesero"]]},
+    {
+        "dt": "Custom Field",
+        "filters": [
+            ["dt", "=", "Location"],
+            ["fieldname", "in", ["restaurant_area", "restaurant_branch"]],
+        ],
+    },
+]
+
 # Preserve links to the welcome page used before the app rename.
 website_redirects = [
     {"source": "/leaf-restaurant-welcome", "target": "/restaurant-welcome"},
