@@ -1,10 +1,126 @@
 ## Restaurant
 
-Restaurant management module for LEAF ERP
+Módulo de gestión de restaurantes (**Custom App** independiente) para **LEAF ERP v14** sobre **Frappe / ERPNext v14**.
 
 #### License
 
 MIT
+
+---
+
+## Entrega académica: semana 1
+
+- Participante: **Manuel Padilla**, Ingeniería en Sistemas, CEUTEC.
+- Token de identificación de la entrega: **`LEARN-CAP-57D6DFA7`**.
+- Repositorio principal (Upstream académico): `https://github.com/SOLFAHSA/restaurant.git`
+- Rama activa de desarrollo: `feature/modulo-restaurante`
+- [Visión, evidencia, Lean Canvas, hipótesis y alcance](docs/vision.md).
+- [Bitácora de la semana 1](docs/bitacora/semana-1.md).
+
+Este token identifica la entrega académica del participante; no modifica la
+licencia ni la atribución del proyecto Grintsys.
+
+**Estado:** repositorio de la Custom App estructurado bajo control del autor en
+`SOLFAHSA/restaurant` para evaluación docente y preparado para integración vía
+**Fork / Merge** hacia la organización **Grintsys**. La URL de demostración
+pública por HTTPS continúa pendiente; la dirección `localhost` corresponde al
+entorno local de desarrollo.
+
+---
+
+## Arquitectura del repositorio y modelo de integración (SOLFAHSA ➔ Grintsys)
+
+Siguiendo la regla arquitectónica de **LEAF ERP v14** (*ERPNext como motor transaccional y principio Zero-Fork sobre el Core*), todo el desarrollo del módulo Restaurante reside en esta **Custom App independiente (`restaurant`, Nivel 3 / Categoría C)**, al mismo nivel modular que `frappe`, `erpnext`, `posawesome` y `hrms`.
+
+```text
+SOLFAHSA/restaurant (Upstream / Práctica Profesional CEUTEC)
+   │
+   ├──► Evaluación Docente (Control de versiones, bitácora, visión y releases)
+   │
+   └──► Fork & Pull Request / Sync Fork ──► Grintsys/restaurant (Repositorio Empresarial)
+                                                │
+                                                └──► bench get-app / install-app en entornos de prueba LEAF ERP v14
+```
+
+Este esquema garantiza:
+
+1. **Autonomía académica:** el autor conserva control total del repositorio origen (`https://github.com/SOLFAHSA/restaurant.git`) para auditoría de commits, documentación y etiquetas de evaluación.
+2. **Soberanía empresarial para Grintsys:** Grintsys puede realizar un **Fork** hacia `https://github.com/Grintsys/restaurant.git` (exactamente igual que el modelo utilizado en `Grintsys/POS-Awesome-14.git`), revisar cada avance y sincronizarlo en sus servidores de prueba sin afectar ni modificar los repositorios base (`frappe14` y `erpnext14`).
+
+---
+
+## Guía de instalación en Frappe Bench v14
+
+### 1. Requisitos previos del entorno
+
+- **Frappe Bench v14** ejecutándose con **Python 3.11.x** (obligatorio para compatibilidad con dependencias de Frappe v14).
+- Aplicaciones base instaladas en el sitio:
+  - `frappe` (`version-14`)
+  - `erpnext` (`version-14`)
+  - `posawesome` (`version-14`)
+
+### 2. Instalación directa en un entorno de desarrollo
+
+Desde el directorio del Bench (`/workspace/development/frappe-bench`):
+
+```bash
+# 1. Descargar la Custom App desde el repositorio principal
+bench get-app --branch feature/modulo-restaurante https://github.com/SOLFAHSA/restaurant.git
+
+# 2. Instalar la aplicación en el sitio (ejemplo: development)
+bench --site development install-app restaurant
+
+# 3. Ejecutar migraciones para sincronizar Workspace, Custom HTML Block y Fixtures
+bench --site development migrate
+
+# 4. Compilar recursos y limpiar caché
+bench build --app restaurant
+bench --site development clear-cache
+```
+
+### 3. Flujo de Fork, sincronización y despliegue para Grintsys
+
+Para integrar y actualizar esta aplicación dentro de los entornos de prueba de **Grintsys**:
+
+#### Paso A: Crear el Fork en la organización Grintsys
+1. Iniciar sesión en GitHub con una cuenta con permisos en la organización `Grintsys`.
+2. Abrir `https://github.com/SOLFAHSA/restaurant` y pulsar el botón **Fork**.
+3. Seleccionar como propietario (**Owner**) a `Grintsys` y conservar el nombre `restaurant` (`https://github.com/Grintsys/restaurant.git`).
+4. Desmarcar la opción *"Copy the default branch only"* si se desea copiar también la rama `feature/modulo-restaurante`.
+
+#### Paso B: Instalar desde el Fork de Grintsys en servidores de prueba
+```bash
+cd /workspace/development/frappe-bench
+bench get-app --branch feature/modulo-restaurante https://github.com/Grintsys/restaurant.git
+bench --site development install-app restaurant
+bench --site development migrate
+bench --site development clear-cache
+```
+
+#### Paso C: Actualizar el Fork de Grintsys cuando existan nuevos commits en `SOLFAHSA/restaurant`
+Puede realizarse desde la interfaz web de GitHub pulsando **Sync fork ➔ Update branch**, o desde la terminal del repositorio clonado:
+
+```bash
+cd /workspace/development/frappe-bench/apps/restaurant
+
+# Registrar el repositorio del practicante como upstream (solo la primera vez)
+git remote add upstream https://github.com/SOLFAHSA/restaurant.git
+
+# Descargar y fusionar los nuevos avances verificados
+git fetch upstream
+git checkout feature/modulo-restaurante
+git merge upstream/feature/modulo-restaurante
+
+# Subir los cambios revisados al Fork oficial de Grintsys
+git push origin feature/modulo-restaurante
+
+# Aplicar cambios en el sitio de pruebas de Frappe
+cd /workspace/development/frappe-bench
+bench --site development migrate
+bench --site development clear-cache
+```
+
+---
 
 ## Página de bienvenida
 
