@@ -1,120 +1,118 @@
-# Bitácora de la semana 1
+# Bitácora de actividades — Semana 1
 
-- Participante: Manuel Padilla, practicante de Ingeniería en Sistemas, CEUTEC.
-- Proyecto: Custom App `restaurant` para LEAF ERP v14 / Grintsys.
-- Período documentado: 29 y 30 de octubre de 2026.
-- Estado: borrador local para revisión académica; publicación pendiente.
-- Rama inspeccionada: `feature/modulo-restaurante`.
-- Corte del historial: `0607fa5`.
+**Actividad:** Inducción empresarial, reconocimiento del entorno y análisis de propuestas
 
-## Objetivo de la semana
+**Empresa receptora:** Grintsys
 
-Establecer una app independiente para Restaurante y una portada integrada en
-Frappe Desk que reutilice los catálogos y procesos existentes de LEAF ERP.
-Documentar el avance real y distinguirlo de las funciones todavía propuestas.
+**Producto empresarial:** Leaf ERP
 
-## Actividades y evidencia del historial
+**Práctica profesional:** CEUTEC
 
-Las fechas corresponden al campo de autor de los commits. El primer commit está
-registrado en UTC; los cuatro siguientes tienen zona horaria UTC-06:00.
+**Inicio de la práctica:** 14 de octubre de 2026
 
-| Fecha | Commit | Trabajo registrado | Evidencia versionada |
-| :--- | :--- | :--- | :--- |
-| 2026-10-29 | `18ac1b0` | Inicialización de la app. | Estructura inicial del paquete y metadatos. |
-| 2026-10-30 | `ff27ff4` | Renombrado a `restaurant` y conservación de la bienvenida. | Paquete `restaurant`, `migrate_app_name.py` y plantilla web. |
-| 2026-10-30 | `9fb16c2` | Workspace Restaurante con accesos nativos e iconos. | Workspace e icono registrados dentro de la app. |
-| 2026-10-30 | `31fe08b` | Configuración de accesos a meseros, sucursales y ubicaciones. | Fixtures de `Designation` y `Custom Field`, y configuración del Workspace. |
-| 2026-10-30 | `0607fa5` | Rediseño de la interfaz del módulo Restaurante. | Bloque HTML/CSS/JavaScript, hook de exportación, Workspace y README. |
+**Carácter de la semana:** Inducción, observación, familiarización y análisis preliminar
 
-**VERIFIED:** el historial local contiene cinco commits al corte indicado. Su
-existencia local no demuestra todavía que estén disponibles en un repositorio
-público. No se han creado commits artificiales para completar el requisito.
+## 1. Objetivo de la semana
 
-## Levantamiento del contexto del proyecto
+Conocer el contexto general de Grintsys, sus soluciones tecnológicas, su organización y metodología de trabajo; familiarizarse con el entorno empresarial de Leaf ERP; comprender las expectativas de la práctica profesional; y analizar alternativas de proyectos que pudieran contribuir al desarrollo del producto.
 
-**Fuente:** explicación de Manuel Padilla durante la preparación de esta entrega.
-Según Manuel, Grintsys le solicitó apoyar la creación de un módulo Restaurante
-para ampliar la cobertura de LEAF ERP hacia ese rubro durante su práctica.
-Este registro documenta su relato; no sustituye una entrevista directa con la
-empresa ni una aprobación formal de alcance o de publicación.
+La primera semana se dedicó a actividades de inducción y análisis. No se realizaron actividades de programación ni implementación de funcionalidades durante este período.
 
-Manuel planteó las siguientes necesidades:
+## 2. Actividades desarrolladas
 
-- Facilitar a los comensales la separación de una cuenta y la reserva de mesas.
-- Dar al propietario y al administrador mejor control del negocio y visibilidad
-  de los movimientos de inventario.
-- Coordinar el proceso entre la estación de meseros, la cocina y el cajero.
+### 2.1. Inducción y conocimiento de la empresa
 
-**ANALYZED:** este contexto fundamenta la motivación de la visión y del Lean
-Canvas. No incluye ejemplos medidos de un restaurante específico ni entrevistas
-con usuarios finales; la frecuencia, las causas y el impacto quedan por validar.
-Las necesidades descritas no se registran como funcionalidades ya desarrolladas.
+Se realizó un acercamiento al entorno de Grintsys para conocer a qué se dedica, cuál es el propósito de sus soluciones y cómo la tecnología apoya los procesos administrativos y operativos de sus clientes. Como parte de esta familiarización, se tomó a Leaf ERP como referencia para comprender el enfoque de trabajo de la empresa y el tipo de proyectos que desarrolla.
 
-Se actualizó la documentación local con este contexto. Esta actividad aún no
-forma parte de los cinco commits enumerados en el corte del historial.
+**Resultado:** comprensión general de la actividad empresarial y del contexto en el que se desarrollaría la práctica profesional.
 
-## Decisiones de arquitectura
+### 2.2. Reconocimiento de la estructura y dinámica de trabajo
 
-- Mantener `restaurant` como repositorio y aplicación independientes; no alojar
-  su código dentro de `frappe` ni de `erpnext`.
-- Usar `Item`, `Item Group`, `Item Price` y `UOM` para el catálogo gastronómico.
-- Reutilizar `Employee` con el cargo `Mesero`, y `Branch` para sucursales.
-- Reutilizar `Location` para salones y otras áreas. Los campos declarativos
-  `restaurant_area` y `restaurant_branch` se exportan desde la app.
-- Construir la portada mediante el Workspace y `Custom HTML Block` nativos.
-- Reservar facturación, impuestos, cobros y movimientos contables a los
-  documentos y procesos nativos de ERPNext; no construir un motor paralelo.
+Se abordó la forma en que se organiza el trabajo dentro de la empresa, la comunicación entre las personas involucradas y la importancia de coordinar las necesidades de negocio con las actividades de análisis, desarrollo y revisión. También se identificó la necesidad de conocer responsabilidades, canales de comunicación y criterios de seguimiento antes de participar en un proyecto.
 
-**ANALYZED:** estas decisiones están reflejadas en los archivos del repositorio.
-La configuración de navegación no equivale a haber implementado todos los
-procesos de un restaurante.
+**Resultado:** visión inicial de la dinámica de colaboración y de la importancia de seguir los procedimientos definidos por la organización.
 
-## Incidencia y aprendizaje técnico
+El registro no reproduce un organigrama formal ni asigna nombres o responsabilidades específicas que no hayan sido documentados.
 
-Después del rediseño, la portada quedó sin contenido. La referencia del bloque
-usaba `Restaurant Dashboard`, pero la etiqueta de la tabla `custom_blocks` del
-Workspace estaba configurada como `Restaurante`. El renderizador nativo busca
-el bloque por su etiqueta; la discrepancia impedía localizarlo.
+### 2.3. Familiarización con lineamientos y formas de trabajo
 
-Se unificó la etiqueta con la referencia. La corrección forma parte de `0607fa5`.
-La regla de mantenimiento está documentada en el README.
+Durante la inducción se prestó atención a las buenas prácticas relacionadas con la organización de proyectos, el uso responsable de la información, la documentación y el respeto a los lineamientos del entorno empresarial. Se reconoció la importancia de trabajar dentro de la estructura y las reglas establecidas por Grintsys, en lugar de proponer cambios sin analizar primero el contexto existente.
 
-La prueba local con clases reales de Frappe y EditorJS reprodujo cero tarjetas
-con la etiqueta anterior y quince tarjetas en cuatro secciones con la etiqueta
-corregida. También comprobó la navegación hacia productos, el aviso de opciones
-pendientes y la ausencia de desbordamiento horizontal en tamaños de escritorio
-y móvil. Esta prueba aislada no equivale a una certificación completa del flujo
-operativo ni del despliegue público; sus artefactos no forman parte de este repo.
+**Resultado:** identificación de criterios generales que orientarían el trabajo posterior, especialmente el orden, la trazabilidad, la coordinación y la confidencialidad.
 
-## Verificación reproducible del avance
+Esta descripción corresponde a un conocimiento general del entorno; no constituye un inventario ni una certificación de políticas internas específicas.
 
-Desde la raíz del repositorio de la app:
+### 2.4. Introducción al entorno tecnológico y a Leaf ERP
 
-```bash
-git status --short --branch
-git log --format='%h | %aI | %s' -5
-git rev-list --count HEAD
-git rev-list --count --since='10 days ago' HEAD
-git show --stat 0607fa5
-git diff --check
-git remote -v
-git tag --list
-```
+Se conoció el propósito de Leaf ERP como plataforma empresarial y se revisó, a nivel introductorio, su relación con Frappe y ERPNext. Se buscó comprender cómo una solución existente puede ampliarse mediante módulos que respondan a nuevos procesos de negocio, respetando la integración con las funciones que ya ofrece el producto.
 
-**VERIFIED al corte:** cinco commits totales y cinco dentro de los diez días
-anteriores a la revisión del 30 de octubre de 2026. Ese conteo es temporal y
-debe comprobarse nuevamente el día de entrega. No había remoto ni etiquetas.
+También se identificaron, de manera preliminar, los recursos y conocimientos necesarios para incorporarse posteriormente al ambiente de trabajo: documentación, acceso autorizado a herramientas y orientación sobre el funcionamiento general de la plataforma.
 
-## Pendientes de la entrega
+**Resultado:** conocimiento conceptual de la plataforma y de las condiciones que sería necesario preparar en etapas posteriores. No se instaló, configuró ni programó el módulo Restaurante en esta semana.
 
-- Confirmar autorización de Grintsys para publicar este código y sincronizar su Fork empresarial (`Grintsys/restaurant`) desde el repositorio principal del participante (`https://github.com/SOLFAHSA/restaurant.git`).
-- Revisar la [visión y el Lean Canvas](../vision.md), y aportar evidencia real
-  del problema con observación o entrevistas.
-- Verificar la publicación de la rama `feature/modulo-restaurante` en `https://github.com/SOLFAHSA/restaurant.git`.
-- Preparar una instancia de demostración con dominio público y HTTPS, sin datos
-  personales o de producción; verificar que ejecute la app real.
-- Crear la etiqueta o release `semana-1` sobre el commit de entrega definitivo.
-- Pegar las dos URL reales en la plataforma y ejecutar su validación.
+### 2.5. Conocimiento de las expectativas de la práctica profesional
 
-No se ha declarado completada la entrega ni se ha sustituido la app por una
-captura o una página estática.
+Se analizó la finalidad de la participación como practicante: comprender primero el funcionamiento de la empresa, conocer una necesidad que pudiera abordarse mediante software, evaluar alternativas y posteriormente contribuir al desarrollo de un proyecto con alcance definido.
+
+**Resultado:** comprensión de que el trabajo debía iniciar con levantamiento de información, identificación de necesidades y delimitación del problema, antes de pasar a actividades técnicas.
+
+### 2.6. Observación de dos reuniones con clientes y levantamiento de información
+
+Durante la primera semana se asistió en calidad de observador a dos reuniones entre personal de Grintsys y clientes, con el propósito de conocer cómo se desarrolla la comunicación inicial y el análisis de necesidades para una solución de software.
+
+Se observó cómo el equipo escuchaba los planteamientos del cliente, profundizaba mediante preguntas sobre su forma de trabajar y recopilaba información acerca de los procesos, dificultades y resultados que esperaba alcanzar. Asimismo, se pudo conocer cómo se examinaban esas necesidades para valorar su relación con las capacidades del sistema y las posibles alternativas de solución.
+
+La experiencia permitió reconocer la importancia de escuchar antes de proponer, entender el proceso real del cliente, distinguir una necesidad de una solicitud puntual y documentar la información que servirá de base para analizar el alcance de una solución.
+
+**Resultado:** acercamiento práctico a la atención de clientes, al levantamiento de requerimientos y al análisis funcional realizado por el equipo de Grintsys.
+
+La participación fue de observación y aprendizaje. No se dirigieron las reuniones ni se atribuyen al practicante entrevistas realizadas por el equipo. Por confidencialidad, no se incluyen nombres de clientes ni detalles de sus sistemas. Esta observación no demuestra por sí sola que los requerimientos del módulo Restaurante hayan sido validados.
+
+### 2.7. Análisis preliminar de tres propuestas de proyecto
+
+Se consideraron tres alternativas de ampliación funcional de Leaf ERP. La revisión tuvo como propósito reconocer sus procesos principales, su posible aporte al producto y los aspectos que deberían evaluarse para determinar su viabilidad dentro del período de práctica.
+
+| Propuesta | Enfoque funcional analizado | Aspectos a considerar |
+| --- | --- | --- |
+| Módulo Restaurantes | Atención de mesas, pedidos, coordinación de cocina, cuentas e inventario. | Integración con ventas e inventario, alcance progresivo y posibilidad de demostrar un flujo operativo. |
+| Módulo Encomiendas | Registro, seguimiento y gestión de envíos. | Estados de entrega, trazabilidad, usuarios involucrados e integración administrativa. |
+| Módulo Hospitales | Procesos administrativos y operativos de instituciones de salud. | Diversidad de procesos, complejidad del alcance y protección de información. |
+
+Esta comparación se planteó como análisis inicial de alternativas, no como una evaluación cuantitativa ni como evidencia de aprobación formal de cada propuesta. El módulo Restaurante se perfiló como la alternativa de referencia para profundizar la definición del problema y su posible integración con Leaf ERP.
+
+**Resultado:** elementos iniciales para conversar sobre la asignación y el alcance del proyecto de práctica profesional.
+
+### 2.8. Identificación inicial de necesidades para la alternativa Restaurante
+
+Como parte del análisis se reconocieron procesos que podrían beneficiarse de una integración con Leaf ERP: organización del menú, registro de pedidos, atención de mesas, comunicación con cocina, manejo de cuentas y control de insumos. Se identificó que estas necesidades debían analizarse con mayor detalle antes de convertirse en requisitos definitivos.
+
+**Resultado:** base conceptual para la visión del proyecto presentada en [`docs/vision.md`](../vision.md). La identificación de necesidades no se presenta como validación realizada con restaurantes ni como funcionalidad ya construida.
+
+## 3. Aprendizajes de la semana
+
+- El conocimiento de la empresa y de sus soluciones es un punto de partida indispensable para participar en un proyecto de software.
+- Comprender la estructura de trabajo y los lineamientos de la organización ayuda a integrar las actividades de práctica con el equipo responsable.
+- Antes de desarrollar una solución es necesario identificar el problema, los usuarios y los procesos involucrados.
+- Comparar diferentes propuestas permite comprender su alcance potencial y reconocer riesgos o dependencias.
+- La observación de dos reuniones permitió conocer cómo el equipo de Grintsys interactúa con los clientes y traduce sus necesidades en elementos de análisis funcional.
+- El levantamiento de información requiere escucha activa, preguntas de aclaración y comprensión del proceso del cliente antes de sugerir funciones del sistema.
+- El levantamiento de información, la documentación y la validación del alcance deben anteceder a la implementación técnica.
+
+## 4. Resultados de la semana 1
+
+Al finalizar esta etapa se contó con un panorama general de Grintsys y Leaf ERP, una comprensión inicial de su dinámica de trabajo, la observación de dos reuniones con clientes para conocer el proceso de levantamiento de necesidades, una comparación conceptual de tres propuestas y una línea de análisis para profundizar la alternativa Restaurante.
+
+El resultado de la semana fue de conocimiento y análisis, no de desarrollo de software. La programación y los cambios en el repositorio corresponden a etapas posteriores y no forman parte de esta bitácora.
+
+## 5. Aspectos por profundizar
+
+- Precisar, con la orientación correspondiente, el alcance y los resultados esperados del proyecto asignado.
+- Revisar la documentación y los recursos de trabajo que la empresa autorice utilizar.
+- Profundizar el levantamiento de necesidades con los responsables funcionales y, de ser posible, con usuarios del sector.
+- Definir gradualmente los requerimientos y los criterios para evaluar la solución propuesta.
+
+## 6. Referencia documental
+
+- [Visión inicial, problema, Lean Canvas e hipótesis](../vision.md).
+
+Este registro recoge las actividades de inducción, la observación de dos reuniones con clientes y el análisis inicial comunicados para la práctica. No se atribuyen entrevistas dirigidas por el practicante, reuniones con nombres o fechas específicas, aprobaciones empresariales ni resultados medidos que no se encuentren documentados.

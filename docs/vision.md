@@ -1,158 +1,112 @@
-# Visión del proyecto Restaurant
+# Visión inicial del proyecto — Módulo Restaurante de Leaf ERP
 
-- Participante: Manuel Padilla, Ingeniería en Sistemas, CEUTEC.
-- Contexto: Custom App independiente para LEAF ERP v14 / Grintsys.
-- Fecha de corte: 30 de octubre de 2026.
-- Estado: **borrador académico para revisión**. Publicación pendiente de
-  autorización de Grintsys; no hay validación de mercado declarada.
+**Empresa receptora:** Grintsys
 
-## 1. Visión y problema
+**Producto:** Leaf ERP
 
-**Origen del proyecto — requerimiento empresarial relatado por Manuel:** durante
-su práctica profesional, Grintsys le solicitó apoyar la creación de un módulo
-Restaurante para ampliar la cobertura de su producto LEAF ERP hacia ese rubro.
-La fuente de esta información es la explicación de Manuel en la sesión de
-levantamiento de contexto; no se presenta como una entrevista directa con
-Grintsys ni como una validación independiente de su estrategia comercial.
+**Actividad académica:** Semana 1 — Inducción y análisis de propuestas
 
-**Necesidades planteadas por Manuel:** facilitar la separación de cuentas y la
-reserva de mesas para los clientes; ofrecer al propietario y al administrador
-mejor visibilidad de los movimientos de inventario y del funcionamiento del
-negocio; y coordinar el proceso entre meseros, cocina y caja.
+**Proyecto de referencia:** Módulo Restaurante
 
-**Problema a validar:** los restaurantes destinatarios podrían tener dificultades
-para coordinar esos procesos y mantener la trazabilidad de los consumos y sus
-movimientos de inventario. La frecuencia de los inconvenientes, sus causas y
-su impacto todavía requieren observación de operaciones reales o entrevistas.
-El relato no identifica un establecimiento concreto ni aporta mediciones;
-por ello no se afirma que todos los restaurantes tengan ese problema.
+**Estado:** Documento conceptual inicial, sujeto a revisión y validación
 
-**PROPOSED — visión del producto:** ampliar LEAF ERP con una experiencia de
-restaurante que conecte la atención de mesas, las cuentas de servicio y la
-coordinación entre meseros, cocina y caja con los procesos nativos de facturación,
-cobros e inventario de ERPNext. La separación de cuentas y las reservas se
-analizarán como necesidades del flujo, antes de decidir su implementación.
+## 1. Contexto empresarial y origen de la propuesta
 
-**Personas involucradas:** Grintsys como solicitante del módulo; propietarios y
-administradores como responsables del control; meseros, cocina y cajeros como
-usuarios operativos; y comensales como beneficiarios de la atención. No se ha
-definido que los comensales vayan a utilizar directamente la aplicación.
+La etapa inicial de práctica profesional se orientó al conocimiento de Grintsys, sus soluciones tecnológicas y su dinámica de trabajo. La familiarización con Leaf ERP permitió identificar la posibilidad de ampliar la plataforma hacia nuevos procesos de negocio mediante módulos integrados a una solución empresarial existente.
 
-La primera versión implementada organiza el espacio de trabajo y el acceso a
-catálogos. Esta visión describe un objetivo futuro más amplio y no implica que
-ya se hayan desarrollado las cuentas, reservas, comandas o el control integral
-del servicio.
+Como parte de la inducción, se observaron dos reuniones entre el equipo de Grintsys y clientes. Esta actividad permitió conocer la interacción con el cliente, el proceso de escucha y levantamiento de información, y la forma de analizar necesidades para identificar posibles soluciones apoyadas en el sistema. La participación fue de observación; no se realizaron entrevistas dirigidas por el practicante ni se documentan aquí requerimientos específicos de esos clientes.
 
-## 2. Evidencia disponible y límites
+Como parte de la definición del trabajo de práctica se analizaron tres alternativas: Restaurantes, Encomiendas y Hospitales. La comparación se enfocó en el tipo de proceso que atendería cada módulo, su complejidad potencial y las posibilidades de definir un alcance abordable.
 
-| Clasificación | Evidencia | Qué permite concluir |
-| :--- | :--- | :--- |
-| ANALYZED | Relato de Manuel sobre la solicitud de Grintsys y las necesidades del restaurante, recogido en la [bitácora](bitacora/semana-1.md#levantamiento-del-contexto-del-proyecto). | Sustenta el origen y la motivación del proyecto; no demuestra frecuencia de problemas ni validación con usuarios finales. |
-| VERIFIED | Cinco commits locales hasta `0607fa5`, enumerados en la [bitácora](bitacora/semana-1.md). | Hay una evolución versionada de la app; no demuestra publicación ni adopción. |
-| ANALYZED | [Workspace Restaurante](../restaurant/restaurant/workspace/restaurante/restaurante.json). | Existe una portada con referencia al bloque y accesos nativos conservados. |
-| ANALYZED | [Bloque de interfaz](../restaurant/fixtures/custom_html_block.json). | Hay quince tarjetas en cuatro secciones; algunas anuncian funciones pendientes. |
-| ANALYZED | [Fixtures de campos](../restaurant/fixtures/custom_field.json) y [cargo Mesero](../restaurant/fixtures/designation.json). | La app extiende y reutiliza catálogos existentes, sin crear fichas duplicadas. |
-| PROPOSED | Observaciones de servicio y entrevistas con usuarios. | Falta evidencia de campo para confirmar el problema y priorizar el producto. |
+La alternativa Restaurante se tomó como referencia para profundizar el análisis de necesidades y formular la presente visión. Esto no significa que en la primera semana se haya programado o instalado el módulo, ni que se hayan validado formalmente todos sus requerimientos.
 
-Las referencias visuales aportadas durante el diseño orientaron la interfaz;
-no constituyen entrevistas, métricas de ventas ni resultados de usabilidad.
-El relato de Manuel se atribuye expresamente a su fuente. No se han incorporado
-entrevistas con usuarios finales, porcentajes de mejora o cifras de negocio
-que no estén sustentados. Una demostración local tampoco prueba que exista un
-despliegue público por HTTPS.
+## 2. Problema y oportunidad identificados
 
-## 3. Lean Canvas inicial
+Los restaurantes coordinan diversas actividades: configuración de menús, atención de mesas, registro de pedidos, preparación, cobro y control de insumos. Cuando estos procesos se gestionan con herramientas separadas o procedimientos manuales, podrían presentarse dificultades de coordinación y trazabilidad.
 
-Todos los bloques siguientes son **PROPOSED** y requieren validación con
-usuarios y con Grintsys. No representan compromisos comerciales aprobados.
+Problema por validar: determinar qué necesidades operativas del sector gastronómico justifican un módulo especializado y cuáles deben atenderse prioritariamente en una primera etapa.
 
-| Bloque | Hipótesis inicial |
-| :--- | :--- |
-| Problema | Dificultades planteadas para separar cuentas y reservar mesas, necesidad de visibilidad del inventario y de coordinación entre meseros, cocina y caja. Frecuencia e impacto pendientes de validar. |
-| Segmentos | Restaurantes como rubro que Grintsys desea atender con LEAF ERP, según Manuel; propietarios y administradores, cajeros, meseros y cocina. Comensales como beneficiarios. |
-| Propuesta de valor | Atención y control administrativo del restaurante integrados con LEAF, con trazabilidad hacia el motor transaccional nativo de ERPNext. |
-| Solución | Portada y catálogos reutilizados como primera etapa; evaluar después mesas, reservas, separación de cuentas y comandas conectadas con facturación e inventario nativos. |
-| Canales | Demostraciones y sesiones de validación coordinadas con Grintsys; acceso a usuarios aún por confirmar. |
-| Fuentes de ingresos | Por definir con Grintsys; evaluar si encaja en su oferta de implementación, soporte o servicio. No hay precios acordados. |
-| Estructura de costos | Desarrollo, pruebas, alojamiento de una instancia Frappe, mantenimiento y capacitación. Importes pendientes. |
-| Métricas clave | Éxito y tiempo por tarea; posteriormente, errores al separar consumos, conflictos de reservas, errores de coordinación y diferencias entre movimientos esperados y registrados de inventario. Sin línea base medida. |
-| Ventaja diferencial | Posible integración con la arquitectura y los procesos de LEAF; no se ha demostrado una ventaja comercial exclusiva. |
+Oportunidad de solución: estudiar una ampliación de Leaf ERP que permita relacionar los procesos operativos del restaurante con los recursos administrativos del ERP, en lugar de proponer una plataforma completamente aislada.
 
-## 4. Hipótesis y plan de validación
+Estas observaciones constituyen hipótesis iniciales. No se dispone, en esta etapa, de mediciones de impacto ni de evidencia suficiente para afirmar que un problema específico ocurre en todos los restaurantes.
 
-Los criterios siguientes son metas propuestas para un experimento futuro, no
-resultados obtenidos ni requisitos confirmados del curso.
+## 3. Alternativas estudiadas
 
-| Hipótesis | Experimento propuesto | Criterio inicial de decisión |
-| :--- | :--- | :--- |
-| H1: existen dificultades de coordinación del servicio, separación de cuentas, reservas o visibilidad del inventario que justifican el módulo. | Observar tareas y entrevistar al menos a tres usuarios de funciones distintas; documentar ejemplos concretos, el procedimiento actual y su efecto sin datos personales innecesarios. | Identificar al menos un problema recurrente respaldado por dos participantes; si no aparece, revisar la hipótesis y la prioridad de desarrollo. |
-| H2: la portada facilita encontrar catálogos. | Pedir a cinco usuarios que encuentren productos, categorías, precios, meseros y ubicaciones; registrar éxito, tiempo y ayuda requerida. | Al menos cuatro de cinco completan las tareas sin ayuda. Comparar tiempos solo si se mide una línea base equivalente. |
-| H3: los catálogos nativos representan los datos necesarios. | Revisar ejemplos reales con el responsable funcional y mapear cada dato a los DocTypes existentes. | No crear otro catálogo cuando exista equivalencia nativa; documentar las brechas antes de desarrollar. |
+| Alternativa | Necesidad que podría atender | Consideración preliminar |
+| --- | --- | --- |
+| Restaurantes | Organización de pedidos, atención de mesas, cocina, cuentas y gestión de insumos. | Permite estudiar un flujo de operación conectado con las capacidades del ERP. |
+| Encomiendas | Registro, seguimiento y control de entregas y envíos. | Requiere delimitar estados, trazabilidad y procesos logísticos. |
+| Hospitales | Apoyo a procesos administrativos y operativos en establecimientos de salud. | Requiere precisar el alcance por la diversidad y sensibilidad de sus procesos. |
 
-Antes de medir mejoras se deben acordar las tareas, el contexto y la línea base.
-El desempeño durante un servicio, la facturación y el uso táctil completo
-requieren pruebas adicionales cuando esos flujos estén implementados.
+La comparación es cualitativa e introductoria. No representa una matriz de puntuaciones, un estudio de mercado ni una decisión empresarial formal documentada. La alternativa Restaurante sirve como base para el análisis de la propuesta de valor.
 
-## 5. Alcance real de la semana 1
+## 4. Segmentos y actores considerados
 
-**ANALYZED en los archivos de la app:**
+- Grintsys: empresa receptora y responsable del contexto empresarial de Leaf ERP.
+- Restaurantes: organizaciones potencialmente interesadas en integrar operación y administración.
+- Propietarios y administradores: responsables del seguimiento operativo y del control del negocio.
+- Meseros, cocina y caja: posibles usuarios de los flujos de atención y servicio.
+- Comensales: beneficiarios indirectos de un proceso de atención coordinado.
 
-- App y paquete `restaurant`, separados de `frappe` y `erpnext`.
-- Portada `/app/restaurante` mediante Workspace y Custom HTML Block nativos.
-- Bienvenida web `/restaurant-welcome`, mediante plantilla Jinja.
-- Accesos a productos, categorías, precios, personal y áreas; reportes y
-  configuración mediante navegación a funciones existentes.
-- Uso de `Employee` con `Designation = Mesero`, `Branch` y `Location` con dos
-  campos declarativos para identificar áreas y relacionar sucursales.
-- Punto de venta enlazado al POS Awesome existente; no es un POS gastronómico
-  nuevo desarrollado dentro de esta app.
+Esta identificación es preliminar; los perfiles y necesidades deberán contrastarse con personas usuarias reales.
 
-**Fuera del alcance implementado:** cuentas de servicio, creación de mesas,
-mapa de mesas, comandas y cocina KDS. Sus tarjetas son referencias visuales que
-informan que aún no están habilitadas. Tampoco están implementados por esta app
-el traslado de cuentas, la división de consumos, las reservas ni la impresión
-de comandas.
-No se declara un POS táctil funcional completo.
+## 5. Propuesta de valor inicial
 
-## 6. Decisiones de arquitectura
+Explorar un módulo de gestión de restaurantes integrado con Leaf ERP que facilite la organización de pedidos, mesas, cuentas y comunicación con cocina, manteniendo continuidad con los procesos administrativos e inventario de la plataforma.
 
-La respuesta al Native Path Check es reutilizar primero las entidades y flujos
-estándar. LEAF organiza la experiencia; ERPNext conserva la fuente de verdad
-transaccional.
+La propuesta busca aprovechar una solución existente y definir funcionalidades de manera gradual, según las necesidades que se confirmen en el levantamiento posterior.
 
-| Necesidad | Camino nativo que se reutiliza o debe evaluarse |
-| :--- | :--- |
-| Productos y platillos | `Item` |
-| Categorías y subcategorías | Árbol de `Item Group` |
-| Precios y unidades | `Item Price`, `Price List` y `UOM` |
-| Meseros y sucursales | `Employee`, `Designation` y `Branch` |
-| Salones, terrazas y otras áreas | `Location` y campos declarativos de la app |
-| Facturación y cobro futuros | Evaluar `Sales Invoice` o `POS Invoice` y `Payment Entry` según el flujo aprobado |
-| Recetas e inventario futuros | Evaluar `BOM` y `Stock Entry` antes de crear lógica propia |
+## 6. Lean Canvas preliminar
 
-No se crearán motores paralelos de impuestos, facturas, `GL Entry` o
-`Stock Ledger Entry`. Las entidades operativas nuevas requieren análisis previo;
-este documento no autoriza su implementación. Se mantiene Python 3.11.x y el
-código propio dentro de `restaurant`.
+Los nueve bloques son hipótesis de trabajo formuladas durante el análisis conceptual; no reflejan resultados validados ni acuerdos comerciales aprobados.
 
-## 7. Entrega y publicación pendientes
+| Bloque | Planteamiento inicial |
+| --- | --- |
+| Problema | Posibles dificultades para coordinar pedidos, mesas, cocina, cuentas e insumos. |
+| Segmentos de clientes | Restaurantes, propietarios, administradores y personal operativo. |
+| Propuesta de valor única | Conectar la operación gastronómica con la gestión empresarial de Leaf ERP. |
+| Solución | Evaluar menú, pedidos, mesas, cuentas, comandas e integración con inventario mediante un módulo especializado. |
+| Canales | Presentación de la propuesta y futuras demostraciones o validaciones coordinadas con Grintsys. |
+| Fuentes de ingresos | Pendientes de definición con la empresa; no se presuponen precios ni modalidades comerciales. |
+| Estructura de costos | Análisis, desarrollo futuro, pruebas, infraestructura, capacitación y mantenimiento. |
+| Métricas clave | Por definir tras el levantamiento: cumplimiento de tareas, errores de operación y trazabilidad de movimientos. |
+| Ventaja diferencial | Posible integración con las capacidades ya disponibles en Leaf ERP, aún por contrastar con otras soluciones. |
 
-La app depende de un entorno Frappe/ERPNext; publicar únicamente HTML estático
-no demuestra que la Custom App esté funcionando en internet.
+## 7. Hipótesis y validaciones futuras
 
-Antes de cerrar la entrega se debe confirmar la autorización de publicación en
-`https://github.com/SOLFAHSA/restaurant.git` (con soporte de integración vía Fork
-hacia `Grintsys`), preparar una instancia de demostración con un dominio HTTPS,
-verificar su funcionamiento y fijar la versión definitiva con la etiqueta o
-release `semana-1`. La URL de demostración pública aún está pendiente de definir.
+H1 — Necesidad operativa. Los procesos de atención, gestión de cuentas y comunicación entre áreas presentan oportunidades de mejora que podrían abordarse con un módulo integrado. Validación posterior: entrevistas y observación de operaciones reales.
 
-La instancia académica debe usar datos de demostración. No se deben exportar
-bases de datos, credenciales o datos personales de los sitios de Grintsys.
+H2 — Integración del producto. La ampliación de Leaf ERP podría aportar continuidad a la información administrativa y operativa. Validación posterior: análisis de los procesos y recursos nativos de la plataforma.
 
-## 8. Preguntas pendientes para Manuel y el responsable del proyecto
+H3 — Alcance viable. Es posible definir un primer conjunto de funciones demostrables, evitando implementar toda la operación gastronómica en una sola etapa. Validación posterior: priorización de necesidades y revisión del alcance con los responsables del proyecto.
 
-1. ¿En qué restaurantes se validarán las necesidades relatadas por Manuel y qué casos concretos pueden documentarse?
-2. ¿Quiénes podrán participar en la validación y qué tareas realizan actualmente?
-3. ¿Qué alcance de publicación autoriza Grintsys y quién alojará la demostración?
-4. ¿El evaluador necesita credenciales de demostración para acceder al Desk?
-5. ¿Qué parte de la operación se priorizará después de validar esta primera entrega?
+No se consideran demostradas estas hipótesis. Tampoco se atribuyen entrevistas o métricas que no estén documentadas.
+
+## 8. Alcance de la semana 1
+
+La semana estuvo dedicada exclusivamente a:
+
+1. Conocer Grintsys, su actividad y las soluciones que ofrece.
+2. Comprender su dinámica organizacional, los lineamientos generales y las formas de colaboración.
+3. Familiarizarse conceptualmente con Leaf ERP y con el contexto de su entorno tecnológico.
+4. Observar dos reuniones con clientes para comprender cómo se desarrolla el levantamiento de información y el análisis de posibles soluciones.
+5. Analizar las propuestas de Restaurantes, Encomiendas y Hospitales.
+6. Reconocer una línea inicial de trabajo para la alternativa Restaurante y formular su problema, actores, propuesta de valor e hipótesis.
+
+Fuera del alcance de la semana 1: programación, creación de módulos o pantallas, configuración de ambientes, pruebas de funcionalidades e implementación de procesos de restaurante. Dichas actividades pertenecen a fases posteriores.
+
+## 9. Evidencia y limitaciones del análisis
+
+La evidencia de esta fase consiste en el contexto de inducción comunicado para la práctica, la observación de dos reuniones con clientes como aprendizaje del proceso de levantamiento de información, la comparación conceptual de propuestas y el registro de actividades en la [bitácora de semana 1](bitacora/semana-1.md). Las reuniones observadas permiten comprender la metodología de atención al cliente, pero no se presentan como validación específica de las hipótesis del módulo Restaurante.
+
+La información permite establecer una dirección inicial, pero no demuestra todavía una validación con restaurantes, la aceptación empresarial definitiva del alcance, ni la disponibilidad de una solución implementada al cierre de la primera semana.
+
+## 10. Próximos pasos considerados al concluir la inducción
+
+- Precisar el proyecto a desarrollar y su alcance con los responsables correspondientes.
+- Realizar un levantamiento de información más detallado con usuarios y responsables funcionales.
+- Identificar necesidades esenciales y posibles criterios de aceptación.
+- Conocer los recursos y permisos autorizados para el trabajo técnico posterior.
+- Preparar, en etapas siguientes, un plan de implementación y validación.
+
+La visión documenta el punto de partida de análisis, no el estado de desarrollo alcanzado en semanas posteriores.
