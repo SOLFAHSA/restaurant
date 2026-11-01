@@ -81,12 +81,11 @@
    "type": "DocType"
   },
   {
-   "doc_view": "List",
-   "icon": "map",
+   "type": "URL",
    "label": "Ubicaciones",
-   "link_to": "Location",
-   "stats_filter": "{\"restaurant_area\": 1}",
-   "type": "DocType"
+   "url": "/app/restaurant-location",
+   "icon": "map",
+   "doc_view": ""
   },
   {
    "color": "Green",

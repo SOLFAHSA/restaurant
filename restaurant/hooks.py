@@ -235,3 +235,8 @@ website_redirects = [
     {"source": "/leaf-restaurant-welcome", "target": "/restaurant-welcome"},
     {"source": r"/leaf-restaurant-welcome\.html", "target": "/restaurant-welcome"},
 ]
+
+# Install operational roles before schema sync and minimal link permissions after it.
+before_migrate = "restaurant.setup.ensure_restaurant_roles"
+after_migrate = "restaurant.setup.ensure_link_permissions"
+after_install = "restaurant.setup.ensure_link_permissions"

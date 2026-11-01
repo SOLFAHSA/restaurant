@@ -1,0 +1,10 @@
+{
+ "doctype": "Page",
+ "module": "Restaurant",
+ "name": "restaurant-location",
+ "page_name": "restaurant-location",
+ "title": "Ubicaciones y áreas",
+ "standard": "Yes",
+ "roles": [],
+ "system_page": 0
+}

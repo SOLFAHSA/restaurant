@@ -192,39 +192,50 @@ La app versiona únicamente el cargo **Mesero** en `restaurant/fixtures/designat
 Los empleados, teléfonos y sucursales de cada sitio no se exportan como fixtures.
 Frappe importa esta configuración al instalar o migrar la app por el flujo nativo.
 
-## Ubicaciones del restaurante
+## Ubicaciones y áreas del restaurante
 
-El acceso **Restaurante → Configuración → Ubicaciones** utiliza el DocType nativo
-`Location`. Sus nombres y su jerarquía representan espacios como salones, terrazas
-y áreas VIP. La app no crea un segundo catálogo de ubicaciones.
+El acceso **Restaurante → Configuración → Ubicaciones** abre una pantalla Desk
+propia en `/app/restaurant-location`, respaldada por el nuevo DocType independiente
+`Restaurant Area`, módulo `Restaurant`. La pantalla reproduce la estructura y
+los colores del mockup, con información general, vista previa, configuración
+operativa y una sección para futuras mesas vinculadas.
 
-La extensión declarativa agrega únicamente estos campos a `Location`:
+Esta decisión responde a la solicitud explícita de mantener las áreas operativas
+exclusivas del restaurante. `Location` y sus campos previos se conservan para
+compatibilidad; no se copian ni eliminan sus registros. La fuente de verdad de
+las nuevas áreas es `Restaurant Area`. Esta funcionalidad corresponde a una etapa
+posterior a la inducción documentada en la semana 1.
 
-- `restaurant_area`: **Área de restaurante**, identifica las ubicaciones de esta opción.
-  Su valor predeterminado es cero; las ubicaciones generales de otros módulos no
-  se clasifican automáticamente como áreas del restaurante.
-- `restaurant_branch`: **Sucursal**, vínculo al DocType nativo `Branch`. Se muestra
-  cuando la ubicación está marcada como área de restaurante. Es opcional en esta
-  primera versión; selecciónala para identificar a qué sucursal pertenece el espacio.
-
-Para registrar un espacio:
+Para registrar un área:
 
 1. Registra primero la sucursal real desde **Sucursales**, si aún no existe.
-2. Abre **Ubicaciones** y pulsa **Nuevo**. Mientras siga aplicado el filtro, Frappe
-   completa la marca **Área de restaurante**.
-3. Escribe un nombre único, por ejemplo **Centro - Salón 1**, y selecciona la sucursal.
-4. Guarda. El mapa y los datos geográficos nativos no son obligatorios.
+2. Abre **Ubicaciones** y pulsa **Nueva ubicación**.
+3. Completa nombre, sucursal, tipo de área y capacidad; el nombre es único en el
+   sitio. Usa nombres como **Centro - Terraza** y **Norte - Terraza** si corresponde.
+4. Selecciona estado, visibilidad, orden, color e icono o imagen. La impresora y el
+   mesero son opcionales; el mesero debe estar activo, tener cargo **Mesero** y
+   pertenecer a la sucursal elegida.
+5. Pulsa **Guardar ubicación**. El registro se puede reabrir desde el listado.
 
-`Location.location_name` es único en todo el sitio, no por sucursal. Usa nombres
-como **Centro - Terraza** y **Norte - Terraza** cuando dos sucursales tengan espacios
-con el mismo nombre. La jerarquía nativa es opcional: una ubicación padre debe
-estar marcada como grupo para seleccionarse en el formulario.
+El formulario nativo sigue disponible en `/app/restaurant-area`; su botón
+**Abrir diseño de ubicaciones** permite regresar al editor visual. Los controles
+se adaptan a móvil. Los roles autorizados son `System Manager` y
+`Restaurant Manager`, respetando las restricciones por sucursal.
 
-El filtro organiza la vista y puede quitarse; no constituye aislamiento de permisos.
-Se conservan los permisos nativos de `Location`, incluidos los de `System Manager`.
-Los campos se versionan en `restaurant/fixtures/custom_field.json`; las ubicaciones
-y sucursales reales no se exportan como fixtures. Frappe sincroniza la extensión
-al instalar o migrar la app mediante su flujo nativo.
+KDS y vinculación de mesas permanecen deshabilitados hasta contar con sus
+catálogos e integración. Las opciones de POS, cuentas e impresora guardan
+configuración y no ejecutan facturación, cobros ni impresión de comandas.
+
+Para instalar esta versión en un sitio autorizado, ejecuta desde el Bench:
+
+```bash
+bench --site development migrate
+bench --site development clear-cache
+```
+
+Reinicia el servidor si se ejecutaba sin recarga automática. No se necesita
+compilar un bundle para los archivos de esta Page. Consulta la
+[decisión de arquitectura y evidencia de pruebas](docs/ubicaciones.md).
 
 ## Pantalla de inicio de Restaurante
 
@@ -236,8 +247,8 @@ aislados en el Shadow DOM del bloque; la barra lateral y los demás Workspaces
 conservan su presentación nativa. Los iconos provienen del sprite SVG de Frappe,
 del conjunto Font Awesome incluido en LEAF y del icono de restaurante existente.
 
-Los accesos de productos, grupos, precios, meseros, ubicaciones y clientes abren
-los documentos nativos. **Punto de venta** abre el POS Awesome ya instalado; no
+Los accesos de productos, grupos, precios, meseros y clientes abren los
+documentos nativos. Ubicaciones abre el editor de `Restaurant Area`. **Punto de venta** abre el POS Awesome ya instalado; no
 representa la implementación del nuevo POS táctil gastronómico. **Reportes**
 ofrece los reportes nativos de ventas. **Configuración** conserva los accesos a
 sucursales, listas de precios, unidades de medida y bienvenida. Los filtros y
