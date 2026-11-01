@@ -296,3 +296,10 @@ La búsqueda por nombre o sucursal se ejecuta después de una breve pausa al
 escribir o al pulsar Enter, y vuelve a la primera página. Se conserva la semántica
 LIKE de Frappe: `%` y `_` actúan como comodines sobre los registros autorizados.
 Consulta el [contrato, las pruebas y los límites de paginación](docs/paginacion-ubicaciones.md).
+
+## Modelo de datos del producto
+
+El [modelo de datos](docs/modelo-datos.md) reúne diagramas entidad–relación en
+Mermaid, el diccionario de campos, restricciones y políticas de eliminación.
+Distingue las entidades nativas de ERPNext, Restaurant Area implementado y
+las propuestas de atención y cocina pendientes de desarrollo.
