@@ -269,3 +269,18 @@ por esa etiqueta. Cambiarla por «Restaurante» deja la portada sin contenido; l
 títulos visibles en español se definen dentro del HTML, no en esa referencia.
 Después de actualizar la configuración local, recarga el navegador
 con `Ctrl + Shift + R`.
+
+## Datos semilla para desarrollo
+
+El script de demostración crea cuatro sucursales, 24 áreas y un catálogo de
+12 productos con precios de ejemplo en HNL. Solo se permite en el sitio
+`development`, con modo desarrollador y permisos de administrador. No se ejecuta
+al instalar o migrar la app y no genera ventas ni movimientos de inventario.
+
+```bash
+bench --site development execute restaurant.demo_data.seed
+```
+
+Es idempotente: una segunda ejecución no duplica registros. Los nombres usan
+el prefijo `DEMO-REST`; ante un conflicto no sobrescribe registros existentes.
+Consulta el [contenido, las pruebas y los límites del conjunto](docs/datos-semilla.md).
