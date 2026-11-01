@@ -43,6 +43,40 @@ def get_editor_context(name=None, for_list=False):
     }
 
 
+@frappe.whitelist()
+def get_locations(search="", start=0, page_length=12):
+    """Return a bounded page using native role and user permission filters."""
+    if not frappe.has_permission(DOCTYPE, "read"):
+        frappe.throw(_("No tienes permiso para consultar ubicaciones del restaurante."), frappe.PermissionError)
+    if search is None:
+        search = ""
+    if not isinstance(search, str) or len(search) > 140:
+        frappe.throw(_("La búsqueda debe ser un texto de hasta 140 caracteres."))
+    search = search.strip()
+    offset = _whole_number(start, _("Inicio de página"), 0)
+    size = _whole_number(page_length, _("Tamaño de página"), 1)
+    if size > 50:
+        frappe.throw(_("El tamaño de página no puede superar 50 ubicaciones."))
+
+    # Preserve native Frappe LIKE semantics; values are escaped by DatabaseQuery.
+    pattern = "%" + search + "%"
+    or_filters = {field: ["like", pattern] for field in ("area_name", "branch")} if search else None
+    rows = frappe.get_list(
+        DOCTYPE,
+        fields=["name", "area_name", "branch", "capacity", "status", "icon", "color"],
+        or_filters=or_filters,
+        order_by="display_order asc, area_name asc, name asc",
+        limit_start=offset,
+        limit_page_length=size + 1,
+    )
+    return {
+        "items": rows[:size],
+        "has_next": len(rows) > size,
+        "start": offset,
+        "page_length": size,
+    }
+
+
 @frappe.whitelist(methods=["POST"])
 def save_location(document):
     """Save an area without accepting permission flags or arbitrary fields."""

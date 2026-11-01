@@ -109,3 +109,11 @@
 .ra-app .frappe-control input[type="checkbox"]::after { content: '' !important; position: absolute !important; width: 17px !important; height: 17px !important; left: 2px !important; top: 2px !important; border-radius: 50% !important; background: #fff !important; border: 0 !important; box-shadow: 0 1px 2px #0002 !important; transform: none !important; }
 .ra-app .frappe-control input[type="checkbox"]:checked::after { transform: translateX(17px) !important; }
 .ra-app .awesomplete .visually-hidden { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0, 0, 0, 0) !important; white-space: nowrap !important; border: 0 !important; }
+.ra-list-tools { align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.ra-page-size { display: flex; align-items: center; gap: 8px; color: var(--ra-muted); font-size: 12px; margin: 0; }
+.ra-page-size select { width: 76px; }
+.ra-pagination { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding-top: 20px; color: var(--ra-muted); font-size: 12px; }
+.ra-pagination-actions { display: flex; gap: 8px; }
+.ra-location-grid > .ra-loading, .ra-location-grid > .ra-error { grid-column: 1 / -1; }
+.ra-location-grid .ra-error p { margin: 12px 0 0; }
+@media(max-width:480px) { .ra-list-search { flex-basis: 100%; max-width: none; } .ra-page-size { margin-left: auto; } .ra-pagination-actions { margin-left: auto; } }

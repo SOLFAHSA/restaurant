@@ -284,3 +284,15 @@ bench --site development execute restaurant.demo_data.seed
 Es idempotente: una segunda ejecución no duplica registros. Los nombres usan
 el prefijo `DEMO-REST`; ante un conflicto no sobrescribe registros existentes.
 Consulta el [contenido, las pruebas y los límites del conjunto](docs/datos-semilla.md).
+
+## Paginación y búsqueda de ubicaciones
+
+El listado de `/app/restaurant-location` consulta páginas en el servidor mediante
+la API de la app y `frappe.get_list`, conservando los permisos de rol y por sucursal.
+Muestra 12 ubicaciones por defecto y permite seleccionar 24 o 48. Los controles
+**Anterior** y **Siguiente** muestran el rango de registros de la página actual.
+
+La búsqueda por nombre o sucursal se ejecuta después de una breve pausa al
+escribir o al pulsar Enter, y vuelve a la primera página. Se conserva la semántica
+LIKE de Frappe: `%` y `_` actúan como comodines sobre los registros autorizados.
+Consulta el [contrato, las pruebas y los límites de paginación](docs/paginacion-ubicaciones.md).

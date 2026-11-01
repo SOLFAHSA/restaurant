@@ -15,6 +15,8 @@ class RestaurantLocationPage {
         this.controls = {};
         this.dirty = false;
         this.requestId = 0;
+        this.searchRequestId = 0;
+        this.searchTimer = null;
         window.addEventListener("beforeunload", (event) => {
             if (this.dirty && this.wrapper.style.display !== "none") {
                 event.preventDefault();
@@ -57,6 +59,8 @@ class RestaurantLocationPage {
 
     async show() {
         const currentId = ++this.requestId;
+        clearTimeout(this.searchTimer);
+        this.searchRequestId++;
         this.dirty = false;
         this.loading = true;
         this.root.innerHTML = '<div class="ra-loading" role="status">Cargando ubicaciones…</div>';
@@ -77,20 +81,103 @@ class RestaurantLocationPage {
     }
 
     async renderList(requestId) {
-        this.root.innerHTML = `<header class="ra-toolbar"><div class="ra-heading"><button class="ra-button ra-back" data-action="workspace" aria-label="Volver al restaurante">${this.symbol("back")}</button><div><h1>Ubicaciones y áreas</h1><p>Organiza los espacios de atención de tu restaurante.</p></div></div>${this.context.can_create ? `<button class="ra-button ra-button-primary" data-action="new">${this.symbol("plus")} Nueva ubicación</button>` : ""}</header><div class="ra-list-tools"><input class="form-control ra-list-search" type="search" placeholder="Buscar ubicación o sucursal" aria-label="Buscar ubicación o sucursal"/></div><div class="ra-location-grid"><div class="ra-loading" role="status">Cargando…</div></div>`;
-        const result = await frappe.call({ method: "frappe.client.get_list", args: { doctype: "Restaurant Area", fields: ["name", "area_name", "branch", "capacity", "status", "icon", "color"], order_by: "display_order asc, area_name asc", limit_page_length: 500 } });
-        if (requestId !== this.requestId) return;
-        this.locations = result.message || [];
-        this.drawList("");
-        this.root.querySelector(".ra-list-search").addEventListener("input", (event) => this.drawList(event.target.value));
+        this.listSearch = "";
+        this.pageStart = 0;
+        this.pageLength = 12;
+        this.hasNext = false;
+        this.root.innerHTML = `<header class="ra-toolbar"><div class="ra-heading"><button class="ra-button ra-back" data-action="workspace" aria-label="Volver al restaurante">${this.symbol("back")}</button><div><h1>Ubicaciones y áreas</h1><p>Organiza los espacios de atención de tu restaurante.</p></div></div>${this.context.can_create ? `<button class="ra-button ra-button-primary" data-action="new">${this.symbol("plus")} Nueva ubicación</button>` : ""}</header><div class="ra-list-tools"><input class="form-control ra-list-search" type="search" maxlength="140" placeholder="Buscar ubicación o sucursal" aria-label="Buscar ubicación o sucursal"/><label class="ra-page-size">Por página <select class="form-control" aria-label="Ubicaciones por página"><option value="12">12</option><option value="24">24</option><option value="48">48</option></select></label></div><div class="ra-location-grid" aria-busy="true"></div><nav class="ra-pagination" aria-label="Paginación de ubicaciones"><span data-page-range role="status" aria-live="polite"></span><div class="ra-pagination-actions"><button class="ra-button" data-action="previous-page" disabled>Anterior</button><button class="ra-button" data-action="next-page" disabled>Siguiente</button></div></nav>`;
+        const searchInput = this.root.querySelector(".ra-list-search");
+        searchInput.addEventListener("input", () => {
+            this.listSearch = searchInput.value.trim();
+            this.queueListPage(0, 300);
+        });
+        searchInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault();
+                this.listSearch = searchInput.value.trim();
+                this.queueListPage(0);
+            }
+        });
+        this.root.querySelector(".ra-page-size select").addEventListener("change", (event) => {
+            this.pageLength = Number(event.target.value);
+            this.queueListPage(0);
+        });
+        await this.loadListPage(0, requestId, ++this.searchRequestId);
     }
 
-    drawList(search) {
-        const query = search.toLocaleLowerCase().trim();
-        const records = this.locations.filter((record) => `${record.area_name} ${record.branch || ""}`.toLocaleLowerCase().includes(query));
+    isCurrentList(requestId, searchRequestId) {
+        const route = frappe.get_route();
+        return requestId === this.requestId && searchRequestId === this.searchRequestId && route[0] === "restaurant-location" && !route[1] && Boolean(this.root.querySelector(".ra-location-grid"));
+    }
+
+    queueListPage(start, delay = 0) {
+        clearTimeout(this.searchTimer);
+        const requestId = this.requestId;
+        const searchRequestId = ++this.searchRequestId;
+        this.pageStart = start;
+        this.setListLoading();
+        if (delay) this.searchTimer = setTimeout(() => this.loadListPage(start, requestId, searchRequestId), delay);
+        else this.loadListPage(start, requestId, searchRequestId);
+    }
+
+    setListLoading() {
+        this.listLoading = true;
+        this.hasNext = false;
+        const target = this.root.querySelector(".ra-location-grid");
+        if (!target) return;
+        target.setAttribute("aria-busy", "true");
+        target.innerHTML = '<div class="ra-loading" role="status">Cargando ubicaciones…</div>';
+        this.root.querySelector("[data-page-range]").textContent = "Cargando…";
+        this.updateListNavigation();
+    }
+
+    async loadListPage(start, requestId, searchRequestId) {
+        if (!this.isCurrentList(requestId, searchRequestId)) return;
+        const search = this.listSearch;
+        const pageLength = this.pageLength;
+        this.pageStart = start;
+        this.setListLoading();
+        try {
+            const result = await frappe.call({ method: "restaurant.location.get_locations", args: { search, start, page_length: pageLength } });
+            if (!this.isCurrentList(requestId, searchRequestId)) return;
+            this.locations = result.message.items;
+            this.hasNext = Boolean(result.message.has_next);
+            this.pageStart = result.message.start;
+            this.pageLength = result.message.page_length;
+            this.drawList();
+            this.root.querySelector("[data-page-range]").textContent = this.locations.length
+                ? `Mostrando ${this.pageStart + 1}–${this.pageStart + this.locations.length}`
+                : (this.pageStart ? "Sin resultados en esta página" : "No hay resultados");
+        } catch (error) {
+            if (!this.isCurrentList(requestId, searchRequestId)) return;
+            this.locations = [];
+            this.hasNext = false;
+            this.root.querySelector(".ra-location-grid").innerHTML = '<div class="ra-error" role="alert">No fue posible cargar las ubicaciones. Comprueba tu conexión o tus permisos.<p><button class="ra-button" data-action="retry-list">Reintentar</button></p></div>';
+            this.root.querySelector("[data-page-range]").textContent = "No se pudo cargar la página";
+        } finally {
+            if (this.isCurrentList(requestId, searchRequestId)) {
+                this.listLoading = false;
+                this.root.querySelector(".ra-location-grid").setAttribute("aria-busy", "false");
+                this.updateListNavigation();
+            }
+        }
+    }
+
+    updateListNavigation() {
+        const previous = this.root.querySelector('[data-action="previous-page"]');
+        const next = this.root.querySelector('[data-action="next-page"]');
+        if (previous) previous.disabled = this.listLoading || this.pageStart === 0;
+        if (next) next.disabled = this.listLoading || !this.hasNext;
+    }
+
+    drawList() {
+        const records = this.locations;
         const target = this.root.querySelector(".ra-location-grid");
         if (!records.length) {
-            target.innerHTML = `<div class="ra-empty-list">${this.symbol("terrace")}<h2>${query ? "No se encontraron ubicaciones" : "Aún no hay ubicaciones"}</h2><p>${query ? "Prueba con otro nombre o sucursal." : "Crea tu primera ubicación para organizar las áreas del restaurante."}</p>${!query && this.context.can_create ? '<button class="ra-button ra-button-primary" data-action="new">Crear ubicación</button>' : ""}</div>`;
+            const laterPage = this.pageStart > 0;
+            const title = laterPage ? "No hay ubicaciones en esta página" : (this.listSearch ? "No se encontraron ubicaciones" : "Aún no hay ubicaciones");
+            const hint = laterPage ? "Regresa a la página anterior para consultar las ubicaciones disponibles." : (this.listSearch ? "Prueba con otro nombre o sucursal." : "Crea tu primera ubicación para organizar las áreas del restaurante.");
+            target.innerHTML = `<div class="ra-empty-list">${this.symbol("terrace")}<h2>${title}</h2><p>${hint}</p>${!laterPage && !this.listSearch && this.context.can_create ? '<button class="ra-button ra-button-primary" data-action="new">Crear ubicación</button>' : ""}</div>`;
             const emptyIcon = target.querySelector("svg");
             if (emptyIcon) { emptyIcon.style.width = "48px"; emptyIcon.style.height = "48px"; emptyIcon.style.color = "#3b78ff"; }
             return;
@@ -273,6 +360,9 @@ class RestaurantLocationPage {
         const location = event.target.closest("[data-name]");
         if (location) { frappe.set_route("restaurant-location", location.dataset.name); return; }
         const action = event.target.closest("[data-action]")?.dataset.action;
+        if (action === "previous-page" && !this.listLoading && this.pageStart > 0) { this.queueListPage(Math.max(0, this.pageStart - this.pageLength)); return; }
+        if (action === "next-page" && !this.listLoading && this.hasNext) { this.queueListPage(this.pageStart + this.pageLength); return; }
+        if (action === "retry-list") { this.queueListPage(this.pageStart); return; }
         if (action === "new") frappe.set_route("restaurant-location", "new");
         if (action === "workspace") this.confirmLeave(["Workspaces", "Restaurante"]);
         if (action === "cancel") this.confirmLeave(["restaurant-location"]);
