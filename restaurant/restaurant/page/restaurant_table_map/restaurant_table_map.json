@@ -1,0 +1,11 @@
+{
+ "doctype": "Page",
+ "module": "Restaurant",
+ "name": "restaurant-table-map",
+ "page_name": "restaurant-table-map",
+ "title": "Mapa de Mesas",
+ "standard": "Yes",
+ "roles": [],
+ "system_page": 0
+}
+

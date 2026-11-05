@@ -42,6 +42,9 @@ class RestaurantLocationPage {
             dining: '<path d="M4 8h16v9H4zM7 4v4m10-4v4M7 17v4m10-4v4M1 11h3m16 0h3M1 15h3m16 0h3"/>',
             bar: '<path d="M3 4h18l-9 9-9-9Zm9 9v7m-5 1h10M7 8h10"/>',
             garden: '<path d="M12 21V10m0 6C5 17 2 12 3 7c6-1 10 3 9 9Zm0-3C12 6 16 2 22 3c1 6-3 10-10 10Z"/>',
+            map: '<polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/>',
+            edit: '<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>',
+            trash: '<path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
         };
         return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[kind] || paths.terrace}</svg>`;
     }
@@ -189,26 +192,23 @@ class RestaurantLocationPage {
         this.controls = {};
         const isNew = !this.doc.name || this.doc.__islocal;
         this.editable = Boolean(isNew ? this.context.can_create : this.context.can_write);
-        this.root.innerHTML = `<header class="ra-toolbar"><div class="ra-heading"><button class="ra-button ra-back" data-action="cancel" aria-label="Volver a áreas">${this.symbol("back")}</button><h1>${isNew ? "Nueva área" : this.escape(this.doc.area_name)}</h1><span class="ra-badge ${isNew ? "" : "ra-badge-saved"}" data-status>${isNew ? "Sin guardar" : "Guardada"}</span></div><div class="ra-actions"><button class="ra-button" data-action="cancel">Cancelar</button>${this.editable ? `<button class="ra-button ra-button-primary" data-action="save">${this.symbol("check")} Guardar área</button>` : ""}</div></header>${this.editable ? "" : '<p class="ra-readonly-note">Tienes permiso de lectura. Esta área se muestra sin opciones de edición.</p>'}
-        <section class="ra-card"><header class="ra-card-header"><div><h2>Información del área</h2><p>Define las características generales del área del restaurante.</p></div><span class="ra-required-note">* Campos obligatorios</span></header><div class="ra-info-layout"><div class="ra-field-grid"><div class="ra-field-wide" data-field="area_name"></div><div data-field="branch"></div><div data-field="display_order"></div><div data-field="capacity"></div><div data-field="status"></div><div data-field="visible_in_pos"></div><div class="ra-field-wide" data-field="description"></div></div>
-        <aside class="ra-preview-card"><h3>Vista previa del área</h3><p>Referencia visual para el plano de áreas.</p><div class="ra-preview"><div class="ra-preview-art">${this.floorPlan()}</div><div class="ra-preview-label"><strong data-preview-name></strong><span>${this.symbol("people")} <span data-preview-capacity></span></span></div></div><div class="ra-preview-caption">Ilustración de referencia; no representa mesas vinculadas.</div><span class="ra-image-label">Icono o imagen representativa</span><div class="ra-image-controls"><div class="ra-icon-tile" data-preview-icon></div><div class="ra-upload-actions"><button class="ra-button" data-action="image" ${this.editable ? "" : "disabled"}>${this.symbol("image")} Cambiar imagen</button><button class="ra-button" data-action="icon" ${this.editable ? "" : "disabled"}>${this.symbol("icon")} Seleccionar icono</button><button class="ra-button" data-action="remove-image" ${this.editable ? "" : "disabled"}>Quitar imagen</button><p class="ra-hint">JPG, PNG, WEBP o un icono del sistema.</p></div></div></aside></div></section>
-        <section class="ra-card"><header class="ra-card-header"><div><h2>Configuración operativa</h2><p>Define los recursos y comportamientos de esta área.</p></div></header><div class="ra-operations-grid"><div><label class="ra-manual-label" for="ra-kds">Estación KDS por defecto</label><input id="ra-kds" class="ra-muted-field" disabled value="Sin estaciones disponibles"/><p class="ra-hint">Se habilitará al integrar las estaciones de cocina.</p></div><div data-field="printer"></div><div data-field="waiter"></div><div data-field="allow_open_accounts"></div><div data-field="color"></div><div data-field="notes"></div></div><p class="ra-hint">Las preferencias de POS, apertura de cuentas e impresión se guardan como configuración para los flujos del restaurante.</p></section>
-        <section class="ra-card"><header class="ra-card-header"><div><h2>Mesas vinculadas</h2><p>Mesas que pertenecen a esta área.</p></div><button class="ra-button" disabled title="El catálogo de mesas aún no está habilitado">${this.symbol("plus")} Vincular mesa</button></header><div class="ra-table-wrapper"><table class="ra-table"><thead><tr><th><input type="checkbox" disabled aria-label="Seleccionar todas las mesas"/></th><th>N.°</th><th>Mesa</th><th>Capacidad</th><th>Tipo</th><th>Estado</th><th></th></tr></thead><tbody><tr><td class="ra-empty-cell" colspan="7">Sin mesas vinculadas<p>Podrás vincular mesas cuando se habilite su catálogo.</p></td></tr></tbody></table></div></section>`;
+        const tablesCount = (this.context.tables || []).length;
+        this.root.innerHTML = `<header class="ra-toolbar"><div class="ra-heading"><button class="ra-button ra-back" data-action="cancel" aria-label="Volver a áreas">${this.symbol("back")}</button><h1>${isNew ? "Nueva área" : this.escape(this.doc.area_name)}</h1><span class="ra-badge ${isNew ? "" : "ra-badge-saved"}" data-status>${isNew ? "Sin guardar" : "Guardada"}</span></div><div class="ra-actions"><button class="ra-button" data-action="cancel">Cancelar</button>${!isNew ? `<button class="ra-button" data-action="open-table-map">${this.symbol("map")} Mapa de mesas</button>` : ""}${this.editable ? `<button class="ra-button ra-button-primary" data-action="save">${this.symbol("check")} Guardar área</button>` : ""}</div></header>${this.editable ? "" : '<p class="ra-readonly-note">Tienes permiso de lectura. Esta área se muestra sin opciones de edición.</p>'}
+        <section class="ra-card"><header class="ra-card-header"><div><h2>Información del área</h2><p>Define el salón o espacio del restaurante y visualiza su distribución de mesas.</p></div><span class="ra-required-note">* Campos obligatorios</span></header><div class="ra-info-layout"><div class="ra-field-grid"><div class="ra-field-wide" data-field="area_name"></div><div data-field="branch"></div><div data-field="capacity"></div><div data-field="status"></div><div data-field="icon"></div><div data-field="floor_background"></div><div data-field="display_order"></div><div class="ra-field-wide" data-field="visible_in_pos"></div><div class="ra-field-wide" data-field="description"></div></div>
+        <aside class="ra-preview-card"><div class="ra-preview-top"><div><h3>Plano de mesas del área</h3><p data-preview-summary>${isNew ? "Guarda el área para diseñar su plano y asignar mesas." : `${tablesCount} ${tablesCount === 1 ? "mesa vinculada" : "mesas vinculadas"}`}</p></div><span class="ra-icon-badge" data-preview-icon title="Icono de tarjeta"></span></div><div class="ra-preview"><div class="ra-preview-art"></div><div class="ra-preview-label"><strong data-preview-name></strong><span>${this.symbol("people")} <span data-preview-capacity></span></span></div></div><div class="ra-preview-footer">${!isNew ? `<button type="button" class="ra-button ra-button-primary" style="width:100%" data-action="open-table-map">${this.symbol("map")} Diseñar en Mapa de Mesas</button>` : `<p class="ra-hint" style="margin:0;text-align:center">Al guardar el área se habilitará el diseñador interactivo del Mapa de Mesas.</p>`}</div></aside></div></section>
+        <section class="ra-card"><header class="ra-card-header"><div><h2>Mesas vinculadas</h2><p data-tables-subtitle>Mesas que pertenecen a esta área (${tablesCount}).</p></div><div class="ra-actions">${!isNew ? `<button class="ra-button" data-action="open-table-map">${this.symbol("map")} Abrir mapa de mesas</button>` : ""}${!isNew && this.context.can_create_table ? `<button class="ra-button ra-button-primary" data-action="add-table">${this.symbol("plus")} Agregar mesa</button>` : `<button class="ra-button" disabled title="${isNew ? "Guarda el área primero para vincular mesas" : "Sin permisos para crear mesas"}">${this.symbol("plus")} Agregar mesa</button>`}</div></header><div class="ra-table-wrapper"><table class="ra-table"><thead><tr><th>N.°</th><th>Mesa</th><th>Capacidad</th><th>Tipo</th><th>Estado</th><th style="text-align:right">Acciones</th></tr></thead><tbody data-tables-body>${this.renderTablesRows(isNew)}</tbody></table></div></section>`;
         // Numeric text controls avoid the native integer control focus timeout.
         // The DocType and server remain responsible for integer validation.
         const definitions = [
             ["area_name", "Data", "Nombre del área", { reqd: 1 }],
             ["branch", "Link", "Sucursal", { reqd: 1, options: "Branch" }],
-            ["display_order", "Data", "Orden de visualización", { description: "Los números menores aparecen primero en el listado de áreas." }],
-            ["capacity", "Data", "Capacidad estimada", { reqd: 1, description: "Número aproximado de personas en esta área." }],
+            ["capacity", "Data", "Capacidad estimada (personas)", { reqd: 1, description: "Aforo total aproximado de esta área." }],
             ["status", "Select", "Estado", { reqd: 1, options: "Activa\nInactiva" }],
-            ["visible_in_pos", "Check", "Visible en POS", { description: "Mostrar esta área en el Punto de Venta." }],
-            ["description", "Small Text", "Descripción", { length: 500 }],
-            ["printer", "Link", "Impresora asignada", { options: "Network Printer Settings", description: "Impresora para comandas de esta área." }],
-            ["waiter", "Link", "Mesero responsable", { options: "Employee", description: "Mesero principal o asignado a esta área.", get_query: () => ({ filters: { designation: "Mesero", status: "Active", ...(this.controls.branch?.get_value() ? { branch: this.controls.branch.get_value() } : {}) } }) }],
-            ["allow_open_accounts", "Check", "Permite apertura de cuentas", { description: "Permitir abrir nuevas cuentas en esta área." }],
-            ["color", "Color", "Color de referencia", { description: "Color que se mostrará en el mapa de mesas." }],
-            ["notes", "Small Text", "Observaciones", { length: 300 }],
+            ["icon", "Select", "Tipo de espacio (icono)", { reqd: 1, options: "Terraza\nSalón\nBarra\nJardín", description: "Icono que identifica al área en el listado." }],
+            ["floor_background", "Select", "Fondo del piso en el mapa", { reqd: 1, options: "Madera cálida\nCerámica clara\nMadera gris\nCésped" }],
+            ["display_order", "Data", "Orden de visualización", { description: "Los números menores aparecen primero." }],
+            ["visible_in_pos", "Check", "Visible en Punto de Venta (POS)", { description: "Mostrar esta área en la operación diaria." }],
+            ["description", "Small Text", "Descripción u observaciones", { length: 500 }],
         ];
         for (const [fieldname, fieldtype, label, options] of definitions) {
             const control = frappe.ui.form.make_control({ parent: this.root.querySelector(`[data-field="${fieldname}"]`), df: { fieldname, fieldtype, label, read_only: this.editable ? 0 : 1, ...options, onchange: () => this.fieldChanged(fieldname) }, render_input: true });
@@ -238,7 +238,6 @@ class RestaurantLocationPage {
     fieldChanged(fieldname) {
         if (this.loading || !this.controls[fieldname]) return;
         this.doc[fieldname] = this.controls[fieldname].get_value();
-        if (fieldname === "branch" && this.controls.waiter?.get_value()) this.controls.waiter.set_value("");
         this.markDirty();
         this.updatePreview();
     }
@@ -255,28 +254,88 @@ class RestaurantLocationPage {
         return control?.$input ? control.$input.val() : this.doc[fieldname];
     }
 
+    liveAreaMiniMap() {
+        const tables = this.context?.tables || [];
+        const bg = this.inputValue("floor_background") || this.doc.floor_background || "Madera cálida";
+        const palette = {
+            "Madera cálida": { fill: "#d9b98e", stroke: "#c49e6c" },
+            "Cerámica clara": { fill: "#efe9de", stroke: "#dcd3c2" },
+            "Madera gris": { fill: "#d4d8dd", stroke: "#b8c0cc" },
+            "Césped": { fill: "#2f7d20", stroke: "#256619" },
+        }[bg] || { fill: "#d9b98e", stroke: "#c49e6c" };
+
+        if (!tables.length) {
+            return `<svg viewBox="0 0 600 310" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Plano del área sin mesas">
+                <rect width="600" height="310" fill="${palette.fill}"/>
+                <rect x="10" y="10" width="580" height="290" rx="6" fill="none" stroke="${palette.stroke}" stroke-width="4" stroke-dasharray="8 6"/>
+            </svg>`;
+        }
+
+        const cols = Math.min(4, Math.max(2, Math.ceil(Math.sqrt(tables.length))));
+        const rows = Math.ceil(tables.length / cols);
+        const cellW = 540 / cols;
+        const cellH = 260 / rows;
+
+        const shapesSvg = tables.map((row, idx) => {
+            const col = idx % cols;
+            const r = Math.floor(idx / cols);
+            const cx = Math.round(30 + col * cellW + cellW / 2);
+            const cy = Math.round(25 + r * cellH + cellH / 2);
+            const statusColors = {
+                "Disponible": { fill: "#22c55e", text: "#ffffff" },
+                "Ocupada": { fill: "#15803d", text: "#ffffff" },
+                "Reservada": { fill: "#ef4444", text: "#ffffff" },
+                "Inactiva": { fill: "#64748b", text: "#ffffff" },
+            }[row.status] || { fill: "#22c55e", text: "#ffffff" };
+            const isRound = row.shape === "Redonda";
+            const isWide = row.shape === "Rectangular" || row.shape === "Ovalada";
+            const w = isWide ? 88 : 66;
+            const h = 58;
+            const rx = isRound ? 29 : (row.shape === "Ovalada" ? 26 : 8);
+            return `<g transform="translate(${cx},${cy})">
+                <rect x="${-w / 2}" y="${-h / 2}" width="${w}" height="${h}" rx="${rx}" fill="${statusColors.fill}" fill-opacity="0.88" stroke="#ffffff" stroke-width="2"/>
+                <text x="0" y="-2" text-anchor="middle" fill="${statusColors.text}" font-size="13" font-weight="700" font-family="sans-serif">M-${this.escape(row.table_number)}</text>
+                <text x="0" y="14" text-anchor="middle" fill="${statusColors.text}" font-size="10" font-family="sans-serif">${Number(row.seats) || 4}p · ${this.escape(row.status)}</text>
+            </g>`;
+        }).join("");
+
+        return `<svg viewBox="0 0 600 310" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Plano de mesas del área">
+            <rect width="600" height="310" fill="${palette.fill}"/>
+            <rect x="8" y="8" width="584" height="294" rx="5" fill="none" stroke="${palette.stroke}" stroke-width="6"/>
+            ${shapesSvg}
+        </svg>`;
+    }
+
     updatePreview() {
         const name = this.root.querySelector("[data-preview-name]");
         if (!name) return;
+        const tables = this.context?.tables || [];
         name.textContent = this.inputValue("area_name") || "Nueva área";
         this.root.querySelector("[data-preview-capacity]").textContent = `${Number(this.inputValue("capacity")) || 0} personas`;
-        this.root.querySelector("[data-preview-icon]").innerHTML = this.symbol(this.iconKey(this.doc.icon));
+        const iconHolder = this.root.querySelector("[data-preview-icon]");
+        if (iconHolder) iconHolder.innerHTML = this.symbol(this.iconKey(this.inputValue("icon") || this.doc.icon));
         const preview = this.root.querySelector(".ra-preview-art");
-        const safeImage = typeof this.doc.image === "string" && /^\/(?:private\/)?files\//.test(this.doc.image);
-        if (safeImage) {
-            const image = document.createElement("img");
-            image.src = this.doc.image;
-            image.alt = "Imagen representativa del área";
-            image.style.cssText = "width:100%;height:100%;object-fit:cover";
-            preview.replaceChildren(image);
-        } else preview.innerHTML = this.floorPlan();
-        preview.style.cssText = "width:100%;height:100%";
-        for (const fieldname of ["description", "notes"]) {
-            const counter = this.root.querySelector(`[data-counter="${fieldname}"]`);
-            if (counter) counter.textContent = `${String(this.inputValue(fieldname) || "").length} / ${fieldname === "description" ? 500 : 300}`;
+        if (preview) {
+            preview.innerHTML = this.liveAreaMiniMap();
+            preview.style.cssText = "width:100%;height:100%";
         }
-        const removeButton = this.root.querySelector('[data-action="remove-image"]');
-        if (removeButton) removeButton.hidden = !this.doc.image;
+        const labelOverlay = this.root.querySelector(".ra-preview-label");
+        if (labelOverlay) {
+            labelOverlay.style.display = tables.length ? "none" : "flex";
+        }
+        const summary = this.root.querySelector("[data-preview-summary]");
+        if (summary && this.doc.name && !this.doc.__islocal) {
+            const avail = tables.filter((t) => t.status === "Disponible").length;
+            summary.textContent = `${tables.length} ${tables.length === 1 ? "mesa vinculada" : "mesas vinculadas"} · ${avail} disponibles`;
+        }
+        const sub = this.root.querySelector("[data-tables-subtitle]");
+        if (sub) {
+            sub.textContent = `Mesas que pertenecen a esta área (${tables.length}).`;
+        }
+        for (const fieldname of ["description"]) {
+            const counter = this.root.querySelector(`[data-counter="${fieldname}"]`);
+            if (counter) counter.textContent = `${String(this.inputValue(fieldname) || "").length} / 500`;
+        }
         this.root.querySelectorAll(".ra-preview-label svg").forEach((svg) => { svg.style.width = "12px"; svg.style.height = "12px"; svg.style.verticalAlign = "middle"; });
     }
 
@@ -355,10 +414,143 @@ class RestaurantLocationPage {
         else leave();
     }
 
+    renderTablesRows(isNew = false) {
+        const tables = this.context?.tables || [];
+        if (isNew) {
+            return `<tr><td class="ra-empty-cell" colspan="6">Guarda el área primero<p>Una vez guardada el área podrás agregar y diseñar sus mesas.</p></td></tr>`;
+        }
+        if (!tables.length) {
+            return `<tr><td class="ra-empty-cell" colspan="6">Sin mesas vinculadas<p>Usa el botón «Agregar mesa» o abre el «Mapa de mesas» para diseñar el salón.</p></td></tr>`;
+        }
+        const statusClass = (status) => ({
+            "Disponible": "is-available",
+            "Ocupada": "is-occupied",
+            "Reservada": "is-reserved",
+            "Inactiva": "is-inactive",
+        }[status] || "is-available");
+        return tables.map((row, index) => `
+            <tr>
+                <td>${index + 1}</td>
+                <td><span class="ra-table-dot" style="background:${this.escape(row.color || "#22C55E")}"></span><strong>Mesa ${this.escape(row.table_number)}</strong></td>
+                <td>${Number(row.seats) || 4} asientos</td>
+                <td>${this.escape(row.shape || "Cuadrada")}</td>
+                <td><span class="ra-status-pill ${statusClass(row.status)}">${this.escape(row.status || "Disponible")}</span></td>
+                <td style="text-align:right">
+                    <div class="ra-row-actions">
+                        ${this.context.can_write_table ? `<button type="button" class="ra-button ra-button-sm" data-action="edit-table" data-table="${this.escape(row.name)}">${this.symbol("edit")} Editar</button>` : ""}
+                        ${this.context.can_delete_table ? `<button type="button" class="ra-button ra-button-sm ra-button-danger" data-action="delete-table" data-table="${this.escape(row.name)}">${this.symbol("trash")}</button>` : ""}
+                    </div>
+                </td>
+            </tr>
+        `).join("");
+    }
+
+    openTableDialog(existing = null) {
+        if (!this.doc?.name || this.doc.__islocal) {
+            frappe.msgprint("Guarda el área antes de agregar mesas.");
+            return;
+        }
+        const tables = this.context?.tables || [];
+        const nextNumber = existing ? existing.table_number : String(tables.length + 1);
+        const dialog = new frappe.ui.Dialog({
+            title: existing ? `Editar Mesa ${existing.table_number}` : "Agregar mesa al área",
+            fields: [
+                {
+                    fieldname: "table_number",
+                    fieldtype: "Data",
+                    label: "Número o código de mesa",
+                    reqd: 1,
+                    default: nextNumber,
+                },
+                {
+                    fieldname: "seats",
+                    fieldtype: "Int",
+                    label: "Capacidad (asientos)",
+                    reqd: 1,
+                    default: existing ? existing.seats : 4,
+                },
+                {
+                    fieldname: "shape",
+                    fieldtype: "Select",
+                    label: "Forma / Tipo",
+                    reqd: 1,
+                    options: "Cuadrada\nRectangular\nRedonda\nOvalada\nCancha azul\nCancha fútbol\nCancha básquetbol",
+                    default: existing ? existing.shape : "Cuadrada",
+                },
+                {
+                    fieldname: "status",
+                    fieldtype: "Select",
+                    label: "Estado operativo",
+                    reqd: 1,
+                    options: "Disponible\nOcupada\nReservada\nInactiva",
+                    default: existing ? existing.status : "Disponible",
+                },
+                {
+                    fieldname: "color",
+                    fieldtype: "Color",
+                    label: "Color identificador",
+                    default: existing ? existing.color : (this.doc.color || "#22C55E"),
+                },
+                {
+                    fieldname: "notes",
+                    fieldtype: "Small Text",
+                    label: "Observaciones",
+                    default: existing ? (existing.notes || "") : "",
+                },
+            ],
+            primary_action_label: existing ? "Guardar cambios" : "Crear mesa",
+            primary_action: async (values) => {
+                const payload = {
+                    doctype: "Restaurant Table",
+                    name: existing ? existing.name : undefined,
+                    modified: existing ? existing.modified : undefined,
+                    restaurant_area: this.doc.name,
+                    ...values,
+                };
+                const res = await frappe.call({
+                    method: "restaurant.table_management.save_table",
+                    args: { document: payload },
+                    freeze: true,
+                    freeze_message: "Guardando mesa…",
+                });
+                if (res && res.message) {
+                    this.context.tables = res.message.tables || [];
+                    const tbody = this.root.querySelector("[data-tables-body]");
+                    if (tbody) tbody.innerHTML = this.renderTablesRows(false);
+                    this.updatePreview();
+                    frappe.show_alert({ message: existing ? "Mesa actualizada" : "Mesa agregada", indicator: "green" });
+                    dialog.hide();
+                }
+            },
+        });
+        dialog.show();
+    }
+
+    deleteLinkedTable(tableName) {
+        const row = (this.context?.tables || []).find((item) => item.name === tableName);
+        if (!row) return;
+        frappe.confirm(`¿Deseas eliminar la Mesa ${this.escape(row.table_number)} de esta área?`, async () => {
+            const res = await frappe.call({
+                method: "restaurant.table_management.delete_table",
+                args: { name: tableName },
+                freeze: true,
+                freeze_message: "Eliminando mesa…",
+            });
+            if (res && res.message) {
+                this.context.tables = res.message.tables || [];
+                const tbody = this.root.querySelector("[data-tables-body]");
+                if (tbody) tbody.innerHTML = this.renderTablesRows(false);
+                this.updatePreview();
+                frappe.show_alert({ message: "Mesa eliminada", indicator: "orange" });
+            }
+        });
+    }
+
     handleClick(event) {
         const location = event.target.closest("[data-name]");
         if (location) { frappe.set_route("restaurant-location", location.dataset.name); return; }
-        const action = event.target.closest("[data-action]")?.dataset.action;
+        const actionEl = event.target.closest("[data-action]");
+        const action = actionEl?.dataset.action;
         if (action === "previous-page" && !this.listLoading && this.pageStart > 0) { this.queueListPage(Math.max(0, this.pageStart - this.pageLength)); return; }
         if (action === "next-page" && !this.listLoading && this.hasNext) { this.queueListPage(this.pageStart + this.pageLength); return; }
         if (action === "retry-list") { this.queueListPage(this.pageStart); return; }
@@ -366,6 +558,17 @@ class RestaurantLocationPage {
         if (action === "workspace") this.confirmLeave(["Workspaces", "Restaurante"]);
         if (action === "cancel") this.confirmLeave(["restaurant-location"]);
         if (action === "save") this.save();
+        if (action === "open-table-map" && this.doc?.name) { this.confirmLeave(["restaurant-table-map", this.doc.name]); return; }
+        if (action === "add-table") { this.openTableDialog(); return; }
+        if (action === "edit-table") {
+            const row = (this.context?.tables || []).find((item) => item.name === actionEl.dataset.table);
+            if (row) this.openTableDialog(row);
+            return;
+        }
+        if (action === "delete-table") {
+            this.deleteLinkedTable(actionEl.dataset.table);
+            return;
+        }
         if (!this.editable) return;
         if (action === "image") this.changeImage();
         if (action === "icon") this.selectIcon();
