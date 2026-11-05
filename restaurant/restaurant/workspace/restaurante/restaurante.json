@@ -107,6 +107,13 @@
    "label": "Bienvenida",
    "type": "URL",
    "url": "/restaurant-welcome"
+  },
+  {
+   "type": "URL",
+   "label": "Comandas",
+   "url": "/app/restaurant-commands",
+   "icon": "file",
+   "doc_view": ""
   }
  ],
  "title": "Restaurante"
