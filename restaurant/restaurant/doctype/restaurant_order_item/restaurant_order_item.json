@@ -1,0 +1,148 @@
+{
+ "doctype": "DocType",
+ "name": "Restaurant Order Item",
+ "module": "Restaurant",
+ "custom": 0,
+ "istable": 1,
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_code",
+  "item_name",
+  "item_group",
+  "qty",
+  "uom",
+  "base_rate",
+  "options_rate",
+  "discount_percentage",
+  "rate",
+  "amount",
+  "tax_rate",
+  "options_summary",
+  "selected_options_json",
+  "note",
+  "command_station",
+  "kds_status"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_code",
+   "label": "Producto o platillo",
+   "fieldtype": "Link",
+   "options": "Item",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "item_name",
+   "label": "Nombre del platillo",
+   "fieldtype": "Data",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "item_group",
+   "label": "Categoría",
+   "fieldtype": "Link",
+   "options": "Item Group"
+  },
+  {
+   "fieldname": "qty",
+   "label": "Cantidad",
+   "fieldtype": "Float",
+   "default": "1",
+   "reqd": 1,
+   "non_negative": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "uom",
+   "label": "Unidad de medida",
+   "fieldtype": "Link",
+   "options": "UOM"
+  },
+  {
+   "fieldname": "base_rate",
+   "label": "Precio base",
+   "fieldtype": "Currency",
+   "options": "currency",
+   "default": "0",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "options_rate",
+   "label": "Adicionales por opciones",
+   "fieldtype": "Currency",
+   "options": "currency",
+   "default": "0",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "discount_percentage",
+   "label": "Descuento (%)",
+   "fieldtype": "Percent",
+   "default": "0",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "rate",
+   "label": "Precio unitario",
+   "fieldtype": "Currency",
+   "options": "currency",
+   "default": "0",
+   "non_negative": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "amount",
+   "label": "Importe",
+   "fieldtype": "Currency",
+   "options": "currency",
+   "default": "0",
+   "non_negative": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "tax_rate",
+   "label": "Tasa ISV (%)",
+   "fieldtype": "Float",
+   "default": "15",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "options_summary",
+   "label": "Detalle de opciones",
+   "fieldtype": "Small Text"
+  },
+  {
+   "fieldname": "selected_options_json",
+   "label": "Opciones seleccionadas (JSON)",
+   "fieldtype": "Code",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "note",
+   "label": "Nota de cocina",
+   "fieldtype": "Small Text",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "command_station",
+   "label": "Estación de comanda",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "kds_status",
+   "label": "Estado en cocina",
+   "fieldtype": "Select",
+   "options": "Pendiente\nEn preparación\nListo\nEntregado",
+   "default": "Pendiente"
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "sort_field": "idx",
+ "sort_order": "ASC"
+}
+
