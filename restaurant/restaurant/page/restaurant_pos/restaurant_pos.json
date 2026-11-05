@@ -1,0 +1,18 @@
+{
+ "doctype": "Page",
+ "module": "Restaurant",
+ "name": "restaurant-pos",
+ "page_name": "restaurant-pos",
+ "title": "LEAF Restaurant POS",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Restaurant Manager"
+  }
+ ],
+ "system_page": 0
+}
+

@@ -1,0 +1,1806 @@
+/* Scoped styles for the unified LEAF Restaurant POS (/app/restaurant-pos) */
+.rpos-shell {
+    position: fixed;
+    inset: 0;
+    z-index: 1030;
+    display: flex;
+    flex-direction: column;
+    background: #f8fafc;
+    color: #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    user-select: none;
+    overflow: hidden;
+}
+
+/* Top Navigation Bar */
+.rpos-topbar {
+    height: 54px;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.rpos-topbar-left,
+.rpos-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.rpos-nav-tabs {
+    display: inline-flex;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.rpos-nav-tab {
+    background: #ffffff;
+    color: #1e293b;
+    border: 0;
+    border-right: 1px solid #e2e8f0;
+    padding: 7px 16px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+    border-bottom: 2px solid transparent;
+}
+
+.rpos-nav-tab:last-child {
+    border-right: 0;
+}
+
+.rpos-nav-tab:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+}
+
+.rpos-nav-tab.is-active {
+    background: #e6f4f1;
+    color: #0f766e;
+    border-bottom-color: #0d9488;
+    font-weight: 700;
+}
+
+.rpos-service-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    background: #e0f2fe;
+    color: #0f172a;
+    border: 1px solid #38bdf8;
+    cursor: pointer;
+}
+
+.rpos-service-pill[data-service="Para llevar"] {
+    background: #fef9c3;
+    color: #854d0e;
+    border-color: #facc15;
+}
+
+.rpos-service-pill[data-service="Entrega"] {
+    background: #ffedd5;
+    color: #9a3412;
+    border-color: #fb923c;
+}
+
+.rpos-btn-new-order {
+    background: #1898e8;
+    color: #ffffff;
+    border: 1px solid #0c7fc7;
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.rpos-btn-new-order:hover {
+    background: #0c7fc7;
+}
+
+.rpos-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: #0f172a;
+}
+
+.rpos-brand-leaf {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.rpos-brand-leaf svg,
+.rpos-brand-logo-img {
+    width: 28px;
+    height: 28px;
+    max-height: 28px;
+    object-fit: contain;
+    display: block;
+}
+
+.rpos-brand-title {
+    font-family: "Plus Jakarta Sans", "Montserrat", "Inter", "Segoe UI", system-ui, sans-serif;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.045em;
+    color: #0f172a;
+    line-height: 1;
+}
+
+.rpos-search-box {
+    position: relative;
+    width: 230px;
+}
+
+.rpos-search-box input {
+    width: 100%;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #0f172a;
+    padding: 6px 12px 6px 30px;
+    font-size: 13px;
+}
+
+.rpos-search-box input:focus {
+    outline: none;
+    border-color: #0d9488;
+}
+
+.rpos-search-icon {
+    position: absolute;
+    left: 9px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #64748b;
+    font-size: 13px;
+    pointer-events: none;
+}
+
+.rpos-cashier-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12.5px;
+    color: #1e293b;
+    cursor: pointer;
+}
+
+.rpos-cashier-avatar {
+    width: 24px;
+    height: 24px;
+    border-radius: 5px;
+    background: #334155;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rpos-icon-btn {
+    background: #ffffff;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 15px;
+}
+
+.rpos-icon-btn:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+}
+
+/* Subbar for Floor Map (Mesas View) */
+.rpos-subbar {
+    min-height: 50px;
+    background: #ffffff;
+    border-bottom: 1px solid #cbd5e1;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 6px 14px;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+.rpos-subbar-left {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+}
+
+.rpos-subbar-right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.rpos-area-tabs {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #ffffff;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.rpos-area-tabs .rpos-area-tab {
+    border: 0;
+    border-right: 1px solid #e2e8f0;
+    border-radius: 0;
+    padding: 7px 18px;
+}
+
+.rpos-area-tabs .rpos-area-tab:last-child {
+    border-right: 0;
+}
+
+.rpos-area-tab {
+    background: #ffffff;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 6px 16px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.rpos-area-tab:hover {
+    background: #f8fafc;
+}
+
+.rpos-area-tab.is-active {
+    background: #e6f4f1;
+    color: #0f766e;
+    border-color: #0d9488;
+    font-weight: 700;
+}
+
+.rpos-subbar-icon-btn {
+    padding: 6px 12px;
+    min-width: 38px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+}
+
+.rpos-floor-wrap {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    display: flex;
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+    margin: 0;
+    background: #d6b68c;
+    position: relative;
+}
+
+.rpos-floor-wrap .rtm-canvas {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    min-width: 640px;
+    min-height: 440px;
+    overflow: hidden;
+    user-select: none;
+    border: 0;
+    border-radius: 0;
+}
+
+.rpos-floor-wrap .rtm-canvas.bg-warm-wood {
+    background-color: #d6b68c;
+    background-image:
+        repeating-linear-gradient(
+            90deg,
+            rgba(120, 78, 36, 0.14) 0px,
+            rgba(120, 78, 36, 0.14) 2px,
+            transparent 2px,
+            transparent 96px
+        ),
+        repeating-linear-gradient(
+            0deg,
+            rgba(105, 68, 30, 0.08) 0px,
+            rgba(105, 68, 30, 0.08) 1px,
+            transparent 1px,
+            transparent 240px
+        ),
+        linear-gradient(90deg, #dfc39d 0%, #cfb087 35%, #dcc09a 70%, #cca97e 100%);
+}
+
+.rpos-floor-wrap .rtm-canvas.bg-light-tile {
+    background-color: #f4efe6;
+    background-image:
+        linear-gradient(335deg, #e9e1d4 23px, transparent 23px),
+        linear-gradient(155deg, #ece4d8 23px, transparent 23px),
+        linear-gradient(335deg, #e9e1d4 23px, transparent 23px),
+        linear-gradient(155deg, #ece4d8 23px, transparent 23px);
+    background-size: 58px 58px;
+    background-position: 0px 2px, 4px 35px, 29px 31px, 34px 6px;
+}
+
+.rpos-floor-wrap .rtm-canvas.bg-grey-wood {
+    background-color: #d4d8dd;
+    background-image:
+        repeating-linear-gradient(
+            90deg,
+            rgba(71, 85, 105, 0.18) 0px,
+            rgba(71, 85, 105, 0.18) 2px,
+            transparent 2px,
+            transparent 84px
+        ),
+        linear-gradient(90deg, #dcdfe4 0%, #cfd4da 45%, #e2e5e9 75%, #c9ced6 100%);
+}
+
+.rpos-floor-wrap .rtm-canvas.bg-grass {
+    background-color: #2f7d20;
+    background-image:
+        repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.07) 0px,
+            rgba(255, 255, 255, 0.07) 48px,
+            rgba(0, 0, 0, 0.08) 48px,
+            rgba(0, 0, 0, 0.08) 96px
+        ),
+        radial-gradient(circle at 20% 30%, rgba(120, 200, 60, 0.25), transparent 55%);
+}
+
+.rpos-floor-wrap .rtm-element {
+    position: absolute;
+    user-select: none;
+}
+
+.rpos-floor-wrap .rtm-element.is-table-el {
+    cursor: pointer;
+    transition: transform 0.12s ease;
+}
+
+.rpos-floor-wrap .rtm-element.is-table-el:hover {
+    transform: scale(1.03);
+}
+
+.rpos-floor-wrap .rtm-element.is-decor-el {
+    pointer-events: none;
+}
+
+.rpos-floor-wrap .rtm-element-art {
+    width: 100%;
+    height: 100%;
+    transition: transform 0.08s ease-out;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(0 3px 6px rgba(15, 23, 42, 0.22));
+}
+
+.rpos-floor-wrap .rtm-element-art svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.rpos-floor-wrap .rtm-assign-btn {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    border: 0;
+    border-radius: 7px;
+    background: rgba(20, 132, 204, 0.92);
+    color: #ffffff;
+    padding: 5px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    cursor: pointer;
+    z-index: 3;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.25);
+    line-height: 1.2;
+    text-align: center;
+}
+
+.rpos-floor-wrap .rtm-assign-btn.is-assigned {
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.45);
+}
+
+.rpos-floor-wrap .rtm-assign-btn.is-assigned:hover {
+    background: rgba(15, 23, 42, 0.98);
+    border-color: #4ade80;
+}
+
+.rpos-floor-wrap .rtm-assign-btn small {
+    display: block;
+    font-size: 9px;
+    font-weight: 500;
+    opacity: 0.92;
+    text-transform: none;
+}
+
+.rpos-floor-wrap .rtm-footer-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 16px;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    font-size: 12px;
+    color: #475569;
+    flex-wrap: wrap;
+}
+
+.rpos-floor-wrap .rtm-footer-bar strong {
+    color: #0f172a;
+}
+
+/* Main Caja Layout (Left Ticket + Right Products) */
+.rpos-caja-body {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 490px minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.rpos-ticket-pane {
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.rpos-ticket-header {
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: #64748b;
+}
+
+.rpos-ticket-header strong {
+    color: #0f172a;
+    font-size: 13px;
+}
+
+.rpos-ticket-lines {
+    flex: 1;
+    overflow-y: auto;
+    padding: 4px 0;
+}
+
+.rpos-ticket-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #64748b;
+    padding: 24px;
+    text-align: center;
+    font-size: 13px;
+}
+
+.rpos-line {
+    padding: 8px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+
+.rpos-line:hover {
+    background: #f8fafc;
+}
+
+.rpos-line.is-selected {
+    background: #e6f4f1;
+    border-left: 3px solid #0d9488;
+}
+
+.rpos-line-main {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13.5px;
+    color: #0f172a;
+}
+
+.rpos-line-qty {
+    font-weight: 700;
+    margin-right: 8px;
+    color: #0f172a;
+}
+
+.rpos-line-name {
+    flex: 1;
+    font-weight: 600;
+}
+
+.rpos-line-amount {
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.rpos-line-sub {
+    padding-left: 20px;
+    margin-top: 3px;
+    font-size: 12px;
+    color: #64748b;
+    font-style: italic;
+}
+
+.rpos-line-note {
+    display: inline-block;
+    margin-left: 20px;
+    margin-top: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+    font-size: 11.5px;
+}
+
+/* Ticket Totals Area */
+.rpos-totals-box {
+    padding: 8px 14px;
+    border-top: 1px solid #e2e8f0;
+    background: #ffffff;
+    font-size: 12.5px;
+}
+
+.rpos-totals-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    color: #475569;
+    margin-bottom: 3px;
+}
+
+.rpos-totals-row.is-tip {
+    color: #0284c7;
+    cursor: pointer;
+}
+
+.rpos-totals-row.is-grand {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 18px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+/* Action Controls + Keypad */
+.rpos-controls-grid {
+    display: grid;
+    grid-template-columns: minmax(64px, 0.9fr) minmax(46px, 0.65fr) minmax(118px, 1.45fr) minmax(100px, 1.35fr) minmax(76px, 0.95fr) 34px;
+    gap: 4px;
+    padding: 6px 8px;
+    background: #ffffff;
+    border-top: 1px solid #e2e8f0;
+}
+
+.rpos-ctrl-btn {
+    background: #f8fafc;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    height: 36px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 0 6px;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rpos-ctrl-btn:hover {
+    background: #f1f5f9;
+}
+
+.rpos-ctrl-btn.is-preset-local {
+    background: #bfdbfe;
+    border-color: #93c5fd;
+    color: #1e3a8a;
+}
+
+.rpos-ctrl-btn.is-preset-takeout {
+    background: #fef08a;
+    border-color: #fde047;
+    color: #854d0e;
+}
+
+.rpos-ctrl-btn.is-preset-delivery {
+    background: #fed7aa;
+    border-color: #fdba74;
+    color: #9a3412;
+}
+
+.rpos-numpad {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    padding: 0 8px 6px;
+    background: #ffffff;
+}
+
+.rpos-key {
+    background: #f1f5f9;
+    color: #0f172a;
+    border: 1px solid #e2e8f0;
+    border-radius: 5px;
+    height: 40px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rpos-key:hover {
+    background: #e2e8f0;
+}
+
+.rpos-key.is-mode-active {
+    background: #d1fae5;
+    border-color: #0d9488;
+    color: #0f766e;
+}
+
+.rpos-key.is-sign {
+    background: #fde68a;
+    border-color: #fcd34d;
+    color: #78350f;
+}
+
+.rpos-key.is-decimal {
+    background: #f5d0c5;
+    border-color: #f3bea8;
+    color: #7c2d12;
+}
+
+.rpos-key.is-back {
+    background: #fca5a5;
+    border-color: #f87171;
+    color: #7f1d1d;
+}
+
+.rpos-bottom-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1.6fr;
+    gap: 6px;
+    padding: 6px 8px 8px;
+    background: #ffffff;
+}
+
+.rpos-bottom-btn {
+    border: 0;
+    border-radius: 6px;
+    height: 48px;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1.15;
+}
+
+.rpos-bottom-btn.is-plum {
+    background: #1898e8;
+    color: #ffffff;
+    border: 1px solid #0c7fc7;
+}
+
+.rpos-bottom-btn.is-plum:hover {
+    background: #0c7fc7;
+}
+
+.rpos-bottom-btn.is-pay {
+    background: #f1f5f9;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+    font-size: 15px;
+}
+
+.rpos-bottom-btn.is-pay.has-items {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+.rpos-bottom-btn.is-pay:hover {
+    background: #e2e8f0;
+}
+
+/* Right Panel: Categories & Product Cards */
+.rpos-catalog-pane {
+    background: #f8fafc;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 10px 14px;
+}
+
+.rpos-categories-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-shrink: 0;
+}
+
+.rpos-cat-card {
+    min-width: 132px;
+    height: 54px;
+    border-radius: 7px;
+    border: 2px solid transparent;
+    padding: 6px 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    color: #ffffff;
+    font-size: 13.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: transform 0.12s ease, filter 0.12s ease;
+    position: relative;
+    overflow: hidden;
+}
+
+.rpos-cat-card:hover {
+    filter: brightness(0.96);
+}
+
+.rpos-cat-card.is-active {
+    border-color: #0f172a;
+    box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.15);
+}
+
+.rpos-cat-photo {
+    width: 36px;
+    height: 36px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: rgba(255, 255, 255, 0.35);
+    flex-shrink: 0;
+}
+
+.rpos-products-grid {
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(152px, 1fr));
+    grid-auto-rows: 104px;
+    gap: 10px;
+    align-content: start;
+    padding-bottom: 20px;
+}
+
+.rpos-prod-card {
+    position: relative;
+    background: #f1f5f9;
+    border: 1px solid #d1d5db;
+    border-bottom-width: 4px;
+    border-radius: 7px;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #0f172a;
+    cursor: pointer;
+    overflow: hidden;
+    transition: background 0.12s ease, transform 0.1s ease;
+}
+
+.rpos-prod-card:hover {
+    background: #e2e8f0;
+    transform: translateY(-1px);
+}
+
+.rpos-prod-card.has-photo {
+    justify-content: flex-end;
+    padding: 0;
+}
+
+.rpos-prod-photo {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+}
+
+.rpos-prod-photo-overlay {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    background: linear-gradient(to top, rgba(255, 255, 255, 0.95), rgba(255, 255, 255, 0.72));
+    padding: 6px 8px;
+}
+
+.rpos-prod-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: #0f172a;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.rpos-prod-price {
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: #475569;
+    font-weight: 600;
+}
+
+.rpos-prod-qty-badge {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    z-index: 2;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 5px;
+    background: #0f172a;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Órdenes View (List + Ticket Preview) */
+.rpos-orders-view {
+    flex: 1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 390px;
+    overflow: hidden;
+}
+
+.rpos-orders-main {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+}
+
+.rpos-orders-toolbar {
+    padding: 10px 14px;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.rpos-orders-search-group {
+    display: flex;
+    align-items: stretch;
+    flex: 1;
+    min-width: 280px;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    background: #ffffff;
+    overflow: hidden;
+}
+
+.rpos-orders-search-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    color: #475569;
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+    flex-shrink: 0;
+}
+
+.rpos-orders-search-group .rpos-order-search {
+    flex: 1;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    height: 34px;
+    padding: 4px 10px;
+    font-size: 13px;
+}
+
+.rpos-orders-search-group .rpos-order-status-select {
+    width: 110px;
+    border: 0 !important;
+    border-left: 1px solid #e2e8f0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #f8fafc !important;
+    color: #0f172a !important;
+    font-weight: 600;
+    font-size: 12.5px;
+    height: 34px;
+    padding: 4px 8px;
+    cursor: pointer;
+}
+
+.rpos-orders-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.rpos-orders-srv-tabs {
+    display: inline-flex;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.rpos-orders-srv-tabs .rpos-area-tab {
+    border: 0;
+    border-right: 1px solid #e2e8f0;
+    border-radius: 0;
+    padding: 6px 12px;
+    font-size: 12.5px;
+    height: 34px;
+}
+
+.rpos-orders-srv-tabs .rpos-area-tab:last-child {
+    border-right: 0;
+}
+
+.rpos-orders-pager {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: #334155;
+    font-weight: 500;
+}
+
+.rpos-orders-pager-btns {
+    display: inline-flex;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    overflow: hidden;
+    background: #f8fafc;
+}
+
+.rpos-pager-btn {
+    border: 0;
+    border-right: 1px solid #e2e8f0;
+    background: #f8fafc;
+    color: #64748b;
+    width: 28px;
+    height: 30px;
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rpos-pager-btn:last-child {
+    border-right: 0;
+}
+
+.rpos-orders-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.rpos-order-row {
+    background: #ffffff;
+    border: 0;
+    border-bottom: 1px solid #e2e8f0;
+    border-radius: 0;
+    padding: 10px 14px;
+    display: grid;
+    grid-template-columns: 95px 150px minmax(160px, 1.4fr) 110px 110px 96px 64px;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    font-size: 12.5px;
+    color: #0f172a;
+}
+
+.rpos-order-row:hover {
+    background: #f8fafc;
+}
+
+.rpos-order-row.is-selected {
+    background: #e6f4f1;
+    border-bottom-color: #99f6e4;
+}
+
+.rpos-order-row.is-selected .rpos-ord-date,
+.rpos-order-row.is-selected .rpos-ord-title,
+.rpos-order-row.is-selected .rpos-ord-total {
+    color: #0f766e;
+}
+
+.rpos-ord-date {
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 12.5px;
+}
+
+.rpos-ord-time {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 1px;
+}
+
+.rpos-ord-title {
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 12.5px;
+}
+
+.rpos-ord-sub {
+    font-size: 11px;
+    color: #64748b;
+    margin-top: 1px;
+}
+
+.rpos-ord-col-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.rpos-ord-cust {
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 12px;
+}
+
+.rpos-ord-badges {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.rpos-ord-badges .rpos-service-pill {
+    padding: 2px 9px;
+    font-size: 11px;
+    border-radius: 999px;
+    background: #bfdbfe;
+    color: #1e3a8a;
+    border: 0;
+}
+
+.rpos-ord-badges .rpos-service-pill[data-service="Para llevar"] {
+    background: #fef08a;
+    color: #854d0e;
+}
+
+.rpos-ord-badges .rpos-service-pill[data-service="Entrega"] {
+    background: #fed7aa;
+    color: #9a3412;
+}
+
+.rpos-table-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: #fca5a5;
+    color: #7f1d1d;
+    font-weight: 700;
+    font-size: 11px;
+    width: fit-content;
+}
+
+.rpos-ord-sched-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: #ef4444;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 11px;
+}
+
+.rpos-ord-col-total {
+    font-weight: 800;
+    font-size: 13px;
+    color: #0f172a;
+}
+
+.rpos-ord-status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 700;
+    background: #475569;
+    color: #ffffff;
+}
+
+.rpos-ord-status-pill[data-status="Facturada"] {
+    background: #16a34a;
+}
+
+.rpos-ord-status-pill[data-status="Cancelada"] {
+    background: #dc2626;
+}
+
+.rpos-ord-col-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.rpos-ord-act-btn {
+    border: 0;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #1e293b;
+}
+
+.rpos-ord-act-btn.is-info {
+    width: 19px;
+    height: 19px;
+    border-radius: 999px;
+    background: #1e293b;
+    color: #ffffff;
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-weight: 700;
+    font-size: 12px;
+    line-height: 1;
+}
+
+.rpos-ord-act-btn.is-info:hover {
+    background: #1898e8;
+}
+
+.rpos-ord-act-btn.is-trash:hover {
+    color: #dc2626;
+}
+
+/* White POS Modals */
+.rpos-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1060;
+    background: rgba(15, 23, 42, 0.48);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+}
+
+.rpos-modal {
+    background: #ffffff;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    width: 100%;
+    max-width: 680px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+    overflow: hidden;
+}
+
+.rpos-modal-header {
+    padding: 14px 18px;
+    background: #ffffff;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.rpos-modal-header h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 700;
+    color: #0f172a;
+}
+
+.rpos-modal-body {
+    padding: 18px;
+    background: #ffffff;
+    color: #0f172a;
+    overflow-y: auto;
+}
+
+.rpos-modal-footer {
+    padding: 12px 18px;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.rpos-btn-primary {
+    background: #1898e8;
+    color: #ffffff;
+    border: 1px solid #0c7fc7;
+    border-radius: 6px;
+    padding: 9px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.rpos-btn-primary:hover {
+    background: #0c7fc7;
+}
+
+.rpos-btn-green {
+    background: #1898e8;
+    color: #ffffff;
+    border: 1px solid #0c7fc7;
+    border-radius: 6px;
+    padding: 9px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.rpos-btn-green:hover {
+    background: #0c7fc7;
+}
+
+.rpos-btn-secondary {
+    background: #dc2626;
+    color: #ffffff;
+    border: 1px solid #b91c1c;
+    border-radius: 6px;
+    padding: 9px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.rpos-btn-secondary:hover {
+    background: #b91c1c;
+}
+
+/* Option Chips & Extras inside Dish Modal */
+.rpos-opt-group {
+    margin-bottom: 16px;
+}
+
+.rpos-opt-group-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.rpos-opt-group-badge {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.rpos-opt-choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.rpos-opt-btn {
+    background: #f8fafc;
+    color: #0f172a;
+    border: 2px solid #cbd5e1;
+    border-radius: 7px;
+    padding: 9px 14px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.rpos-opt-btn:hover {
+    background: #f1f5f9;
+}
+
+.rpos-opt-btn.is-selected {
+    background: #e0f2fe;
+    border-color: #1898e8;
+    color: #0c4a6e;
+}
+
+.rpos-opt-extra-pill {
+    background: #7dd3fc;
+    color: #082f49;
+    font-size: 12px;
+    font-weight: 800;
+    padding: 2px 8px;
+    border-radius: 999px;
+}
+
+/* Actions 4x2 Grid Modal */
+.rpos-actions-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+}
+
+.rpos-action-tile {
+    background: #f3f4f6;
+    color: #1f2937;
+    border: 1px solid #e5e7eb;
+    border-radius: 7px;
+    height: 108px;
+    padding: 12px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.rpos-action-tile:hover {
+    background: #e5e7eb;
+    border-color: #d1d5db;
+}
+
+.rpos-action-icon {
+    color: #6b7280;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rpos-action-guest-badge {
+    width: 24px;
+    height: 24px;
+    border-radius: 999px;
+    background: #6b7280;
+    color: #ffffff;
+    font-size: 12.5px;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rpos-action-cancel-bar {
+    width: 100%;
+    margin-top: 14px;
+    height: 48px;
+    border: 1px solid #dc2626;
+    border-radius: 7px;
+    background: #e04f53;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+
+.rpos-action-cancel-bar:hover {
+    background: #dc2626;
+}
+
+/* Preset Modal (Comer en el local / Para llevar / Entrega) */
+.rpos-preset-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.rpos-preset-row {
+    width: 100%;
+    border-radius: 6px;
+    padding: 13px 18px;
+    font-size: 15px;
+    font-weight: 500;
+    color: #0f172a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    transition: filter 0.12s ease, transform 0.08s ease;
+}
+
+.rpos-preset-row:hover {
+    filter: brightness(0.97);
+}
+
+.rpos-preset-row.is-active {
+    font-weight: 700;
+    box-shadow: 0 0 0 2px rgba(24, 152, 232, 0.25);
+}
+
+.rpos-preset-chevron {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1e293b;
+    line-height: 1;
+}
+
+/* Hamburger POS Menu 3x2 Grid Modal */
+.rpos-pos-menu-header {
+    padding: 12px 18px;
+}
+
+.rpos-menu-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #f3f4f6;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.rpos-menu-status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 999px;
+    background: #9ca3af;
+}
+
+.rpos-menu-status-dot.is-online {
+    background: #22c55e;
+}
+
+.rpos-pos-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+}
+
+.rpos-pos-menu-tile {
+    background: #f3f4f6;
+    color: #1f2937;
+    border: 1px solid #e5e7eb;
+    border-radius: 7px;
+    height: 108px;
+    padding: 14px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.rpos-pos-menu-tile:hover {
+    background: #e5e7eb;
+    border-color: #d1d5db;
+}
+
+.rpos-pos-menu-icon {
+    color: #4b5563;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.rpos-pos-menu-tile.is-danger {
+    background: #ef5350;
+    border-color: #dc2626;
+    color: #ffffff;
+}
+
+.rpos-pos-menu-tile.is-danger .rpos-pos-menu-icon {
+    color: #ffffff;
+}
+
+.rpos-pos-menu-tile.is-danger:hover {
+    background: #dc2626;
+}
+
+/* Optional Dark Mode toggle from Hamburger Menu */
+.rpos-shell.is-dark-mode {
+    background: #0f172a;
+    color: #f8fafc;
+}
+
+.rpos-shell.is-dark-mode .rpos-topbar,
+.rpos-shell.is-dark-mode .rpos-subbar,
+.rpos-shell.is-dark-mode .rpos-ticket-pane,
+.rpos-shell.is-dark-mode .rpos-totals-box,
+.rpos-shell.is-dark-mode .rpos-controls-grid,
+.rpos-shell.is-dark-mode .rpos-numpad,
+.rpos-shell.is-dark-mode .rpos-bottom-actions,
+.rpos-shell.is-dark-mode .rpos-orders-main,
+.rpos-shell.is-dark-mode .rpos-orders-toolbar {
+    background: #1e293b;
+    border-color: #334155;
+    color: #f8fafc;
+}
+
+.rpos-shell.is-dark-mode .rpos-brand-title,
+.rpos-shell.is-dark-mode .rpos-line-main,
+.rpos-shell.is-dark-mode .rpos-line-qty,
+.rpos-shell.is-dark-mode .rpos-totals-row.is-grand {
+    color: #f8fafc;
+}
+
+.rpos-shell.is-dark-mode .rpos-catalog-pane {
+    background: #0f172a;
+}
+
+/* Note Quick Tags */
+.rpos-note-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.rpos-note-tag {
+    border: 0;
+    border-radius: 5px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    color: #ffffff;
+}
+
+/* Form fields inside POS modals */
+.rpos-field {
+    margin-bottom: 12px;
+}
+
+.rpos-field label {
+    display: block;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 4px;
+}
+
+.rpos-field input,
+.rpos-field select,
+.rpos-field textarea {
+    width: 100%;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    color: #0f172a;
+    padding: 8px 12px;
+    font-size: 13.5px;
+}
+
+.rpos-field input:focus,
+.rpos-field select:focus,
+.rpos-field textarea:focus {
+    outline: none;
+    border-color: #1898e8;
+}
+
+/* Printable Pre-cuenta & SAR Invoice Receipt */
+.rpos-receipt-paper {
+    background: #ffffff;
+    color: #0f172a;
+    padding: 20px;
+    border-radius: 8px;
+    border: 1px solid #cbd5e1;
+    font-family: "Courier New", Courier, monospace;
+    font-size: 12.5px;
+    line-height: 1.45;
+    max-width: 380px;
+    margin: 0 auto;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+}
+
+.rpos-receipt-paper h4 {
+    margin: 0 0 4px;
+    text-align: center;
+    font-weight: 800;
+    font-size: 15px;
+    color: #0f172a;
+}
+
+.rpos-receipt-hr {
+    border-top: 1px dashed #64748b;
+    margin: 8px 0;
+}
+
+/* Comandar button and station printer tiles */
+.rpos-ctrl-btn.is-command {
+    background: #f8fafc;
+    border-color: #cbd5e1;
+    color: #1e293b;
+}
+
+.rpos-ctrl-btn.is-command.has-pending {
+    background: #dcfce7;
+    border-color: #86efac;
+    color: #166534;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+}
+
+.rpos-command-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 14px;
+}
+
+.rpos-command-tile {
+    background: #ffffff;
+    color: #3f3f46;
+    border: 0;
+    border-radius: 10px;
+    min-height: 140px;
+    padding: 16px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    cursor: pointer;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+    transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.rpos-command-tile:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.35);
+}
+
+.rpos-command-tile[data-empty] {
+    opacity: 0.55;
+}
+
+.rpos-command-icon {
+    color: #3f3f46;
+}
+
+.rpos-command-label {
+    font-size: 14px;
+    font-weight: 600;
+    text-transform: uppercase;
+    text-align: center;
+    line-height: 1.25;
+}
+
+.rpos-command-count {
+    font-size: 11.5px;
+    color: #16a34a;
+    font-weight: 700;
+}
+
+@media (max-width: 960px) {
+    .rpos-caja-body {
+        grid-template-columns: 340px minmax(0, 1fr);
+    }
+    .rpos-orders-view {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Keep startup failures visible while preserving the existing POS palette. */
+.rpos-startup {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+.rpos-startup-card {
+    width: 100%;
+    max-width: 520px;
+    padding: 28px;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+}
+.rpos-startup-card h1 { color: #0f172a; font-size: 22px; margin: 0 0 12px; }
+.rpos-startup-card p { color: #475569; line-height: 1.6; margin: 0 0 24px; }
+.rpos-startup-actions { display: flex; flex-wrap: wrap; gap: 12px; }
