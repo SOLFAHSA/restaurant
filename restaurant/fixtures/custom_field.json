@@ -146,6 +146,32 @@
  },
  {
   "dt": "Item",
+  "fieldname": "restaurant_color",
+  "fieldtype": "Color",
+  "label": "Color en Punto de Venta",
+  "insert_after": "restaurant_options_enabled",
+  "default": "#EC4899",
+  "description": "Color de la franja inferior de la tarjeta en el Punto de Venta cuando el platillo no tiene fotograf\u00eda o como acento visual.",
+  "doctype": "Custom Field",
+  "name": "Item-restaurant_color",
+  "module": "Restaurant",
+  "is_system_generated": 1
+ },
+ {
+  "dt": "Item Group",
+  "fieldname": "restaurant_color",
+  "fieldtype": "Color",
+  "label": "Color en Punto de Venta",
+  "insert_after": "image",
+  "default": "#2F8500",
+  "description": "Color del bot\u00f3n de categor\u00eda en el Punto de Venta del restaurante.",
+  "doctype": "Custom Field",
+  "name": "Item Group-restaurant_color",
+  "module": "Restaurant",
+  "is_system_generated": 1
+ },
+ {
+  "dt": "Item",
   "fieldname": "restaurant_configuration",
   "fieldtype": "HTML",
   "label": "Configuraci\u00f3n del platillo",

@@ -16,7 +16,7 @@ def ensure_link_permissions():
     from frappe.permissions import add_permission, rights
 
     ensure_restaurant_roles()
-    for doctype in ("Branch", "Employee"):
+    for doctype in ("Branch", "Employee", "Item Group"):
         filters = {
             "parent": doctype, "role": "Restaurant Manager", "permlevel": 0, "if_owner": 0,
         }

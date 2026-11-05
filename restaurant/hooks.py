@@ -6,10 +6,10 @@ app_email = "juanm.padilla13@hotmail.com"
 app_license = "MIT"
 
 # Register scoped colors independently from the icon sprite cache.
-app_include_css = ["/assets/restaurant/css/restaurant_theme.css?v=20261105.2"]
+app_include_css = ["/assets/restaurant/css/restaurant_theme.css?v=20261105.4"]
 app_include_js = [
     "/assets/restaurant/js/restaurant_icons.js",
-    "/assets/restaurant/js/restaurant_theme.js?v=20261105.2",
+    "/assets/restaurant/js/restaurant_theme.js?v=20261105.4",
 ]
 
 # Includes in <head>
@@ -230,7 +230,9 @@ fixtures = [
             ["name", "in", [
                 "Location-restaurant_area", "Location-restaurant_branch",
                 "Item-restaurant_tab", "Item-restaurant_recipe_enabled",
-                "Item-restaurant_options_enabled", "Item-restaurant_configuration",
+                "Item-restaurant_options_enabled", "Item-restaurant_color",
+                "Item-restaurant_configuration",
+                "Item Group-restaurant_color",
                 "Product Bundle-restaurant_managed",
                 "Product Bundle Item-restaurant_input_uom",
                 "Product Bundle Item-restaurant_input_factor",
