@@ -1,0 +1,137 @@
+/* All rules require an explicit restaurant navigation context. */
+body.restaurant-theme-context {
+    --restaurant-green: #2f8500;
+    --restaurant-green-dark: #246700;
+    --restaurant-icon-green: #369900;
+    --restaurant-soft-green: #effbe9;
+    --restaurant-green-line: #a4ce87;
+    --restaurant-navy: #002456;
+}
+body.restaurant-theme-context .page-container,
+body.restaurant-theme-context .restaurant-theme-dialog {
+    --primary: var(--restaurant-green);
+}
+body.restaurant-theme-context .page-container .btn-primary,
+body.restaurant-theme-context .restaurant-theme-dialog .btn-primary,
+body.restaurant-theme-workspace .page-actions .btn-secondary {
+    background-color: var(--restaurant-green);
+    background-image: linear-gradient(#3b9305, var(--restaurant-green));
+    border-color: var(--restaurant-green);
+    color: #fff;
+    --icon-stroke: #fff;
+}
+body.restaurant-theme-context .page-container .btn-primary:hover,
+body.restaurant-theme-context .restaurant-theme-dialog .btn-primary:hover,
+body.restaurant-theme-workspace .page-actions .btn-secondary:hover {
+    background-color: var(--restaurant-green-dark);
+    background-image: linear-gradient(var(--restaurant-green), var(--restaurant-green-dark));
+    border-color: var(--restaurant-green-dark);
+}
+body.restaurant-theme-workspace .sidebar-item-container[item-name="Restaurante"] > .desk-sidebar-item.selected,
+body.restaurant-theme-workspace .restaurant-create-workspace {
+    background-color: var(--restaurant-navy) !important;
+    background-image: linear-gradient(#062d60, var(--restaurant-navy)) !important;
+    border-color: var(--restaurant-navy) !important;
+    color: #fff !important;
+    --icon-stroke: #fff;
+}
+body.restaurant-theme-workspace .sidebar-item-container[item-name="Restaurante"] > .desk-sidebar-item.selected .sidebar-item-label,
+body.restaurant-theme-workspace .sidebar-item-container[item-name="Restaurante"] > .desk-sidebar-item.selected .sidebar-item-icon {
+    color: #fff;
+    --icon-stroke: #fff;
+}
+body.restaurant-theme-workspace .page-title .sidebar-item-icon,
+body.restaurant-theme-workspace .page-title .icon {
+    color: var(--restaurant-icon-green);
+    --icon-stroke: var(--restaurant-icon-green);
+}
+body.restaurant-theme-context .page-form .filter-button,
+body.restaurant-theme-context .page-form .filter-button.btn-primary-light {
+    color: var(--restaurant-green);
+    background-color: var(--restaurant-soft-green);
+    border-color: var(--restaurant-green-line);
+    outline-color: var(--restaurant-green-line);
+    --icon-stroke: var(--restaurant-green);
+}
+body.restaurant-theme-context .list-sidebar .list-sidebar-button,
+body.restaurant-theme-context .list-sidebar .list-tag-preview,
+body.restaurant-theme-context .list-sidebar .group-by-item.selected > .dropdown-item {
+    color: var(--restaurant-green);
+    --icon-stroke: var(--restaurant-green);
+}
+body.restaurant-theme-context .indicator-pill.green,
+body.restaurant-theme-context .indicator-pill-round.green {
+    color: var(--restaurant-green);
+    background-color: var(--restaurant-soft-green);
+}
+body.restaurant-theme-context .indicator-pill.green::before,
+body.restaurant-theme-context .indicator-pill-round.green::before {
+    background-color: var(--restaurant-green);
+}
+body.restaurant-theme-context [data-fieldname="restaurant_configuration"] .btn-default {
+    color: var(--restaurant-green);
+    background-color: var(--restaurant-soft-green);
+    border-color: var(--restaurant-green-line);
+}
+body.restaurant-theme-context .ra-app { --ra-blue: var(--restaurant-green); }
+body.restaurant-theme-context .ra-button-primary {
+    background-color: var(--restaurant-green);
+    border-color: var(--restaurant-green);
+    color: #fff;
+    box-shadow: 0 2px 4px #2f85001a;
+}
+body.restaurant-theme-context .ra-button-primary:hover {
+    background-color: var(--restaurant-green-dark);
+    border-color: var(--restaurant-green-dark);
+}
+body.restaurant-theme-context .ra-icon-tile,
+body.restaurant-theme-context .ra-icon-badge,
+body.restaurant-theme-context .ra-location-card .ra-list-icon {
+    color: var(--restaurant-icon-green);
+    background-color: var(--restaurant-soft-green);
+}
+body.restaurant-theme-context .ra-app .form-control:focus {
+    border-color: var(--restaurant-green-line);
+    box-shadow: 0 0 0 2px #2f850012;
+}
+body.restaurant-theme-context .rtm-app {
+    --rtm-sky: var(--restaurant-green);
+    --rtm-sky-dark: var(--restaurant-green-dark);
+}
+
+/* Match the native enabled flag only, leaving other blue statuses unchanged. */
+body.restaurant-theme-context .page-container[data-page-route^="List/Item/"] .indicator-pill[data-filter="disabled,=,0"] {
+    color: var(--restaurant-green);
+    background-color: var(--restaurant-soft-green);
+}
+body.restaurant-theme-context .page-container[data-page-route^="List/Item/"] .indicator-pill[data-filter="disabled,=,0"]::before {
+    background-color: var(--restaurant-green);
+}
+body.restaurant-theme-context .page-form .filter-icon.active {
+    --icon-stroke: var(--restaurant-green);
+}
+
+/* Keep accents consistent on the app's own area and floor-plan screens. */
+body.restaurant-theme-context .ra-app .frappe-control input[type="checkbox"]:checked {
+    background-color: var(--restaurant-green) !important;
+}
+body.restaurant-theme-context .restaurant-theme-dialog .ra-icon-option,
+body.restaurant-theme-context .rtm-back-btn {
+    color: var(--restaurant-icon-green);
+}
+body.restaurant-theme-context .rtm-back-btn:hover {
+    background-color: var(--restaurant-soft-green);
+    border-color: var(--restaurant-green-line);
+}
+body.restaurant-theme-context .rtm-Slider-box input[type="range"] {
+    accent-color: var(--restaurant-green);
+}
+body.restaurant-theme-context .rtm-element.is-selected .rtm-element-art {
+    outline-color: var(--restaurant-green);
+}
+body.restaurant-theme-context .rtm-element.is-selected .rtm-el-radio {
+    border-color: var(--restaurant-green);
+}
+body.restaurant-theme-context .rtm-element.is-selected .rtm-el-radio::after {
+    background-color: var(--restaurant-green);
+}

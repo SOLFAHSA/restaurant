@@ -5,8 +5,12 @@ app_description = "Restaurant management module for LEAF ERP"
 app_email = "juanm.padilla13@hotmail.com"
 app_license = "MIT"
 
-# Register operation-specific icons through the standard Desk asset hook.
-app_include_js = ["/assets/restaurant/js/restaurant_icons.js"]
+# Register scoped colors independently from the icon sprite cache.
+app_include_css = ["/assets/restaurant/css/restaurant_theme.css?v=20261105.2"]
+app_include_js = [
+    "/assets/restaurant/js/restaurant_icons.js",
+    "/assets/restaurant/js/restaurant_theme.js?v=20261105.2",
+]
 
 # Includes in <head>
 # ------------------

@@ -88,6 +88,20 @@
    "doc_view": ""
   },
   {
+   "doc_view": "List",
+   "icon": "table",
+   "label": "Mesas",
+   "link_to": "Restaurant Table",
+   "type": "DocType"
+  },
+  {
+   "type": "URL",
+   "label": "Mapa de mesas",
+   "url": "/app/restaurant-table-map",
+   "icon": "grid",
+   "doc_view": ""
+  },
+  {
    "color": "Green",
    "doc_view": "",
    "label": "Bienvenida",
