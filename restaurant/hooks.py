@@ -223,8 +223,14 @@ fixtures = [
     {
         "dt": "Custom Field",
         "filters": [
-            ["dt", "=", "Location"],
-            ["fieldname", "in", ["restaurant_area", "restaurant_branch"]],
+            ["name", "in", [
+                "Location-restaurant_area", "Location-restaurant_branch",
+                "Item-restaurant_tab", "Item-restaurant_recipe_enabled",
+                "Item-restaurant_options_enabled", "Item-restaurant_configuration",
+                "Product Bundle-restaurant_managed",
+                "Product Bundle Item-restaurant_input_uom",
+                "Product Bundle Item-restaurant_input_factor",
+            ]],
         ],
     },
     {"dt": "Custom HTML Block", "filters": [["name", "=", "Restaurant Dashboard"]]},
@@ -240,3 +246,14 @@ website_redirects = [
 before_migrate = "restaurant.setup.ensure_restaurant_roles"
 after_migrate = "restaurant.setup.ensure_link_permissions"
 after_install = "restaurant.setup.ensure_link_permissions"
+
+# Extend the native Item form without replacing selling or stock controllers.
+doctype_js = {"Item": "public/js/item_restaurant.js"}
+doctype_list_js = {"Item": "public/js/item_restaurant_list.js"}
+doc_events = {
+    "Item": {"validate": "restaurant.item_configuration.validate_item"},
+    "Product Bundle": {
+        "validate": "restaurant.item_configuration.validate_managed_bundle",
+        "on_trash": "restaurant.item_configuration.prevent_managed_recipe_deletion",
+    },
+}
