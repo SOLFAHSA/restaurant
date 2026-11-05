@@ -1,0 +1,76 @@
+{
+ "doctype": "DocType",
+ "name": "Restaurant Command",
+ "module": "Restaurant",
+ "custom": 0,
+ "autoname": "hash",
+ "allow_import": 1,
+ "track_changes": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "command_name",
+  "branch",
+  "enabled",
+  "groups"
+ ],
+ "fields": [
+  {
+   "fieldname": "command_name",
+   "fieldtype": "Data",
+   "label": "Nombre o descripción de la comanda",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "label": "Sucursal",
+   "options": "Branch",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Activa",
+   "default": "1",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "groups",
+   "fieldtype": "Table",
+   "label": "Grupos asignados",
+   "options": "Restaurant Command Group",
+   "reqd": 1,
+   "description": "Asignación exacta: selecciona también los subgrupos que necesites. Un grupo puede pertenecer a varias comandas de la misma sucursal."
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1
+  },
+  {
+   "role": "Restaurant Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1
+  }
+ ],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "sort_field": "command_name",
+ "sort_order": "ASC",
+ "title_field": "command_name",
+ "search_fields": "command_name,branch"
+}

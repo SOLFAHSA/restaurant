@@ -1,0 +1,32 @@
+.rc-page { max-width: 1280px; margin: 0 auto; padding: 24px 8px; color: var(--text-color); }
+.rc-intro h2 { color: var(--restaurant-navy, #002456); font-size: 24px; margin: 0 0 8px; }
+.rc-intro p, .rc-note { color: var(--text-muted); }
+.rc-tools, .rc-picker-tools { display: flex; align-items: center; gap: 16px; margin: 24px 0 16px; }
+.rc-search { max-width: 380px; }
+.rc-status { color: var(--text-muted); }
+.rc-table-wrap { overflow-x: auto; border: 1px solid var(--border-color); border-radius: 10px; background: var(--card-bg); }
+.rc-table { margin-bottom: 0; min-width: 640px; }
+.rc-table thead { background: var(--control-bg); }
+.rc-table th { color: var(--restaurant-navy, #002456); font-size: 12px; }
+.rc-table td { vertical-align: middle !important; padding: 16px 12px !important; }
+.rc-table th:first-child { width: 24%; }
+.rc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.rc-chip { padding: 3px 8px; border-radius: 6px; background: var(--control-bg); font-size: 12px; }
+.rc-state { display: inline-block; padding: 4px 10px; border-radius: 20px; background: var(--restaurant-soft-green, #effbe9); color: var(--restaurant-green-dark, #246700); font-size: 12px; }
+.rc-state.is-disabled { background: var(--control-bg); color: var(--text-muted); }
+.rc-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 16px; margin-top: 16px; }
+.rc-note { margin-top: 24px; font-size: 12px; }
+.rc-empty { text-align: center; padding: 40px !important; color: var(--text-muted); }
+.rc-empty p { margin-top: 8px; font-size: 13px; }
+.rc-picker-tools { margin-top: 8px; }
+.rc-picker-tools input { flex: 1; }
+.rc-picker-tools [data-selected-count] { font-size: 12px; white-space: nowrap; color: var(--text-muted); }
+.rc-group-list { max-height: 300px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: 8px; }
+.rc-group-option { display: flex; align-items: center; gap: 12px; padding: 12px; margin: 0; border-bottom: 1px solid var(--border-color); cursor: pointer; }
+.rc-group-option:last-child { border-bottom: 0; }
+.rc-group-option:hover { background: var(--control-bg); }
+.rc-group-option input { width: 16px; height: 16px; accent-color: var(--restaurant-green, #2f8500); }
+.rc-group-option strong { display: block; font-size: 13px; font-weight: 500; }
+.rc-group-option small { display: block; color: var(--text-muted); margin-top: 2px; font-size: 11px; }
+.rc-parent { margin-left: auto; color: var(--text-muted); font-size: 11px; }
+@media (max-width: 600px) { .rc-page { padding: 16px 0; } .rc-picker-tools { flex-wrap: wrap; } .rc-parent { display: none; } }

@@ -1,0 +1,26 @@
+{
+ "doctype": "DocType",
+ "name": "Restaurant Command Group",
+ "module": "Restaurant",
+ "custom": 0,
+ "istable": 1,
+ "engine": "InnoDB",
+ "editable_grid": 1,
+ "field_order": [
+  "item_group"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "label": "Grupo",
+   "options": "Item Group",
+   "reqd": 1,
+   "in_list_view": 1
+  }
+ ],
+ "permissions": [],
+ "actions": [],
+ "links": [],
+ "states": []
+}

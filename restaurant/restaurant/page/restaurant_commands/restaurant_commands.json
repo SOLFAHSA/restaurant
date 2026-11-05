@@ -1,0 +1,17 @@
+{
+ "doctype": "Page",
+ "module": "Restaurant",
+ "name": "restaurant-commands",
+ "page_name": "restaurant-commands",
+ "title": "Comandas",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Restaurant Manager"
+  }
+ ],
+ "system_page": 0
+}
