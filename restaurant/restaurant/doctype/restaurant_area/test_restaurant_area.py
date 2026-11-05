@@ -46,7 +46,7 @@ class TestRestaurantArea(FrappeTestCase):
         self.assertEqual(loaded.description, "Área al aire libre.")
         self.assertEqual(frappe.db.count("Location"), self.location_count)
         self.assertFalse(get_editor_context(saved.name)["kds_available"])
-        self.assertFalse(get_editor_context(saved.name)["tables_available"])
+        self.assertTrue(get_editor_context(saved.name)["tables_available"])
 
     def test_area_can_be_created_and_updated_without_type(self):
         self.assertIsNone(frappe.get_meta("Restaurant Area").get_field("area_type"))
