@@ -6,7 +6,7 @@ frappe.ui.form.on("Restaurant Area", {
         }));
     },
     refresh(frm) {
-        frm.add_custom_button(__("Abrir diseño de ubicaciones"), () => {
+        frm.add_custom_button(__("Abrir diseño de áreas"), () => {
             frappe.set_route("restaurant-location", frm.is_new() ? "new" : frm.doc.name);
         });
     },

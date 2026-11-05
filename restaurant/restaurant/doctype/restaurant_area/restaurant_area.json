@@ -13,7 +13,6 @@
   "location_details",
   "area_name",
   "branch",
-  "area_type",
   "display_order",
   "capacity",
   "status",
@@ -32,12 +31,12 @@
   {
    "fieldname": "location_details",
    "fieldtype": "Section Break",
-   "label": "Información de la ubicación"
+   "label": "Información del área"
   },
   {
    "fieldname": "area_name",
    "fieldtype": "Data",
-   "label": "Nombre de la ubicación",
+   "label": "Nombre del área",
    "reqd": 1,
    "in_list_view": 1,
    "unique": 1
@@ -52,20 +51,12 @@
    "in_standard_filter": 1
   },
   {
-   "fieldname": "area_type",
-   "fieldtype": "Select",
-   "label": "Tipo de área",
-   "options": "Área interior\nÁrea abierta (Terraza)\nBarra\nÁrea privada",
-   "default": "Área interior",
-   "reqd": 1
-  },
-  {
    "fieldname": "display_order",
    "fieldtype": "Int",
    "label": "Orden de visualización",
    "default": "0",
    "non_negative": 1,
-   "description": "Determina el orden en que aparece en el POS."
+   "description": "Los números menores aparecen primero en el listado de áreas."
   },
   {
    "fieldname": "capacity",

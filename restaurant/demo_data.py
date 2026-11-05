@@ -15,12 +15,12 @@ PRICE_DATE = "2026-01-01"
 DOCTYPES = ("UOM", "Item Group", "Price List", "Branch", "Restaurant Area", "Item", "Item Price")
 BRANCHES = ("Centro", "Norte", "Sur", "Mirador")
 AREAS = (
-    ("Salón principal", "Área interior", 48, "Salón", "#3B78FF"),
-    ("Terraza", "Área abierta (Terraza)", 24, "Terraza", "#22C55E"),
-    ("Barra", "Barra", 12, "Barra", "#F59E0B"),
-    ("Salón privado", "Área privada", 16, "Salón", "#8B5CF6"),
-    ("Jardín", "Área abierta (Terraza)", 32, "Jardín", "#16A34A"),
-    ("Salón familiar", "Área interior", 36, "Salón", "#0EA5E9"),
+    ("Salón principal", 48, "Salón", "#3B78FF"),
+    ("Terraza", 24, "Terraza", "#22C55E"),
+    ("Barra", 12, "Barra", "#F59E0B"),
+    ("Salón privado", 16, "Salón", "#8B5CF6"),
+    ("Jardín", 32, "Jardín", "#16A34A"),
+    ("Salón familiar", 36, "Salón", "#0EA5E9"),
 )
 PRODUCTS = (
     ("001", "Baleada sencilla", 35),
@@ -79,10 +79,10 @@ def _seed_records(root_group, summary):
     for branch_index, branch_label in enumerate(BRANCHES):
         branch_name = PREFIX + " Sucursal " + branch_label
         _ensure("Branch", {"name": branch_name}, {"branch": branch_name}, summary)
-        for area_index, (label, area_type, capacity, icon, color) in enumerate(AREAS):
+        for area_index, (label, capacity, icon, color) in enumerate(AREAS):
             area_name = PREFIX + " " + branch_label + " - " + label
             _ensure("Restaurant Area", {"name": area_name}, {
-                "area_name": area_name, "branch": branch_name, "area_type": area_type,
+                "area_name": area_name, "branch": branch_name,
                 "display_order": branch_index * len(AREAS) + area_index + 1,
                 "capacity": capacity, "status": "Activa", "visible_in_pos": 1,
                 "description": "Área ficticia para pruebas de navegación y configuración del restaurante.",

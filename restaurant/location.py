@@ -10,11 +10,10 @@ from frappe import _
 from frappe.utils import cstr
 
 DOCTYPE = "Restaurant Area"
-AREA_TYPES = ("Área interior", "Área abierta (Terraza)", "Barra", "Área privada")
 AREA_STATUSES = ("Activa", "Inactiva")
 AREA_ICONS = ("Terraza", "Salón", "Barra", "Jardín")
 EDITABLE_FIELDS = (
-    "area_name", "branch", "area_type", "display_order", "capacity", "status",
+    "area_name", "branch", "display_order", "capacity", "status",
     "visible_in_pos", "description", "image", "icon", "printer", "waiter",
     "allow_open_accounts", "color", "notes",
 )
@@ -30,7 +29,7 @@ def get_editor_context(name=None, for_list=False):
     else:
         if frappe.utils.cint(for_list):
             if not frappe.has_permission(DOCTYPE, "read"):
-                frappe.throw(_("No tienes permiso para consultar ubicaciones del restaurante."), frappe.PermissionError)
+                frappe.throw(_("No tienes permiso para consultar áreas del restaurante."), frappe.PermissionError)
         else:
             _require_create_permission()
         doc = frappe.new_doc(DOCTYPE)
@@ -47,7 +46,7 @@ def get_editor_context(name=None, for_list=False):
 def get_locations(search="", start=0, page_length=12):
     """Return a bounded page using native role and user permission filters."""
     if not frappe.has_permission(DOCTYPE, "read"):
-        frappe.throw(_("No tienes permiso para consultar ubicaciones del restaurante."), frappe.PermissionError)
+        frappe.throw(_("No tienes permiso para consultar áreas del restaurante."), frappe.PermissionError)
     if search is None:
         search = ""
     if not isinstance(search, str) or len(search) > 140:
@@ -56,7 +55,7 @@ def get_locations(search="", start=0, page_length=12):
     offset = _whole_number(start, _("Inicio de página"), 0)
     size = _whole_number(page_length, _("Tamaño de página"), 1)
     if size > 50:
-        frappe.throw(_("El tamaño de página no puede superar 50 ubicaciones."))
+        frappe.throw(_("El tamaño de página no puede superar 50 áreas."))
 
     # Preserve native Frappe LIKE semantics; values are escaped by DatabaseQuery.
     pattern = "%" + search + "%"
@@ -83,7 +82,7 @@ def save_location(document):
     if isinstance(document, str):
         document = frappe.parse_json(document)
     if not isinstance(document, dict):
-        frappe.throw(_("Los datos de la ubicación no son válidos."))
+        frappe.throw(_("Los datos del área no son válidos."))
     if document.get("doctype") not in (None, DOCTYPE):
         frappe.throw(_("El tipo de documento no corresponde a un área del restaurante."))
 
@@ -96,7 +95,7 @@ def save_location(document):
         doc = frappe.get_doc(DOCTYPE, name)
         doc.check_permission("write")
         if not document.get("modified"):
-            frappe.throw(_("Recarga la ubicación antes de guardar los cambios."))
+            frappe.throw(_("Recarga el área antes de guardar los cambios."))
         # Document.save compares this client timestamp with the current row.
         doc.modified = document["modified"]
 
@@ -115,13 +114,11 @@ def validate_area(doc, method=None):
     """Validate both the designed editor and native form/import writes."""
     doc.area_name = cstr(doc.area_name).strip()
     if not doc.area_name:
-        frappe.throw(_("Ingresa el nombre de la ubicación."))
+        frappe.throw(_("Ingresa el nombre del área."))
     if len(doc.area_name) > 140:
-        frappe.throw(_("El nombre de la ubicación no puede superar 140 caracteres."))
+        frappe.throw(_("El nombre del área no puede superar 140 caracteres."))
     if not doc.branch:
-        frappe.throw(_("Selecciona la sucursal de la ubicación."))
-    if doc.area_type not in AREA_TYPES:
-        frappe.throw(_("Selecciona un tipo de área válido."))
+        frappe.throw(_("Selecciona la sucursal del área."))
     if doc.status not in AREA_STATUSES:
         frappe.throw(_("Selecciona un estado válido."))
     if doc.icon not in AREA_ICONS:
@@ -155,7 +152,7 @@ def validate_area(doc, method=None):
 
 def _require_create_permission():
     if not frappe.has_permission(DOCTYPE, "create"):
-        frappe.throw(_("No tienes permiso para crear ubicaciones del restaurante."), frappe.PermissionError)
+        frappe.throw(_("No tienes permiso para crear áreas del restaurante."), frappe.PermissionError)
 
 
 def _whole_number(value, label, minimum):

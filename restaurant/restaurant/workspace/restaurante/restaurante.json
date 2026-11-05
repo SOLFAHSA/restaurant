@@ -17,7 +17,7 @@
  "is_hidden": 0,
  "label": "Restaurante",
  "links": [],
- "modified": "2026-10-30 20:59:57.845762",
+ "modified": "2026-11-04 11:54:45.762019",
  "modified_by": "Administrator",
  "module": "Restaurant",
  "name": "Restaurante",
@@ -39,7 +39,7 @@
   {
    "doc_view": "Tree",
    "icon": "organization",
-   "label": "Categor\u00edas y subcategor\u00edas",
+   "label": "Categorías y subcategorías",
    "link_to": "Item Group",
    "type": "DocType"
   },
@@ -82,7 +82,7 @@
   },
   {
    "type": "URL",
-   "label": "Ubicaciones",
+   "label": "Áreas",
    "url": "/app/restaurant-location",
    "icon": "map",
    "doc_view": ""

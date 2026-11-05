@@ -10,7 +10,7 @@ class RestaurantLocationPage {
     constructor(wrapper) {
         this.wrapper = wrapper;
         $(wrapper).addClass("restaurant-location-page");
-        this.page = frappe.ui.make_app_page({ parent: wrapper, title: "Ubicaciones y áreas", single_column: true });
+        this.page = frappe.ui.make_app_page({ parent: wrapper, title: "Áreas", single_column: true });
         this.root = $(frappe.render_template("restaurant_location")).appendTo(this.page.body)[0];
         this.controls = {};
         this.dirty = false;
@@ -63,7 +63,7 @@ class RestaurantLocationPage {
         this.searchRequestId++;
         this.dirty = false;
         this.loading = true;
-        this.root.innerHTML = '<div class="ra-loading" role="status">Cargando ubicaciones…</div>';
+        this.root.innerHTML = '<div class="ra-loading" role="status">Cargando áreas…</div>';
         const route = frappe.get_route();
         const name = route[1] && route[1] !== "new" ? route[1] : null;
         try {
@@ -74,7 +74,7 @@ class RestaurantLocationPage {
             if (!route[1]) await this.renderList(currentId);
             else await this.renderEditor();
         } catch (error) {
-            if (currentId === this.requestId) this.root.innerHTML = '<div class="ra-error" role="alert">No fue posible cargar esta ubicación. Comprueba tus permisos e inténtalo nuevamente.</div>';
+            if (currentId === this.requestId) this.root.innerHTML = '<div class="ra-error" role="alert">No fue posible cargar esta área. Comprueba tus permisos e inténtalo nuevamente.</div>';
         } finally {
             if (currentId === this.requestId) this.loading = false;
         }
@@ -85,7 +85,7 @@ class RestaurantLocationPage {
         this.pageStart = 0;
         this.pageLength = 12;
         this.hasNext = false;
-        this.root.innerHTML = `<header class="ra-toolbar"><div class="ra-heading"><button class="ra-button ra-back" data-action="workspace" aria-label="Volver al restaurante">${this.symbol("back")}</button><div><h1>Ubicaciones y áreas</h1><p>Organiza los espacios de atención de tu restaurante.</p></div></div>${this.context.can_create ? `<button class="ra-button ra-button-primary" data-action="new">${this.symbol("plus")} Nueva ubicación</button>` : ""}</header><div class="ra-list-tools"><input class="form-control ra-list-search" type="search" maxlength="140" placeholder="Buscar ubicación o sucursal" aria-label="Buscar ubicación o sucursal"/><label class="ra-page-size">Por página <select class="form-control" aria-label="Ubicaciones por página"><option value="12">12</option><option value="24">24</option><option value="48">48</option></select></label></div><div class="ra-location-grid" aria-busy="true"></div><nav class="ra-pagination" aria-label="Paginación de ubicaciones"><span data-page-range role="status" aria-live="polite"></span><div class="ra-pagination-actions"><button class="ra-button" data-action="previous-page" disabled>Anterior</button><button class="ra-button" data-action="next-page" disabled>Siguiente</button></div></nav>`;
+        this.root.innerHTML = `<header class="ra-toolbar"><div class="ra-heading"><button class="ra-button ra-back" data-action="workspace" aria-label="Volver al restaurante">${this.symbol("back")}</button><div><h1>Áreas</h1><p>Organiza los espacios de atención de tu restaurante.</p></div></div>${this.context.can_create ? `<button class="ra-button ra-button-primary" data-action="new">${this.symbol("plus")} Nueva área</button>` : ""}</header><div class="ra-list-tools"><input class="form-control ra-list-search" type="search" maxlength="140" placeholder="Buscar área o sucursal" aria-label="Buscar área o sucursal"/><label class="ra-page-size">Por página <select class="form-control" aria-label="Áreas por página"><option value="12">12</option><option value="24">24</option><option value="48">48</option></select></label></div><div class="ra-location-grid" aria-busy="true"></div><nav class="ra-pagination" aria-label="Paginación de áreas"><span data-page-range role="status" aria-live="polite"></span><div class="ra-pagination-actions"><button class="ra-button" data-action="previous-page" disabled>Anterior</button><button class="ra-button" data-action="next-page" disabled>Siguiente</button></div></nav>`;
         const searchInput = this.root.querySelector(".ra-list-search");
         searchInput.addEventListener("input", () => {
             this.listSearch = searchInput.value.trim();
@@ -126,7 +126,7 @@ class RestaurantLocationPage {
         const target = this.root.querySelector(".ra-location-grid");
         if (!target) return;
         target.setAttribute("aria-busy", "true");
-        target.innerHTML = '<div class="ra-loading" role="status">Cargando ubicaciones…</div>';
+        target.innerHTML = '<div class="ra-loading" role="status">Cargando áreas…</div>';
         this.root.querySelector("[data-page-range]").textContent = "Cargando…";
         this.updateListNavigation();
     }
@@ -152,7 +152,7 @@ class RestaurantLocationPage {
             if (!this.isCurrentList(requestId, searchRequestId)) return;
             this.locations = [];
             this.hasNext = false;
-            this.root.querySelector(".ra-location-grid").innerHTML = '<div class="ra-error" role="alert">No fue posible cargar las ubicaciones. Comprueba tu conexión o tus permisos.<p><button class="ra-button" data-action="retry-list">Reintentar</button></p></div>';
+            this.root.querySelector(".ra-location-grid").innerHTML = '<div class="ra-error" role="alert">No fue posible cargar las áreas. Comprueba tu conexión o tus permisos.<p><button class="ra-button" data-action="retry-list">Reintentar</button></p></div>';
             this.root.querySelector("[data-page-range]").textContent = "No se pudo cargar la página";
         } finally {
             if (this.isCurrentList(requestId, searchRequestId)) {
@@ -175,9 +175,9 @@ class RestaurantLocationPage {
         const target = this.root.querySelector(".ra-location-grid");
         if (!records.length) {
             const laterPage = this.pageStart > 0;
-            const title = laterPage ? "No hay ubicaciones en esta página" : (this.listSearch ? "No se encontraron ubicaciones" : "Aún no hay ubicaciones");
-            const hint = laterPage ? "Regresa a la página anterior para consultar las ubicaciones disponibles." : (this.listSearch ? "Prueba con otro nombre o sucursal." : "Crea tu primera ubicación para organizar las áreas del restaurante.");
-            target.innerHTML = `<div class="ra-empty-list">${this.symbol("terrace")}<h2>${title}</h2><p>${hint}</p>${!laterPage && !this.listSearch && this.context.can_create ? '<button class="ra-button ra-button-primary" data-action="new">Crear ubicación</button>' : ""}</div>`;
+            const title = laterPage ? "No hay áreas en esta página" : (this.listSearch ? "No se encontraron áreas" : "Aún no hay áreas");
+            const hint = laterPage ? "Regresa a la página anterior para consultar las áreas disponibles." : (this.listSearch ? "Prueba con otro nombre o sucursal." : "Crea tu primera área para organizar los espacios del restaurante.");
+            target.innerHTML = `<div class="ra-empty-list">${this.symbol("terrace")}<h2>${title}</h2><p>${hint}</p>${!laterPage && !this.listSearch && this.context.can_create ? '<button class="ra-button ra-button-primary" data-action="new">Crear área</button>' : ""}</div>`;
             const emptyIcon = target.querySelector("svg");
             if (emptyIcon) { emptyIcon.style.width = "48px"; emptyIcon.style.height = "48px"; emptyIcon.style.color = "#3b78ff"; }
             return;
@@ -189,25 +189,24 @@ class RestaurantLocationPage {
         this.controls = {};
         const isNew = !this.doc.name || this.doc.__islocal;
         this.editable = Boolean(isNew ? this.context.can_create : this.context.can_write);
-        this.root.innerHTML = `<header class="ra-toolbar"><div class="ra-heading"><button class="ra-button ra-back" data-action="cancel" aria-label="Volver a ubicaciones">${this.symbol("back")}</button><h1>${isNew ? "Nueva ubicación" : this.escape(this.doc.area_name)}</h1><span class="ra-badge ${isNew ? "" : "ra-badge-saved"}" data-status>${isNew ? "Sin guardar" : "Guardada"}</span></div><div class="ra-actions"><button class="ra-button" data-action="cancel">Cancelar</button>${this.editable ? `<button class="ra-button ra-button-primary" data-action="save">${this.symbol("check")} Guardar ubicación</button>` : ""}</div></header>${this.editable ? "" : '<p class="ra-readonly-note">Tienes permiso de lectura. Esta ubicación se muestra sin opciones de edición.</p>'}
-        <section class="ra-card"><header class="ra-card-header"><div><h2>Información de la ubicación</h2><p>Define las características generales de esta ubicación o área del restaurante.</p></div><span class="ra-required-note">* Campos obligatorios</span></header><div class="ra-info-layout"><div class="ra-field-grid"><div class="ra-field-wide" data-field="area_name"></div><div data-field="branch"></div><div data-field="area_type"></div><div data-field="display_order"></div><div data-field="capacity"></div><div data-field="status"></div><div data-field="visible_in_pos"></div><div class="ra-field-wide" data-field="description"></div></div>
-        <aside class="ra-preview-card"><h3>Vista previa de la ubicación</h3><p>Referencia visual para el plano de áreas.</p><div class="ra-preview"><div class="ra-preview-art">${this.floorPlan()}</div><div class="ra-preview-label"><strong data-preview-name></strong><span>${this.symbol("people")} <span data-preview-capacity></span></span></div></div><div class="ra-preview-caption">Ilustración de referencia; no representa mesas vinculadas.</div><span class="ra-image-label">Icono o imagen representativa</span><div class="ra-image-controls"><div class="ra-icon-tile" data-preview-icon></div><div class="ra-upload-actions"><button class="ra-button" data-action="image" ${this.editable ? "" : "disabled"}>${this.symbol("image")} Cambiar imagen</button><button class="ra-button" data-action="icon" ${this.editable ? "" : "disabled"}>${this.symbol("icon")} Seleccionar icono</button><button class="ra-button" data-action="remove-image" ${this.editable ? "" : "disabled"}>Quitar imagen</button><p class="ra-hint">JPG, PNG, WEBP o un icono del sistema.</p></div></div></aside></div></section>
-        <section class="ra-card"><header class="ra-card-header"><div><h2>Configuración operativa</h2><p>Define los recursos y comportamientos de esta ubicación.</p></div></header><div class="ra-operations-grid"><div><label class="ra-manual-label" for="ra-kds">Estación KDS por defecto</label><input id="ra-kds" class="ra-muted-field" disabled value="Sin estaciones disponibles"/><p class="ra-hint">Se habilitará al integrar las estaciones de cocina.</p></div><div data-field="printer"></div><div data-field="waiter"></div><div data-field="allow_open_accounts"></div><div data-field="color"></div><div data-field="notes"></div></div><p class="ra-hint">Las preferencias de POS, apertura de cuentas e impresión se guardan como configuración para los flujos del restaurante.</p></section>
-        <section class="ra-card"><header class="ra-card-header"><div><h2>Mesas vinculadas</h2><p>Mesas que pertenecen a esta ubicación.</p></div><button class="ra-button" disabled title="El catálogo de mesas aún no está habilitado">${this.symbol("plus")} Vincular mesa</button></header><div class="ra-table-wrapper"><table class="ra-table"><thead><tr><th><input type="checkbox" disabled aria-label="Seleccionar todas las mesas"/></th><th>N.°</th><th>Mesa</th><th>Capacidad</th><th>Tipo</th><th>Estado</th><th></th></tr></thead><tbody><tr><td class="ra-empty-cell" colspan="7">Sin mesas vinculadas<p>Podrás vincular mesas cuando se habilite su catálogo.</p></td></tr></tbody></table></div></section>`;
+        this.root.innerHTML = `<header class="ra-toolbar"><div class="ra-heading"><button class="ra-button ra-back" data-action="cancel" aria-label="Volver a áreas">${this.symbol("back")}</button><h1>${isNew ? "Nueva área" : this.escape(this.doc.area_name)}</h1><span class="ra-badge ${isNew ? "" : "ra-badge-saved"}" data-status>${isNew ? "Sin guardar" : "Guardada"}</span></div><div class="ra-actions"><button class="ra-button" data-action="cancel">Cancelar</button>${this.editable ? `<button class="ra-button ra-button-primary" data-action="save">${this.symbol("check")} Guardar área</button>` : ""}</div></header>${this.editable ? "" : '<p class="ra-readonly-note">Tienes permiso de lectura. Esta área se muestra sin opciones de edición.</p>'}
+        <section class="ra-card"><header class="ra-card-header"><div><h2>Información del área</h2><p>Define las características generales del área del restaurante.</p></div><span class="ra-required-note">* Campos obligatorios</span></header><div class="ra-info-layout"><div class="ra-field-grid"><div class="ra-field-wide" data-field="area_name"></div><div data-field="branch"></div><div data-field="display_order"></div><div data-field="capacity"></div><div data-field="status"></div><div data-field="visible_in_pos"></div><div class="ra-field-wide" data-field="description"></div></div>
+        <aside class="ra-preview-card"><h3>Vista previa del área</h3><p>Referencia visual para el plano de áreas.</p><div class="ra-preview"><div class="ra-preview-art">${this.floorPlan()}</div><div class="ra-preview-label"><strong data-preview-name></strong><span>${this.symbol("people")} <span data-preview-capacity></span></span></div></div><div class="ra-preview-caption">Ilustración de referencia; no representa mesas vinculadas.</div><span class="ra-image-label">Icono o imagen representativa</span><div class="ra-image-controls"><div class="ra-icon-tile" data-preview-icon></div><div class="ra-upload-actions"><button class="ra-button" data-action="image" ${this.editable ? "" : "disabled"}>${this.symbol("image")} Cambiar imagen</button><button class="ra-button" data-action="icon" ${this.editable ? "" : "disabled"}>${this.symbol("icon")} Seleccionar icono</button><button class="ra-button" data-action="remove-image" ${this.editable ? "" : "disabled"}>Quitar imagen</button><p class="ra-hint">JPG, PNG, WEBP o un icono del sistema.</p></div></div></aside></div></section>
+        <section class="ra-card"><header class="ra-card-header"><div><h2>Configuración operativa</h2><p>Define los recursos y comportamientos de esta área.</p></div></header><div class="ra-operations-grid"><div><label class="ra-manual-label" for="ra-kds">Estación KDS por defecto</label><input id="ra-kds" class="ra-muted-field" disabled value="Sin estaciones disponibles"/><p class="ra-hint">Se habilitará al integrar las estaciones de cocina.</p></div><div data-field="printer"></div><div data-field="waiter"></div><div data-field="allow_open_accounts"></div><div data-field="color"></div><div data-field="notes"></div></div><p class="ra-hint">Las preferencias de POS, apertura de cuentas e impresión se guardan como configuración para los flujos del restaurante.</p></section>
+        <section class="ra-card"><header class="ra-card-header"><div><h2>Mesas vinculadas</h2><p>Mesas que pertenecen a esta área.</p></div><button class="ra-button" disabled title="El catálogo de mesas aún no está habilitado">${this.symbol("plus")} Vincular mesa</button></header><div class="ra-table-wrapper"><table class="ra-table"><thead><tr><th><input type="checkbox" disabled aria-label="Seleccionar todas las mesas"/></th><th>N.°</th><th>Mesa</th><th>Capacidad</th><th>Tipo</th><th>Estado</th><th></th></tr></thead><tbody><tr><td class="ra-empty-cell" colspan="7">Sin mesas vinculadas<p>Podrás vincular mesas cuando se habilite su catálogo.</p></td></tr></tbody></table></div></section>`;
         // Numeric text controls avoid the native integer control focus timeout.
         // The DocType and server remain responsible for integer validation.
         const definitions = [
-            ["area_name", "Data", "Nombre de la ubicación", { reqd: 1 }],
+            ["area_name", "Data", "Nombre del área", { reqd: 1 }],
             ["branch", "Link", "Sucursal", { reqd: 1, options: "Branch" }],
-            ["area_type", "Select", "Tipo de área", { reqd: 1, options: "Área interior\nÁrea abierta (Terraza)\nBarra\nÁrea privada" }],
-            ["display_order", "Data", "Orden de visualización", { description: "Determina el orden en que aparece en el POS." }],
+            ["display_order", "Data", "Orden de visualización", { description: "Los números menores aparecen primero en el listado de áreas." }],
             ["capacity", "Data", "Capacidad estimada", { reqd: 1, description: "Número aproximado de personas en esta área." }],
             ["status", "Select", "Estado", { reqd: 1, options: "Activa\nInactiva" }],
-            ["visible_in_pos", "Check", "Visible en POS", { description: "Mostrar esta ubicación en el Punto de Venta." }],
+            ["visible_in_pos", "Check", "Visible en POS", { description: "Mostrar esta área en el Punto de Venta." }],
             ["description", "Small Text", "Descripción", { length: 500 }],
-            ["printer", "Link", "Impresora asignada", { options: "Network Printer Settings", description: "Impresora para comandas de esta ubicación." }],
+            ["printer", "Link", "Impresora asignada", { options: "Network Printer Settings", description: "Impresora para comandas de esta área." }],
             ["waiter", "Link", "Mesero responsable", { options: "Employee", description: "Mesero principal o asignado a esta área.", get_query: () => ({ filters: { designation: "Mesero", status: "Active", ...(this.controls.branch?.get_value() ? { branch: this.controls.branch.get_value() } : {}) } }) }],
-            ["allow_open_accounts", "Check", "Permite apertura de cuentas", { description: "Permitir abrir nuevas cuentas en esta ubicación." }],
+            ["allow_open_accounts", "Check", "Permite apertura de cuentas", { description: "Permitir abrir nuevas cuentas en esta área." }],
             ["color", "Color", "Color de referencia", { description: "Color que se mostrará en el mapa de mesas." }],
             ["notes", "Small Text", "Observaciones", { length: 300 }],
         ];
@@ -259,7 +258,7 @@ class RestaurantLocationPage {
     updatePreview() {
         const name = this.root.querySelector("[data-preview-name]");
         if (!name) return;
-        name.textContent = this.inputValue("area_name") || "Nueva ubicación";
+        name.textContent = this.inputValue("area_name") || "Nueva área";
         this.root.querySelector("[data-preview-capacity]").textContent = `${Number(this.inputValue("capacity")) || 0} personas`;
         this.root.querySelector("[data-preview-icon]").innerHTML = this.symbol(this.iconKey(this.doc.icon));
         const preview = this.root.querySelector(".ra-preview-art");
@@ -267,7 +266,7 @@ class RestaurantLocationPage {
         if (safeImage) {
             const image = document.createElement("img");
             image.src = this.doc.image;
-            image.alt = "Imagen representativa de la ubicación";
+            image.alt = "Imagen representativa del área";
             image.style.cssText = "width:100%;height:100%;object-fit:cover";
             preview.replaceChildren(image);
         } else preview.innerHTML = this.floorPlan();
@@ -309,10 +308,10 @@ class RestaurantLocationPage {
         const button = this.root.querySelector('[data-action="save"]');
         if (button) { button.disabled = true; button.textContent = "Guardando…"; }
         try {
-            const result = await frappe.call({ method: "restaurant.location.save_location", args: { document: JSON.stringify(values) }, freeze: true, freeze_message: "Guardando ubicación…" });
+            const result = await frappe.call({ method: "restaurant.location.save_location", args: { document: JSON.stringify(values) }, freeze: true, freeze_message: "Guardando área…" });
             this.doc = result.message;
             this.dirty = false;
-            frappe.show_alert({ message: "Ubicación guardada", indicator: "green" });
+            frappe.show_alert({ message: "Área guardada", indicator: "green" });
             const destination = ["restaurant-location", this.doc.name];
             if (frappe.get_route()[1] === this.doc.name) await this.show();
             else frappe.set_route(...destination);
@@ -320,7 +319,7 @@ class RestaurantLocationPage {
             // Frappe displays the server validation message and preserves the editor.
         } finally {
             this.saving = false;
-            if (button?.isConnected) { button.disabled = false; button.innerHTML = `${this.symbol("check")} Guardar ubicación`; }
+            if (button?.isConnected) { button.disabled = false; button.innerHTML = `${this.symbol("check")} Guardar área`; }
         }
     }
 
@@ -343,7 +342,7 @@ class RestaurantLocationPage {
             doctype: isSaved ? "Restaurant Area" : undefined,
             docname: isSaved ? this.doc.name : undefined,
             fieldname: isSaved ? "image" : undefined,
-            dialog_title: "Cambiar imagen de la ubicación",
+            dialog_title: "Cambiar imagen del área",
             allow_multiple: false,
             restrictions: { allowed_file_types: [".jpg", ".jpeg", ".png", ".webp"], max_file_size: 5 * 1024 * 1024 },
             on_success: (file) => { this.doc.image = file.file_url; this.markDirty(); this.updatePreview(); },

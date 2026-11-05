@@ -48,12 +48,24 @@ class TestRestaurantArea(FrappeTestCase):
         self.assertFalse(get_editor_context(saved.name)["kds_available"])
         self.assertFalse(get_editor_context(saved.name)["tables_available"])
 
+    def test_area_can_be_created_and_updated_without_type(self):
+        self.assertIsNone(frappe.get_meta("Restaurant Area").get_field("area_type"))
+        payload = self.make_payload()
+        self.assertNotIn("area_type", payload)
+        saved = save_location(payload)
+        saved["description"] = "Área sin clasificación fija"
+        saved["area_type"] = "Legacy client value"
+        updated = save_location(saved)
+        self.assertEqual(updated.name, saved.name)
+        self.assertEqual(updated.description, "Área sin clasificación fija")
+        self.assertNotIn("area_type", updated)
+
     def test_invalid_values_rejected_by_native_controller(self):
         for field, value in (
             ("capacity", 0), ("capacity", 2.5), ("display_order", -1),
             ("display_order", 1.5), ("description", "a" * 501),
             ("notes", "a" * 301), ("color", "red"),
-            ("area_type", "Warehouse"), ("status", "Unknown"),
+            ("status", "Unknown"),
             ("icon", "invalid"), ("visible_in_pos", 3),
         ):
             with self.subTest(field=field, value=str(value)[:30]):
