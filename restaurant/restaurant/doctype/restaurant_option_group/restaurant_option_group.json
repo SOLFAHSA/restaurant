@@ -1,0 +1,130 @@
+{
+ "doctype": "DocType",
+ "name": "Restaurant Option Group",
+ "module": "Restaurant",
+ "custom": 0,
+ "autoname": "hash",
+ "allow_import": 1,
+ "track_changes": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "main_item",
+  "group_name",
+  "disabled",
+  "selection_rules",
+  "min_selections",
+  "max_selections",
+  "currency",
+  "options_section",
+  "options"
+ ],
+ "fields": [
+  {
+   "fieldname": "main_item",
+   "label": "Producto o platillo",
+   "fieldtype": "Link",
+   "options": "Item",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "group_name",
+   "label": "Nombre del grupo",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "disabled",
+   "label": "Deshabilitado",
+   "fieldtype": "Check",
+   "default": "0"
+  },
+  {
+   "fieldname": "selection_rules",
+   "label": "Reglas de selección",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "min_selections",
+   "label": "Mínimo de selecciones",
+   "fieldtype": "Int",
+   "default": "0",
+   "reqd": 1,
+   "non_negative": 1
+  },
+  {
+   "fieldname": "max_selections",
+   "label": "Máximo de selecciones",
+   "fieldtype": "Int",
+   "default": "1",
+   "reqd": 1,
+   "non_negative": 1
+  },
+  {
+   "fieldname": "currency",
+   "label": "Moneda",
+   "fieldtype": "Link",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "options_section",
+   "label": "Opciones del cliente",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "options",
+   "label": "Opciones",
+   "fieldtype": "Table",
+   "options": "Restaurant Dish Option",
+   "reqd": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "import": 1
+  },
+  {
+   "role": "Stock Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "import": 1
+  },
+  {
+   "role": "Stock User",
+   "read": 1,
+   "report": 1
+  },
+  {
+   "role": "Item Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "import": 1
+  }
+ ],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "title_field": "group_name",
+ "search_fields": "main_item,group_name",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "quick_entry": 0
+}
