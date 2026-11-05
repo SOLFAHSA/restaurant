@@ -25,7 +25,9 @@
   "waiter",
   "allow_open_accounts",
   "color",
-  "notes"
+  "notes",
+  "floor_background",
+  "layout_json"
  ],
  "fields": [
   {
@@ -133,6 +135,20 @@
    "fieldname": "notes",
    "fieldtype": "Small Text",
    "label": "Observaciones"
+  },
+  {
+   "fieldname": "floor_background",
+   "fieldtype": "Select",
+   "label": "Fondo del piso",
+   "options": "Madera cálida\nCerámica clara\nMadera gris\nCésped",
+   "default": "Madera cálida",
+   "reqd": 1
+  },
+  {
+   "fieldname": "layout_json",
+   "fieldtype": "Long Text",
+   "label": "Diseño del mapa",
+   "hidden": 1
   }
  ],
  "permissions": [

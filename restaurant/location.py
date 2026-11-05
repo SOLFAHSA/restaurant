@@ -9,13 +9,19 @@ import frappe
 from frappe import _
 from frappe.utils import cstr
 
+from restaurant.table_management import (
+    ALLOWED_BACKGROUNDS,
+    get_area_tables_list,
+    parse_area_layout,
+)
+
 DOCTYPE = "Restaurant Area"
 AREA_STATUSES = ("Activa", "Inactiva")
 AREA_ICONS = ("Terraza", "Salón", "Barra", "Jardín")
 EDITABLE_FIELDS = (
     "area_name", "branch", "display_order", "capacity", "status",
     "visible_in_pos", "description", "image", "icon", "printer", "waiter",
-    "allow_open_accounts", "color", "notes",
+    "allow_open_accounts", "color", "notes", "floor_background",
 )
 
 
@@ -33,12 +39,18 @@ def get_editor_context(name=None, for_list=False):
         else:
             _require_create_permission()
         doc = frappe.new_doc(DOCTYPE)
+    tables_available = bool(frappe.db.exists("DocType", "Restaurant Table"))
     return {
         "doc": doc.as_dict(),
         "can_write": bool(doc.has_permission("write")) if name else False,
         "can_create": bool(frappe.has_permission(DOCTYPE, "create")),
         "kds_available": False,
-        "tables_available": False,
+        "tables_available": tables_available,
+        "tables": get_area_tables_list(doc.name) if (name and tables_available) else [],
+        "elements": parse_area_layout(doc.layout_json) if name else [],
+        "can_create_table": bool(frappe.has_permission("Restaurant Table", "create")) if tables_available else False,
+        "can_write_table": bool(frappe.has_permission("Restaurant Table", "write")) if tables_available else False,
+        "can_delete_table": bool(frappe.has_permission("Restaurant Table", "delete")) if tables_available else False,
     }
 
 
@@ -123,6 +135,9 @@ def validate_area(doc, method=None):
         frappe.throw(_("Selecciona un estado válido."))
     if doc.icon not in AREA_ICONS:
         frappe.throw(_("Selecciona un icono válido."))
+    doc.floor_background = cstr(doc.floor_background or "Madera cálida").strip()
+    if doc.floor_background not in ALLOWED_BACKGROUNDS:
+        frappe.throw(_("Selecciona un fondo de piso válido."))
 
     doc.display_order = _whole_number(doc.display_order, _("Orden de visualización"), 0)
     doc.capacity = _whole_number(doc.capacity, _("Capacidad estimada"), 1)

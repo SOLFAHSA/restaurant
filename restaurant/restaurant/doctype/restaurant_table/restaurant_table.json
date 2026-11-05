@@ -1,0 +1,123 @@
+{
+ "doctype": "DocType",
+ "name": "Restaurant Table",
+ "module": "Restaurant",
+ "custom": 0,
+ "autoname": "hash",
+ "allow_import": 1,
+ "track_changes": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "restaurant_area",
+  "branch",
+  "table_number",
+  "seats",
+  "shape",
+  "status",
+  "display_order",
+  "color",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "restaurant_area",
+   "label": "Área",
+   "fieldtype": "Link",
+   "options": "Restaurant Area",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "branch",
+   "label": "Sucursal",
+   "fieldtype": "Link",
+   "options": "Branch",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "table_number",
+   "label": "Número de mesa",
+   "fieldtype": "Data",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "seats",
+   "label": "Asientos",
+   "fieldtype": "Int",
+   "default": "4",
+   "reqd": 1,
+   "non_negative": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "shape",
+   "label": "Forma",
+   "fieldtype": "Select",
+   "options": "Cuadrada\nRectangular\nRedonda\nOvalada\nCancha azul\nCancha fútbol\nCancha básquetbol",
+   "default": "Cuadrada",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "status",
+   "label": "Estado",
+   "fieldtype": "Select",
+   "options": "Disponible\nOcupada\nReservada\nInactiva",
+   "default": "Disponible",
+   "reqd": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "display_order",
+   "label": "Orden de visualización",
+   "fieldtype": "Int",
+   "default": "0",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "color",
+   "label": "Color",
+   "fieldtype": "Color",
+   "default": "#22C55E"
+  },
+  {
+   "fieldname": "notes",
+   "label": "Observaciones",
+   "fieldtype": "Small Text"
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "export": 1,
+   "import": 1
+  },
+  {
+   "role": "Restaurant Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1
+  }
+ ],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "title_field": "table_number",
+ "search_fields": "table_number,restaurant_area,branch",
+ "sort_field": "display_order",
+ "sort_order": "ASC",
+ "quick_entry": 0
+}
+
