@@ -1,0 +1,21 @@
+{
+ "doctype": "Page",
+ "module": "Restaurant",
+ "name": "restaurant-kds",
+ "page_name": "restaurant-kds",
+ "title": "Cocina KDS",
+ "standard": "Yes",
+ "roles": [
+  {
+   "role": "System Manager"
+  },
+  {
+   "role": "Restaurant Manager"
+  },
+  {
+   "role": "Restaurant User"
+  }
+ ],
+ "system_page": 0
+}
+

@@ -1,0 +1,67 @@
+{
+ "doctype": "DocType",
+ "name": "Restaurant Preparation Stage",
+ "module": "Restaurant",
+ "custom": 0,
+ "autoname": "hash",
+ "allow_import": 1,
+ "track_changes": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "stage_name",
+  "color",
+  "alert_minutes"
+ ],
+ "fields": [
+  {
+   "fieldname": "stage_name",
+   "fieldtype": "Data",
+   "label": "Nombre de la etapa",
+   "reqd": 1,
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "color",
+   "fieldtype": "Color",
+   "label": "Color",
+   "default": "#9CA3AF",
+   "reqd": 1
+  },
+  {
+   "fieldname": "alert_minutes",
+   "fieldtype": "Int",
+   "label": "Temporizador de alerta (min)",
+   "default": "0",
+   "non_negative": 1,
+   "in_list_view": 1,
+   "description": "Cero desactiva la alerta de demora de esta etapa."
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1,
+   "import": 1,
+   "export": 1
+  },
+  {
+   "role": "Restaurant Manager",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 1,
+   "report": 1
+  }
+ ],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "title_field": "stage_name",
+ "search_fields": "stage_name",
+ "sort_field": "stage_name",
+ "sort_order": "ASC"
+}

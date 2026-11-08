@@ -1,0 +1,113 @@
+{
+ "doctype": "DocType",
+ "name": "Restaurant Preparation Ticket",
+ "module": "Restaurant",
+ "custom": 0,
+ "autoname": "prompt",
+ "allow_import": 0,
+ "track_changes": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "preparation_display",
+  "restaurant_order",
+  "stage_index",
+  "completed_items_json",
+  "stages_json",
+  "included_item_names_json",
+  "active_item_names_json",
+  "stage_started_at",
+  "completed_at",
+  "cleared_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "preparation_display",
+   "fieldtype": "Link",
+   "label": "Pantalla de preparación",
+   "options": "Restaurant Preparation Display",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "restaurant_order",
+   "fieldtype": "Link",
+   "label": "Orden",
+   "options": "Restaurant Order",
+   "reqd": 1,
+   "in_list_view": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "stage_index",
+   "fieldtype": "Int",
+   "label": "Índice de etapa",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_items_json",
+   "fieldtype": "Long Text",
+   "label": "Platillos marcados por etapa",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "stages_json",
+   "fieldtype": "Long Text",
+   "label": "Etapas del ticket",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "included_item_names_json",
+   "fieldtype": "Long Text",
+   "label": "Identificadores de los platillos incluidos",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "active_item_names_json",
+   "fieldtype": "Long Text",
+   "label": "Identificadores del lote actual",
+   "read_only": 1,
+   "hidden": 1
+  },
+  {
+   "fieldname": "stage_started_at",
+   "fieldtype": "Datetime",
+   "label": "Inicio de etapa",
+   "read_only": 1
+  },
+  {
+   "fieldname": "completed_at",
+   "fieldtype": "Datetime",
+   "label": "Completado el",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cleared_at",
+   "fieldtype": "Datetime",
+   "label": "Retirado del monitor el",
+   "read_only": 1
+  }
+ ],
+ "permissions": [
+  {
+   "role": "System Manager",
+   "read": 1,
+   "report": 1,
+   "export": 1
+  },
+  {
+   "role": "Restaurant Manager",
+   "read": 1,
+   "report": 1
+  }
+ ],
+ "actions": [],
+ "links": [],
+ "states": [],
+ "sort_field": "creation",
+ "sort_order": "DESC"
+}
