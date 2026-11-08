@@ -28,10 +28,20 @@ class LeafRestaurantPOS {
         this.orderStatusFilter = "En curso";
         this.orderServiceFilter = "ALL";
         this.selectedOrderPreviewName = "";
+        this.orderPage = 1;
+        this.orderPageSize = 14;
 
         this.numpadMode = "qty";
         this.numpadBuffer = "";
         this.selectedLineIndex = -1;
+        this.operationMode = null;
+        this.operationContext = null;
+        this.operationBusy = false;
+        this.splitSelection = new Map();
+        this.splitQuote = null;
+        this.splitQuoteSequence = 0;
+        this.splitQuoteTimer = null;
+        this.splitAccountName = "";
 
         this.bootstrap = null;
         this.currentOrder = this.createBlankOrder();
@@ -203,7 +213,8 @@ class LeafRestaurantPOS {
         let exempt = 0;
 
         (this.currentOrder.items || []).forEach(row => {
-            const qty = Math.max(0.01, Number(row.qty || 1));
+            const rawQty = Number(row.qty);
+            const qty = Number.isFinite(rawQty) && rawQty > 0 ? rawQty : 1;
             const baseRate = Math.max(0, Number(row.base_rate ?? row.rate ?? 0));
             const optRate = Math.max(0, Number(row.options_rate || 0));
             const disc = Math.min(100, Math.max(0, Number(row.discount_percentage || 0)));
@@ -272,8 +283,9 @@ class LeafRestaurantPOS {
     }
 
     render() {
-        this.recalculateLocalTotals();
+        if (!this.operationMode) this.recalculateLocalTotals();
         this.shell.classList.toggle("is-dark-mode", Boolean(this.darkMode));
+        this.shell.classList.toggle("is-splitting", this.operationMode === "split");
         const cashierName = this.bootstrap?.cashier?.full_name || frappe.session.user;
         const avatarChar = (cashierName || "C").trim().charAt(0).toUpperCase();
         const shiftBadge = this.bootstrap?.opening_shift
@@ -294,7 +306,7 @@ class LeafRestaurantPOS {
                         <button type="button" class="rpos-nav-tab ${this.activeTab === "Órdenes" ? "is-active" : ""}" data-nav="Órdenes">Órdenes</button>
                     </nav>
                     ${this.activeTab !== "Mesas" ? `
-                        <button type="button" class="rpos-service-pill" data-service="${this.escape(this.currentOrder.service_type)}" data-action="open-preset" title="Cambiar modalidad o cuenta">
+                        <button type="button" class="rpos-service-pill" data-service="${this.escape(this.currentOrder.service_type)}" data-action="open-preset" title="Cambiar modalidad o cuenta" ${this.operationMode ? "disabled" : ""}>
                             <span>${pillLabel}</span>
                         </button>
                     ` : ""}
@@ -310,25 +322,41 @@ class LeafRestaurantPOS {
                 <div class="rpos-topbar-right">
                     ${this.activeTab === "Caja" ? `
                         <div class="rpos-search-box">
-                            <span class="rpos-search-icon">🔍</span>
+                            <span class="rpos-search-icon">
+                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                            </span>
                             <input type="search" class="rpos-prod-search" placeholder="Buscar producto..." value="${this.escape(this.productSearch)}">
                         </div>
                     ` : ""}
+                    <button type="button" class="rpos-icon-btn is-borderless" data-action="open-kds" title="Cocina KDS / Pantalla">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+                            <line x1="3" y1="6" x2="21" y2="6"/>
+                            <path d="M16 10a4 4 0 0 1-8 0"/>
+                        </svg>
+                    </button>
                     <button type="button" class="rpos-cashier-chip" data-action="shift-info" title="${this.escape(shiftBadge)}">
                         <span class="rpos-cashier-avatar">${this.escape(avatarChar)}</span>
                         <span>${this.escape(cashierName)}</span>
                     </button>
-                    <button type="button" class="rpos-icon-btn" data-action="open-kds" title="Cocina KDS">🍳</button>
-                    <button type="button" class="rpos-icon-btn" data-action="pos-menu" title="Opciones del Punto de Venta">☰</button>
+                    <button type="button" class="rpos-icon-btn" data-action="pos-menu" title="Opciones del Punto de Venta">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+                            <line x1="4" y1="7" x2="20" y2="7"/>
+                            <line x1="4" y1="12" x2="20" y2="12"/>
+                            <line x1="4" y1="17" x2="20" y2="17"/>
+                        </svg>
+                    </button>
                 </div>
             </header>
             ${this.renderActiveView()}
         `;
 
         this.bindEvents();
+        this.bindSplitEvents();
     }
 
     renderActiveView() {
+        if (this.operationMode === "split") return this.renderSplitView();
         if (this.activeTab === "Mesas") return this.renderMesasView();
         if (this.activeTab === "Órdenes") return this.renderOrdenesView();
         return this.renderCajaView();
@@ -806,23 +834,75 @@ class LeafRestaurantPOS {
     }
 
     formatOrderDateTime(creationStr) {
-        if (!creationStr) return { dateLabel: "Hoy", timeLabel: "" };
+        const now = new Date();
+        const localTodayIso = (typeof frappe !== "undefined" && frappe.datetime?.get_today)
+            ? frappe.datetime.get_today()
+            : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+        if (!creationStr) {
+            const hh = String(now.getHours()).padStart(2, "0");
+            const min = String(now.getMinutes()).padStart(2, "0");
+            return { dateLabel: "Hoy", timeLabel: `${hh}:${min}` };
+        }
         const raw = String(creationStr).trim();
         const [datePart, timePart = ""] = raw.split(" ");
         const [yyyy, mm, dd] = (datePart || "").split("-");
-        const todayIso = new Date().toISOString().slice(0, 10);
-        const dateLabel = datePart === todayIso
+        const dateLabel = datePart === localTodayIso
             ? "Hoy"
             : (dd && mm && yyyy ? `${dd}/${mm}/${yyyy}` : (datePart || "Hoy"));
         const timeLabel = timePart.slice(0, 5);
         return { dateLabel, timeLabel };
     }
 
+    formatOrderRowTitles(ord) {
+        if (ord.is_draft_row) {
+            return {
+                title: ord.order_name || "Venta directa",
+                sub: ord.reference_note || "En caja activa",
+            };
+        }
+        const rawName = String(ord.name || "");
+        const digitsMatch = rawName.match(/(\d+)$/);
+        const seqNum = digitsMatch ? Number(digitsMatch[1]) : 0;
+        const shortTicketNum = seqNum > 0 ? String(1000 + seqNum) : rawName;
+        const rawOrderName = String(ord.order_name || "").trim();
+        const isGenericMesa = ord.table_label && (
+            !rawOrderName ||
+            rawOrderName.toLowerCase() === `mesa ${String(ord.table_label).toLowerCase()}` ||
+            /^orden\s+\d+$/i.test(rawOrderName)
+        );
+        const isGenericOrder = !ord.table_label && /^orden\s+\d+$/i.test(rawOrderName);
+        const title = isGenericMesa
+            ? `T ${ord.table_label} - ${shortTicketNum}`
+            : (isGenericOrder ? shortTicketNum : (rawOrderName || "Venta directa"));
+        const sub = ord.reference_note || rawName;
+        return { title, sub };
+    }
+
     renderOrdenesView() {
-        const orders = this.bootstrap?.orders || [];
+        const rawOrders = [...(this.bootstrap?.orders || [])].sort((a, b) => {
+            const ca = String(a.creation || "");
+            const cb = String(b.creation || "");
+            return ca.localeCompare(cb);
+        });
+
+        const hasSavedCurrent = Boolean(
+            this.currentOrder?.name && rawOrders.some(o => o.name === this.currentOrder.name)
+        );
+        if (!hasSavedCurrent) {
+            rawOrders.push({
+                ...this.currentOrder,
+                name: this.currentOrder?.name || "__DRAFT__",
+                order_name: this.currentOrder?.order_name || "Venta directa",
+                status: this.currentOrder?.status || "En curso",
+                service_type: this.currentOrder?.service_type || "Comer en el local",
+                grand_total: this.currentOrder?.grand_total || 0,
+                is_draft_row: !this.currentOrder?.name,
+            });
+        }
+
         const q = (this.orderSearch || "").trim().toLowerCase();
 
-        const filtered = orders.filter(ord => {
+        const filtered = rawOrders.filter(ord => {
             if (this.orderStatusFilter !== "ALL" && ord.status !== this.orderStatusFilter) {
                 return false;
             }
@@ -830,7 +910,8 @@ class LeafRestaurantPOS {
                 return false;
             }
             if (q) {
-                const hay = `${ord.name} ${ord.order_name} ${ord.reference_note} ${ord.customer_name} ${ord.waiter_name} ${ord.table_label}`.toLowerCase();
+                const titles = this.formatOrderRowTitles(ord);
+                const hay = `${ord.name} ${ord.order_name} ${titles.title} ${titles.sub} ${ord.reference_note} ${ord.customer_name} ${ord.waiter_name} ${ord.table_label}`.toLowerCase();
                 return hay.includes(q);
             }
             return true;
@@ -844,7 +925,19 @@ class LeafRestaurantPOS {
         }
 
         const totalFiltered = filtered.length;
-        const rangeLabel = totalFiltered ? `1-${totalFiltered} / ${totalFiltered}` : `0-0 / 0`;
+        const pageSize = this.orderPageSize || 14;
+        const totalPages = Math.max(1, Math.ceil(totalFiltered / pageSize));
+        if (!this.orderPage || this.orderPage > totalPages) {
+            this.orderPage = totalPages;
+        }
+        if (this.orderPage < 1) {
+            this.orderPage = 1;
+        }
+        const startIdx = (this.orderPage - 1) * pageSize;
+        const endIdx = Math.min(startIdx + pageSize, totalFiltered);
+        const pageRows = filtered.slice(startIdx, endIdx);
+        const rangeLabel = totalFiltered ? `${startIdx + 1}-${endIdx} / ${totalFiltered}` : `0-0 / 0`;
+        const activeOrderKey = this.selectedOrderPreviewName || (this.currentOrder?.name || "__DRAFT__");
 
         return `
             <div class="rpos-orders-view">
@@ -852,7 +945,7 @@ class LeafRestaurantPOS {
                     <div class="rpos-orders-toolbar">
                         <div class="rpos-orders-search-group">
                             <span class="rpos-orders-search-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                             </span>
                             <input type="search" class="form-control rpos-order-search" placeholder="Buscar órdenes..." value="${this.escape(this.orderSearch)}">
                             <select class="form-control rpos-order-status-select" aria-label="Estado de orden">
@@ -871,27 +964,34 @@ class LeafRestaurantPOS {
                             <div class="rpos-orders-pager">
                                 <span class="rpos-orders-count">${rangeLabel}</span>
                                 <div class="rpos-orders-pager-btns">
-                                    <button type="button" class="rpos-pager-btn" disabled aria-label="Página anterior">‹</button>
-                                    <button type="button" class="rpos-pager-btn" disabled aria-label="Página siguiente">›</button>
+                                    <button type="button" class="rpos-pager-btn" data-ord-page="prev" ${this.orderPage <= 1 ? "disabled" : ""} aria-label="Página anterior">
+                                        <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor"><path d="M8 2L3.5 6 8 10V2z"/></svg>
+                                    </button>
+                                    <button type="button" class="rpos-pager-btn" data-ord-page="next" ${this.orderPage >= totalPages ? "disabled" : ""} aria-label="Página siguiente">
+                                        <svg viewBox="0 0 12 12" width="10" height="10" fill="currentColor"><path d="M4 2l4.5 4L4 10V2z"/></svg>
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <div class="rpos-orders-list">
-                        ${filtered.length ? filtered.map(ord => {
+                        ${pageRows.length ? pageRows.map(ord => {
                             const dt = this.formatOrderDateTime(ord.creation);
+                            const titles = this.formatOrderRowTitles(ord);
                             const custUpper = (ord.customer_name || "").trim().toUpperCase();
                             const showCustName = Boolean(ord.customer_name && custUpper !== "CONSUMIDOR FINAL");
+                            const isHighlighted = activeOrderKey === ord.name;
+                            const showTakeoutProgress = ord.service_type === "Para llevar" || Boolean(ord.scheduled_time);
                             return `
-                                <div class="rpos-order-row ${selectedOrd?.name === ord.name ? "is-selected" : ""}" data-order-row="${this.escape(ord.name)}">
+                                <div class="rpos-order-row ${isHighlighted ? "is-selected" : ""}" data-order-row="${this.escape(ord.name)}">
                                     <div class="rpos-ord-col-date">
                                         <div class="rpos-ord-date">${this.escape(dt.dateLabel)}</div>
                                         <div class="rpos-ord-time">${this.escape(dt.timeLabel)}</div>
                                     </div>
                                     <div class="rpos-ord-col-name">
-                                        <div class="rpos-ord-title">${this.escape(ord.order_name || "Venta directa")}</div>
-                                        <div class="rpos-ord-sub">${this.escape(ord.name)}</div>
+                                        <div class="rpos-ord-title">${this.escape(titles.title)}</div>
+                                        <div class="rpos-ord-sub">${this.escape(titles.sub)}</div>
                                     </div>
                                     <div class="rpos-ord-col-meta">
                                         ${showCustName ? `<div class="rpos-ord-cust">${this.escape(ord.customer_name)}</div>` : ""}
@@ -902,6 +1002,16 @@ class LeafRestaurantPOS {
                                     </div>
                                     <div class="rpos-ord-col-extra">
                                         ${ord.scheduled_time ? `<span class="rpos-ord-sched-pill">${this.escape(ord.scheduled_time)}</span>` : ""}
+                                        ${showTakeoutProgress ? `
+                                            <div class="rpos-ord-takeout-ind" title=" Estado de preparación / entrega">
+                                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+                                                    <line x1="3" y1="6" x2="21" y2="6"/>
+                                                    <path d="M16 10a4 4 0 0 1-8 0"/>
+                                                </svg>
+                                                <span class="rpos-ord-takeout-bar"></span>
+                                            </div>
+                                        ` : ""}
                                     </div>
                                     <div class="rpos-ord-col-total">
                                         ${this.formatMoney(ord.grand_total)}
@@ -912,12 +1022,19 @@ class LeafRestaurantPOS {
                                         </span>
                                     </div>
                                     <div class="rpos-ord-col-actions">
-                                        <button type="button" class="rpos-ord-act-btn is-info" data-action="preview-precuenta" data-order="${this.escape(ord.name)}" title="Ver detalle / Pre-cuenta">i</button>
-                                        ${ord.status === "En curso" ? `
-                                            <button type="button" class="rpos-ord-act-btn is-trash" data-action="cancel-order-row" data-order="${this.escape(ord.name)}" title="Cancelar orden">
-                                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                                        ${!ord.is_draft_row ? `
+                                            <button type="button" class="rpos-ord-act-btn is-info" data-action="preview-precuenta" data-order="${this.escape(ord.name)}" title="Ver detalle / Pre-cuenta">i</button>
+                                            ${ord.status === "En curso" ? `
+                                                <button type="button" class="rpos-ord-act-btn is-trash" data-action="cancel-order-row" data-order="${this.escape(ord.name)}" title="Cancelar orden">
+                                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 3a1 1 0 0 0-1 1v1H4a1 1 0 1 0 0 2h1v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7h1a1 1 0 1 0 0-2h-4V4a1 1 0 0 0-1-1H9zm1 2h4v1h-4V5zm-1 5a1 1 0 1 1 2 0v7a1 1 0 1 1-2 0v-7zm4 0a1 1 0 1 1 2 0v7a1 1 0 1 1-2 0v-7z"/></svg>
+                                                </button>
+                                            ` : ""}
+                                        ` : `
+                                            <button type="button" class="rpos-ord-act-btn is-info" data-action="open-precuenta" title="Ver Pre-cuenta">i</button>
+                                            <button type="button" class="rpos-ord-act-btn is-trash" data-action="reset-draft-order" title="Limpiar orden actual">
+                                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M9 3a1 1 0 0 0-1 1v1H4a1 1 0 1 0 0 2h1v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7h1a1 1 0 1 0 0-2h-4V4a1 1 0 0 0-1-1H9zm1 2h4v1h-4V5zm-1 5a1 1 0 1 1 2 0v7a1 1 0 1 1-2 0v-7zm4 0a1 1 0 1 1 2 0v7a1 1 0 1 1-2 0v-7z"/></svg>
                                             </button>
-                                        ` : ""}
+                                        `}
                                     </div>
                                 </div>
                             `;
@@ -927,14 +1044,14 @@ class LeafRestaurantPOS {
                     </div>
                 </div>
 
-                <aside class="rpos-ticket-pane">
+                <aside class="rpos-ticket-pane ${selectedOrd ? "" : "is-empty-preview"}">
                     ${selectedOrd ? `
                         <div class="rpos-ticket-header">
-                            <div><strong>${this.escape(selectedOrd.order_name)}</strong> (${this.escape(selectedOrd.name)})</div>
+                            <div><strong>${this.escape(selectedOrd.order_name || "Venta directa")}</strong> ${!selectedOrd.is_draft_row ? `(${this.escape(selectedOrd.name)})` : ""}</div>
                             <div>${this.escape(selectedOrd.status)}</div>
                         </div>
                         <div class="rpos-ticket-lines">
-                            ${(selectedOrd.items || []).map(line => `
+                            ${(selectedOrd.items || []).length ? (selectedOrd.items || []).map(line => `
                                 <div class="rpos-line">
                                     <div class="rpos-line-main">
                                         <span class="rpos-line-qty">${line.qty}</span>
@@ -944,7 +1061,9 @@ class LeafRestaurantPOS {
                                     ${line.options_summary ? `<div class="rpos-line-sub">- ${this.escape(line.options_summary)}</div>` : ""}
                                     ${line.note ? `<div class="rpos-line-note">${this.escape(line.note)}</div>` : ""}
                                 </div>
-                            `).join("")}
+                            `).join("") : `
+                                <div style="padding:36px 20px;text-align:center;color:#64748b;font-size:13px;">Esta orden aún no tiene platillos agregados.</div>
+                            `}
                         </div>
                         <div class="rpos-totals-box">
                             <div class="rpos-totals-row"><span>Cliente</span><span>${this.escape(selectedOrd.customer_name)} ${selectedOrd.tax_id ? `(${this.escape(selectedOrd.tax_id)})` : ""}</span></div>
@@ -955,17 +1074,17 @@ class LeafRestaurantPOS {
                             ${selectedOrd.sales_invoice ? `<div class="rpos-totals-row" style="margin-top:6px;color:#16a34a;"><span>Factura SAR</span><span>${this.escape(selectedOrd.sales_invoice)}</span></div>` : ""}
                         </div>
                         <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;background:#f8fafc;border-top:1px solid #e2e8f0;">
-                            <button type="button" class="rpos-btn-secondary" data-action="preview-precuenta" data-order="${this.escape(selectedOrd.name)}">Ver Precuenta</button>
+                            <button type="button" class="rpos-btn-secondary" data-action="${selectedOrd.is_draft_row ? "open-precuenta" : "preview-precuenta"}" data-order="${this.escape(selectedOrd.name)}">Ver Precuenta</button>
                             <button type="button" class="rpos-btn-primary" data-action="load-selected-order" data-order="${this.escape(selectedOrd.name)}">Cargar orden</button>
                         </div>
                     ` : `
                         <div class="rpos-ticket-empty">
-                            <svg viewBox="0 0 24 24" width="56" height="56" fill="none" stroke="#1e293b" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:12px;">
-                                <circle cx="9" cy="21" r="1.5" fill="#1e293b"/>
-                                <circle cx="19" cy="21" r="1.5" fill="#1e293b"/>
+                            <svg viewBox="0 0 24 24" width="60" height="60" fill="none" stroke="#1e293b" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:14px;">
+                                <circle cx="9" cy="21" r="1.6" fill="#1e293b"/>
+                                <circle cx="19" cy="21" r="1.6" fill="#1e293b"/>
                                 <path d="M2.5 3h2.8l2.4 11.5a2 2 0 0 0 2 1.5h9.8a2 2 0 0 0 1.9-1.4L23 6H6"/>
                             </svg>
-                            <div style="font-size:15px;font-weight:700;color:#1e293b;max-width:250px;line-height:1.35;">Seleccione una orden o escaneé un código QR.</div>
+                            <div class="rpos-ticket-empty-label">Seleccione una orden o escaneé un código QR.</div>
                         </div>
                     `}
                 </aside>
@@ -976,6 +1095,8 @@ class LeafRestaurantPOS {
     bindEvents() {
         this.shell.querySelectorAll("[data-nav]").forEach(btn => {
             btn.addEventListener("click", () => {
+                if (this.operationBusy) return;
+                this.closeSplitView(false);
                 this.activeTab = btn.dataset.nav;
                 if (this.activeTab === "Órdenes") {
                     this.selectedOrderPreviewName = "";
@@ -1001,6 +1122,7 @@ class LeafRestaurantPOS {
         if (ordSearch) {
             ordSearch.addEventListener("input", e => {
                 this.orderSearch = e.target.value;
+                this.orderPage = 1;
                 this.render();
                 const input = this.shell.querySelector(".rpos-order-search");
                 if (input) {
@@ -1014,6 +1136,7 @@ class LeafRestaurantPOS {
         if (ordStatusSelect) {
             ordStatusSelect.addEventListener("change", e => {
                 this.orderStatusFilter = e.target.value;
+                this.orderPage = 1;
                 this.render();
             });
         }
@@ -1022,6 +1145,16 @@ class LeafRestaurantPOS {
             btn.addEventListener("click", () => {
                 const targetSrv = btn.dataset.ordSrv;
                 this.orderServiceFilter = this.orderServiceFilter === targetSrv ? "ALL" : targetSrv;
+                this.orderPage = 1;
+                this.render();
+            });
+        });
+
+        this.shell.querySelectorAll("[data-ord-page]").forEach(btn => {
+            btn.addEventListener("click", () => {
+                if (btn.disabled) return;
+                const dir = btn.dataset.ordPage;
+                this.orderPage = Math.max(1, (this.orderPage || 1) + (dir === "next" ? 1 : -1));
                 this.render();
             });
         });
@@ -1034,7 +1167,14 @@ class LeafRestaurantPOS {
             });
             row.addEventListener("dblclick", e => {
                 if (e.target.closest("[data-action]")) return;
-                this.loadOrderIntoPos(row.dataset.orderRow);
+                const rowId = row.dataset.orderRow;
+                if (rowId === "__DRAFT__") {
+                    this.activeTab = "Caja";
+                    this.render();
+                    return;
+                }
+                const ord = (this.bootstrap?.orders || []).find(o => o.name === rowId);
+                if (ord) this.loadOrderIntoCaja(ord);
             });
         });
 
@@ -1099,6 +1239,20 @@ class LeafRestaurantPOS {
     }
 
     handleAction(action, el) {
+        if (action.startsWith("split-")) {
+            if (this.operationBusy) return;
+            if (action === "split-back") return this.closeSplitView();
+            if (action === "split-retry") return this.refreshSplitQuote();
+            if (action === "split-pay") return this.performSplit(true);
+            if (action === "split-create") return this.performSplit(false);
+            if (action === "split-transfer") return this.openTransferTableModal(true);
+            if (action === "split-toggle") {
+                const item = this.currentOrder.items.find(row => row.name === el.dataset.itemName);
+                if (!item) return;
+                const selected = this.splitSelection.get(item.name) || 0;
+                return this.setSplitQuantity(item.name, selected >= Number(item.qty) ? 0 : Math.min(Number(item.qty), selected + 1));
+            }
+        }
         if (action === "new-order-modal") return this.openNewAccountModal();
         if (action === "assign-account") return this.openNewAccountModal({ editCurrent: true });
         if (action === "assign-table") {
@@ -1133,8 +1287,20 @@ class LeafRestaurantPOS {
         }
         if (action === "load-selected-order") {
             const ordName = el.dataset.order;
+            if (ordName === "__DRAFT__") {
+                this.activeTab = "Caja";
+                this.render();
+                return;
+            }
             const ord = (this.bootstrap?.orders || []).find(o => o.name === ordName);
             if (ord) this.loadOrderIntoCaja(ord);
+            return;
+        }
+        if (action === "reset-draft-order") {
+            this.currentOrder = this.createBlankOrder();
+            this.selectedLineIndex = -1;
+            this.selectedOrderPreviewName = "";
+            this.render();
             return;
         }
         if (action === "preview-precuenta") {
@@ -1168,6 +1334,7 @@ class LeafRestaurantPOS {
     }
 
     loadOrderIntoCaja(orderData) {
+        this.closeSplitView(false);
         this.currentOrder = JSON.parse(JSON.stringify(orderData));
         this.selectedLineIndex = (this.currentOrder.items?.length || 0) - 1;
         this.activeTab = "Caja";
@@ -1190,6 +1357,7 @@ class LeafRestaurantPOS {
         const optKey = JSON.stringify(selectedOptions.map(o => o.option_label).sort());
         const existingIdx = (this.currentOrder.items || []).findIndex(
             row => row.item_code === item.item_code &&
+                   (row.kds_status || "Pendiente") === "Pendiente" &&
                    JSON.stringify((row.selected_options || []).map(o => o.option_label).sort()) === optKey &&
                    !row.note
         );
@@ -1677,11 +1845,18 @@ class LeafRestaurantPOS {
 
     /* 5. Modal de Ajuste Preestablecido (Comer en el local / Para llevar / Entrega) */
     openPresetModal() {
-        const presets = [
-            { label: "Comer en el local", bg: "#bfdbfe", border: "#3b82f6" },
-            { label: "Para llevar", bg: "#fde68a", border: "#b45309" },
-            { label: "Entrega", bg: "#fed7aa", border: "#9a3412" },
-        ];
+        const rawPresets = (this.bootstrap?.presets && this.bootstrap.presets.length)
+            ? this.bootstrap.presets
+            : [
+                { preset_name: "Comer en el local", color_bg: "#cce3fd", color_border: "#3b82f6" },
+                { preset_name: "Para llevar", color_bg: "#fef0a6", color_border: "#eab308" },
+                { preset_name: "Entrega", color_bg: "#fcd5b5", color_border: "#f97316" },
+            ];
+        const presets = rawPresets.map(p => ({
+            label: p.preset_name || p.label,
+            bg: p.color_bg || p.bg || "#cce3fd",
+            border: p.color_border || p.border || "#3b82f6"
+        }));
         const backdrop = this.createModal(
             "Seleccionar el ajuste preestablecido",
             `
@@ -1689,16 +1864,16 @@ class LeafRestaurantPOS {
                     ${presets.map(p => `
                         <button type="button"
                                 class="rpos-preset-row ${this.currentOrder.service_type === p.label ? "is-active" : ""}"
-                                data-preset-choice="${p.label}"
+                                data-preset-choice="${this.escape(p.label)}"
                                 style="background:${p.bg};border:1.5px solid ${p.border};">
-                            <span>${p.label}</span>
+                            <span>${this.escape(p.label)}</span>
                             <span class="rpos-preset-chevron">›</span>
                         </button>
                     `).join("")}
                 </div>
             `,
             "",
-            "520px"
+            "540px"
         );
 
         backdrop.querySelectorAll("[data-preset-choice]").forEach(btn => {
@@ -1860,13 +2035,13 @@ class LeafRestaurantPOS {
                 <div class="rpos-actions-grid">
                     <button type="button" class="rpos-action-tile" data-act-tile="customer-note">
                         <span class="rpos-action-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
+                            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/></svg>
                         </span>
                         <span>Nota para el cliente</span>
                     </button>
                     <button type="button" class="rpos-action-tile" data-act-tile="precuenta">
                         <span class="rpos-action-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
                         </span>
                         <span>Factura</span>
                     </button>
@@ -1876,43 +2051,46 @@ class LeafRestaurantPOS {
                     </button>
                     <button type="button" class="rpos-action-tile" data-act-tile="split">
                         <span class="rpos-action-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="5" width="11" height="14" rx="2"/><path d="M5 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h9"/></svg>
+                            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="5" width="11" height="14" rx="2"/><path d="M5 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h9"/></svg>
                         </span>
                         <span>Dividir</span>
                     </button>
                     <button type="button" class="rpos-action-tile" data-act-tile="transfer">
                         <span class="rpos-action-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
                         </span>
                         <span>Transferir / Fusionar</span>
                     </button>
                     <button type="button" class="rpos-action-tile" data-act-tile="transfer-food">
                         <span class="rpos-action-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
                         </span>
                         <span>Transferir comida</span>
                     </button>
                     <button type="button" class="rpos-action-tile" data-act-tile="rename">
                         <span class="rpos-action-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                         </span>
                         <span>Definir nombre de la orden</span>
                     </button>
                     <button type="button" class="rpos-action-tile" data-act-tile="pricelist">
                         <span class="rpos-action-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
+                            <svg viewBox="0 0 24 24" width="38" height="38" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/></svg>
                         </span>
                         <span>Lista de precios</span>
                     </button>
                 </div>
                 <button type="button" class="rpos-action-cancel-bar" data-act-tile="cancel">
-                    <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                     <span>Cancelar orden</span>
                 </button>
             `,
             "",
-            "720px"
+            "1040px"
         );
+
+        const modalBox = backdrop.querySelector(".rpos-modal");
+        if (modalBox) modalBox.classList.add("rpos-modal-actions-lg");
 
         backdrop.querySelectorAll("[data-act-tile]").forEach(btn => {
             btn.addEventListener("click", () => {
@@ -2354,113 +2532,450 @@ class LeafRestaurantPOS {
     }
 
     /* Acciones adicionales: Dividir, Transferir, Nota cliente, Cancelar, Menú POS */
+    async prepareOrderOperation() {
+        if (this.currentOrder.status !== "En curso" || !this.currentOrder.items?.length) {
+            frappe.msgprint("Selecciona una cuenta en curso con platillos.");
+            return null;
+        }
+        const saved = await frappe.call({method: "restaurant.pos.save_pos_order", type: "POST", args: {order: this.currentOrder}, freeze: true, freeze_message: "Guardando la cuenta…"});
+        if (!saved.message?.order) return null;
+        this.currentOrder = saved.message.order;
+        this.upsertOrderInBootstrap(this.currentOrder);
+        const result = await frappe.call({method: "restaurant.pos.get_order_operation_context", args: {order_name: this.currentOrder.name}});
+        this.operationContext = result.message;
+        this.currentOrder = result.message.order;
+        return this.operationContext;
+    }
+
     async openSplitOrderModal() {
-        if (!this.currentOrder.items.length || this.currentOrder.items.length < 1) {
-            frappe.msgprint("La cuenta necesita platillos para poder dividirse.");
+        if (this.operationBusy) return;
+        if (this.currentOrder.status !== "En curso" || !this.currentOrder.items?.length) {
+            frappe.msgprint("Selecciona una cuenta en curso con platillos.");
             return;
         }
-        await this.persistCurrentOrderSilently();
-        const items = this.currentOrder.items || [];
-        const backdrop = this.createModal(
-            `Dividir Cuenta · ${this.escape(this.currentOrder.order_name)}`,
-            `
-                <p style="color:#475569;font-size:13px;margin-top:0;">
-                    Indica qué cantidad de cada platillo deseas separar hacia la nueva cuenta (Cuenta 2):
-                </p>
-                ${items.map(it => `
-                    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #e2e8f0;">
-                        <div>
-                            <div style="font-weight:700;color:#0f172a;">${this.escape(it.item_name)}</div>
-                            <div style="font-size:12px;color:#64748b;">En cuenta actual: ${it.qty} · ${this.formatMoney(it.rate)} c/u</div>
-                        </div>
-                        <input type="number" min="0" max="${it.qty}" step="1" value="0" data-split-idx="${it.idx}" style="width:90px;background:#ffffff;color:#0f172a;border:1px solid #cbd5e1;border-radius:6px;padding:6px;">
-                    </div>
-                `).join("")}
-            `,
-            `
-                <button type="button" class="rpos-btn-secondary" data-modal-close>Cancelar</button>
-                <button type="button" class="rpos-btn-primary" data-split-confirm>Dividir en 2 Cuentas</button>
-            `,
-            "540px"
-        );
-
-        backdrop.querySelector("[data-split-confirm]").addEventListener("click", async () => {
-            const splitRows = [];
-            backdrop.querySelectorAll("[data-split-idx]").forEach(inp => {
-                const q = Number(inp.value || 0);
-                if (q > 0) splitRows.push({ idx: Number(inp.dataset.splitIdx), qty: q });
-            });
-            if (!splitRows.length) {
-                frappe.msgprint("Selecciona una cantidad mayor a cero en al menos un platillo.");
-                return;
+        this.operationBusy = true;
+        try {
+            if (!this.currentOrder.name) {
+                await this.persistCurrentOrderSilently();
             }
-            const res = await frappe.call({
-                method: "restaurant.pos.split_order",
-                args: { order_name: this.currentOrder.name, split_items: splitRows },
-                freeze: true,
-                freeze_message: "Dividiendo cuenta...",
-            });
-            backdrop.remove();
-            this.currentOrder = res.message.original_order;
-            this.upsertOrderInBootstrap(res.message.original_order);
-            this.upsertOrderInBootstrap(res.message.new_order);
-            this.bootstrap.areas = res.message.areas || this.bootstrap.areas;
-            frappe.show_alert({ message: `Se creó ${res.message.new_order.order_name}`, indicator: "green" });
+            this.operationContext = {
+                order: this.currentOrder,
+                can_split: true,
+                can_transfer: true,
+                tables: [],
+                orders: []
+            };
+            this.splitSelection = new Map();
+            this.splitAccountName = "";
+            this.splitQuote = this.calculateLocalSplitQuote();
+            this.splitQuoteError = false;
+            this.operationMode = "split";
+            this.activeTab = "Órdenes";
             this.render();
-        });
+        } catch (error) {
+            frappe.show_alert({message:"No se pudo abrir la división. Actualiza la cuenta y vuelve a intentarlo.",indicator:"red"});
+        } finally { this.operationBusy = false; }
     }
 
-    async openTransferTableModal() {
-        if (!this.currentOrder.name) {
-            await this.persistCurrentOrderSilently();
+    calculateLocalSplitQuote() {
+        const items = this.selectedSplitItems();
+        const total = Number(this.operationContext?.order?.grand_total ?? this.currentOrder.grand_total ?? 0);
+        if (!items.length) {
+            return {
+                selected_total: 0,
+                original_total: total,
+                remaining_total: total,
+                selected_qty: 0,
+                selected_lines: 0,
+                can_split: false,
+                all_selected: false,
+                rounding_difference: 0
+            };
         }
-        const allTables = [];
-        (this.bootstrap?.areas || []).forEach(a => {
-            (a.tables || []).forEach(t => {
-                allTables.push({ ...t, area_label: a.area_name });
-            });
-        });
-        const backdrop = this.createModal(
-            "Transferir o Fusionar Mesa",
-            `
-                <div class="rpos-field">
-                    <label>Selecciona la mesa destino (si está ocupada, las cuentas se fusionarán)</label>
-                    <select data-transfer-target>
-                        ${allTables.map(t => `
-                            <option value="${this.escape(t.name)}">
-                                Mesa ${this.escape(t.table_number)} · ${this.escape(t.area_label)} (${this.escape(t.status)})
-                            </option>
-                        `).join("")}
-                    </select>
-                </div>
-            `,
-            `
-                <button type="button" class="rpos-btn-secondary" data-modal-close>Cancelar</button>
-                <button type="button" class="rpos-btn-primary" data-transfer-confirm>Confirmar transferencia</button>
-            `,
-            "480px"
-        );
-
-        backdrop.querySelector("[data-transfer-confirm]").addEventListener("click", async () => {
-            const target = backdrop.querySelector("[data-transfer-target]").value;
-            const res = await frappe.call({
-                method: "restaurant.pos.transfer_order_table",
-                args: { order_name: this.currentOrder.name, target_table: target },
-                freeze: true,
-                freeze_message: "Transfiriendo mesa...",
-            });
-            backdrop.remove();
-            this.currentOrder = res.message.order;
-            this.bootstrap.areas = res.message.areas || this.bootstrap.areas;
-            await this.loadBootstrap();
-            this.render();
-            frappe.show_alert({
-                message: res.message.merged ? "Cuentas fusionadas en la mesa destino" : "Mesa transferida correctamente",
-                indicator: "green",
-            });
-        });
+        let selected_total = 0;
+        let selected_qty = 0;
+        let all_selected = true;
+        const orderItems = this.currentOrder.items || [];
+        for (const row of orderItems) {
+            const sel = this.splitSelection.get(row.name) || 0;
+            selected_qty += sel;
+            if (sel > 0) {
+                const ratio = Number(row.qty) > 0 ? (sel / Number(row.qty)) : 0;
+                selected_total += Number(row.amount || 0) * ratio;
+            }
+            if (sel < Number(row.qty)) {
+                all_selected = false;
+            }
+        }
+        selected_total = Math.round(selected_total * 100) / 100;
+        const remaining_total = Math.max(0, Math.round((total - selected_total) * 100) / 100);
+        return {
+            selected_total,
+            original_total: total,
+            remaining_total,
+            selected_qty,
+            selected_lines: items.length,
+            can_split: !all_selected && selected_qty > 0,
+            all_selected,
+            rounding_difference: 0
+        };
     }
 
+    closeSplitView(render = true) {
+        this.operationMode = null;
+        this.splitQuoteSequence++;
+        clearTimeout(this.splitQuoteTimer);
+        this.splitSelection = new Map();
+        this.splitQuote = null;
+        if (render) {this.activeTab = "Caja"; this.render();}
+    }
+
+    selectedSplitItems() {
+        return [...this.splitSelection].filter(([, qty]) => qty > 0).map(([item_name, qty]) => ({item_name, qty}));
+    }
+
+    renderSplitView() {
+        return `<section class="rpos-split-view" aria-label="Dividir la cuenta">
+            <header class="rpos-split-header">
+                <button type="button" class="rpos-btn-secondary" data-action="split-back">‹ Volver</button>
+                <h2>Dividir la cuenta</h2><span></span>
+            </header>
+            <div class="rpos-split-columns">
+                <div class="rpos-split-items">
+                    ${(this.currentOrder.items || []).map(item => {
+                        const selected = this.splitSelection.get(item.name) || 0;
+                        return `<div class="rpos-split-item ${selected ? "is-selected" : ""}">
+                            <button type="button" class="rpos-split-item-select" data-action="split-toggle" data-item-name="${this.escape(item.name)}" aria-pressed="${selected > 0}">
+                                <span class="rpos-split-item-heading"><span><strong>${selected ? `${selected} / ` : ""}${this.escape(item.qty)}</strong> ${this.escape(item.item_name)}</span><strong>${this.formatMoney(item.amount)}</strong></span>
+                                ${item.options_summary ? `<span class="rpos-split-item-option">${this.escape(item.options_summary)}</span>` : ""}
+                                ${item.note ? `<span class="rpos-split-item-note">${this.escape(item.note)}</span>` : ""}
+                            </button>
+                        </div>`;
+                    }).join("")}
+                </div>
+                <aside class="rpos-split-panel">
+                    <div class="rpos-split-summary">${this.renderSplitSummary()}</div>
+                    <label class="rpos-split-account-name">Nombre de la nueva cuenta <input type="text" maxlength="140" value="${this.escape(this.splitAccountName)}" placeholder="Nombre de la persona o número de orden" data-split-account-name></label>
+                    <div class="rpos-split-actions">${this.renderSplitActions()}</div>
+                </aside>
+            </div>
+        </section>`;
+    }
+
+    renderSplitSummary() {
+        const quote = this.splitQuote || this.calculateLocalSplitQuote();
+        const total = Number(quote?.original_total ?? this.operationContext?.order?.grand_total ?? this.currentOrder.grand_total ?? 0);
+        const selected = quote ? this.formatMoney(quote.selected_total) : this.formatMoney(0);
+        return `<div class="rpos-split-amount" aria-live="polite">${this.escape(selected)}<small>/ ${this.formatMoney(total)}</small></div>
+            <div class="rpos-split-count">${this.splitQuoteError ? 'No se pudo calcular la selección. <button type="button" class="rpos-split-retry" data-action="split-retry">Reintentar</button>' : `${Number(quote?.selected_qty || 0)} producto(s) seleccionado(s)`}</div>
+            ${quote ? `<p class="rpos-split-remaining">Quedará en la cuenta original: ${this.formatMoney(quote.remaining_total)}</p>` : ""}
+            ${quote && Number(quote.rounding_difference) ? `<p class="rpos-split-remaining">Diferencia por redondeo al separar: ${this.formatMoney(quote.rounding_difference)}</p>` : ""}`;
+    }
+
+    renderSplitActions() {
+        const quote = this.splitQuote || this.calculateLocalSplitQuote();
+        const ready = Boolean(quote && this.selectedSplitItems().length && !this.operationBusy);
+        return `<button type="button" class="rpos-split-pay" data-action="split-pay" ${ready && (quote.can_split || quote.all_selected) ? "" : "disabled"}>Pago</button>
+            <div class="rpos-split-secondary-actions">
+                <button type="button" data-action="split-create" ${ready && quote.can_split ? "" : "disabled"}>Dividir orden</button>
+                <button type="button" data-action="split-transfer" ${ready ? "" : "disabled"}>Transferir</button>
+            </div>`;
+    }
+
+    bindSplitEvents() {
+        this.shell.querySelectorAll("[data-split-quantity]").forEach(input => input.addEventListener("change", () => this.setSplitQuantity(input.dataset.splitQuantity, Number(input.value))));
+        this.shell.querySelector("[data-split-account-name]")?.addEventListener("input", event => {this.splitAccountName = event.target.value;});
+    }
+
+    setSplitQuantity(itemName, quantity) {
+        if (this.operationBusy) return;
+        const item = this.currentOrder.items.find(row => row.name === itemName);
+        if (!item || !Number.isFinite(quantity) || quantity < 0 || quantity > Number(item.qty)) {
+            frappe.msgprint("La cantidad debe estar entre cero y la cantidad disponible del platillo.");
+            this.render(); return;
+        }
+        if (quantity) this.splitSelection.set(itemName, quantity);
+        else this.splitSelection.delete(itemName);
+        this.splitQuote = this.calculateLocalSplitQuote();
+        this.splitQuoteError = false;
+        this.splitQuoteSequence++;
+        this.render();
+    }
+
+    async refreshSplitQuote() {
+        this.splitQuote = this.calculateLocalSplitQuote();
+        this.splitQuoteError = false;
+        if (this.operationMode === "split") this.render();
+    }
+
+    async performSplit(pay = false) {
+        if (this.operationBusy || !this.selectedSplitItems().length) return;
+        const quote = this.splitQuote || this.calculateLocalSplitQuote();
+        if (quote.all_selected && pay) {
+            this.closeSplitView();
+            await this.openPaymentModal();
+            return;
+        }
+        if (!quote.can_split) return;
+        this.operationBusy = true;
+        clearTimeout(this.splitQuoteTimer);
+        this.render();
+        try {
+            const expected_modified = this.currentOrder.modified || this.operationContext?.order?.modified || null;
+            const response = await frappe.call({method: "restaurant.pos.split_order", type: "POST", args: {
+                order_name: this.currentOrder.name, split_items: this.selectedSplitItems(),
+                new_order_name: this.splitAccountName.trim() || null, expected_modified: expected_modified,
+            }, freeze: true, freeze_message: "Separando la cuenta…"});
+            const payload = response.message;
+            this.upsertOrderInBootstrap(payload.original_order);
+            this.upsertOrderInBootstrap(payload.new_order);
+            this.bootstrap.areas = payload.areas || this.bootstrap.areas;
+            this.currentOrder = payload.new_order;
+            this.closeSplitView(false);
+            this.activeTab = "Caja";
+            this.render();
+            frappe.show_alert({message: `Se creó la cuenta ${payload.new_order.order_name}.`, indicator: "green"});
+            if (pay) await this.openPaymentModal();
+        } catch (error) {
+            frappe.show_alert({message:"No se pudo dividir la cuenta. La selección se conserva para volver a intentarlo.",indicator:"red"});
+        } finally { this.operationBusy = false; if (this.operationMode === "split") this.render(); }
+    }
+
+    async openTransferTableModal(selectedOnly = false) {
+        if (this.operationBusy) return;
+        if (selectedOnly && !this.selectedSplitItems().length) return;
+        this.operationBusy = true;
+        try {
+            const res = await frappe.call({method: "restaurant.pos.get_order_operation_context", args: {order_name: this.currentOrder.name}});
+            this.operationContext = res.message;
+            const context = this.operationContext;
+            const rawTables = context.tables || [];
+            // Filter only active tables in POS (active and not disabled)
+            const activeTables = rawTables.filter(t => t.disabled !== 1 && t.active !== 0);
+            // Filter only active orders in current session (status "En curso" and not current order)
+            const activeOrders = (context.orders || []).filter(o => (!o.status || o.status === "En curso") && o.name !== context.order.name);
+            const defaultNewName = `${context.order.order_name || "Cuenta"} (Nueva)`;
+
+            const backdrop = this.createModal(
+                "Transferir / Fusionar",
+                `
+                    <p class="rpos-transfer-description">${selectedOnly ? "Transfiere los platillos seleccionados" : "Transfiere la cuenta completa"} a una mesa activa, fusiónala con otra cuenta activa o crea una nueva cuenta independiente.</p>
+                    <div class="rpos-transfer-tabs">
+                        <button type="button" class="is-active" data-transfer-tab="tables">Mesas activas (${activeTables.length})</button>
+                        <button type="button" data-transfer-tab="orders">Cuentas activas (${activeOrders.length})</button>
+                        <button type="button" data-transfer-tab="new-account">+ Nueva cuenta / orden</button>
+                    </div>
+                    <div data-transfer-search-wrap>
+                        <label class="rpos-field"><span>Buscar destino</span><input type="search" data-transfer-search placeholder="Mesa, área, nombre o número de orden"></label>
+                    </div>
+                    <div class="rpos-transfer-destinations" data-transfer-destinations></div>
+                    <div class="rpos-transfer-new-account-wrap" data-transfer-new-wrap style="display:none;">
+                        <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:16px;">
+                            <label class="rpos-field" style="margin-bottom:10px;">
+                                <span style="font-weight:700;">Nombre de la nueva cuenta u orden *</span>
+                                <input type="text" data-transfer-new-name placeholder="Ej: Barra 1, Cliente Juan, Cuenta 2..." value="${this.escape(defaultNewName)}" style="font-size:15px;padding:10px;">
+                            </label>
+                            <p class="text-muted" style="font-size:13px;margin:0;">
+                                ${selectedOnly ? "Se creará una nueva cuenta activa independiente con los platillos seleccionados." : "Se creará una nueva orden activa independiente con toda la cuenta."}
+                            </p>
+                        </div>
+                    </div>
+                    <p class="rpos-transfer-selection" data-transfer-selection>Selecciona una mesa o cuenta activa.</p>
+                `,
+                `<button type="button" class="rpos-btn-secondary" data-modal-close>Volver</button><button type="button" class="rpos-btn-primary" data-transfer-confirm disabled>Transferir</button>`,
+                "820px"
+            );
+
+            let activeTab = "tables";
+            let chosen = null;
+
+            const renderDestinations = () => {
+                const searchWrap = backdrop.querySelector("[data-transfer-search-wrap]");
+                const destinationsContainer = backdrop.querySelector("[data-transfer-destinations]");
+                const newWrap = backdrop.querySelector("[data-transfer-new-wrap]");
+                const confirmBtn = backdrop.querySelector("[data-transfer-confirm]");
+                const selectionLabel = backdrop.querySelector("[data-transfer-selection]");
+
+                if (activeTab === "new-account") {
+                    searchWrap.style.display = "none";
+                    destinationsContainer.style.display = "none";
+                    newWrap.style.display = "block";
+                    chosen = { type: "new-account" };
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = selectedOnly ? "Separar en nueva cuenta" : "Transferir a nueva cuenta";
+                    selectionLabel.textContent = "Destino: Nueva cuenta independiente";
+                    return;
+                }
+
+                searchWrap.style.display = "block";
+                destinationsContainer.style.display = "grid";
+                newWrap.style.display = "none";
+
+                const search = (backdrop.querySelector("[data-transfer-search]").value || "").trim().toLocaleLowerCase();
+                let destinations = [];
+
+                if (activeTab === "orders") {
+                    destinations = activeOrders.map(order => ({
+                        type: "order",
+                        name: order.name,
+                        title: order.order_name,
+                        subtitle: `${order.table_label ? `Mesa ${order.table_label}` : "Sin mesa"} · ${this.formatMoney(order.grand_total || 0)}`,
+                        badge: "Activa (En curso)",
+                        modified: order.modified
+                    }));
+                } else {
+                    destinations = activeTables.map(table => {
+                        const tableOrders = (table.orders || []).filter(o => !o.status || o.status === "En curso");
+                        const isCurrent = table.name === context.order.restaurant_table;
+                        const occupied = tableOrders.length > 0;
+                        const subtitle = occupied
+                            ? `${table.area_name || "Área principal"} · Ocupada (${tableOrders.map(o => o.order_name).join(", ")})`
+                            : `${table.area_name || "Área principal"} · Disponible`;
+                        return {
+                            type: occupied ? "order" : "table",
+                            name: occupied ? tableOrders[0].name : table.name,
+                            tableName: table.name,
+                            title: `Mesa ${table.table_number}`,
+                            subtitle,
+                            badge: occupied ? "Activa" : "Disponible",
+                            isOccupied: occupied,
+                            isCurrent,
+                            modified: occupied ? tableOrders[0].modified : null,
+                            disabled: isCurrent && (!occupied || (tableOrders.length === 1 && tableOrders[0].name === context.order.name))
+                        };
+                    });
+                }
+
+                const shown = destinations.filter(d => `${d.title} ${d.subtitle}`.toLocaleLowerCase().includes(search));
+                destinationsContainer.innerHTML = shown.map((d, index) => `
+                    <button type="button" class="rpos-transfer-destination ${chosen?.type === d.type && chosen?.name === d.name ? "is-selected" : ""}" data-destination-index="${index}" ${d.disabled ? "disabled" : ""}>
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <strong>${this.escape(d.title)}</strong>
+                            <span class="rpos-table-status-pill ${d.badge.includes("Activa") || d.badge.includes("curso") ? "is-active" : "is-free"}">${d.badge}</span>
+                        </div>
+                        <span>${this.escape(d.subtitle)}${d.isCurrent ? " (Mesa actual)" : ""}</span>
+                    </button>
+                `).join("") || '<p class="rpos-transfer-empty" style="grid-column:span 2;padding:20px;text-align:center;color:#64748b;">No hay destinos activos con esta búsqueda.</p>';
+
+                destinationsContainer.querySelectorAll("[data-destination-index]").forEach(button => button.addEventListener("click", () => {
+                    chosen = shown[Number(button.dataset.destinationIndex)];
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = chosen.type === "order" ? "Fusionar con cuenta" : "Transferir a mesa";
+                    selectionLabel.textContent = `Destino: ${chosen.title}`;
+                    renderDestinations();
+                }));
+            };
+
+            backdrop.querySelectorAll("[data-transfer-tab]").forEach(button => button.addEventListener("click", () => {
+                activeTab = button.dataset.transferTab;
+                backdrop.querySelectorAll("[data-transfer-tab]").forEach(tab => tab.classList.toggle("is-active", tab === button));
+                if (activeTab !== "new-account") chosen = null;
+                renderDestinations();
+            }));
+
+            backdrop.querySelector("[data-transfer-search]").addEventListener("input", renderDestinations);
+
+            backdrop.querySelector("[data-transfer-confirm]").addEventListener("click", async () => {
+                if (!chosen || this.operationBusy) return;
+                this.operationBusy = true;
+                const confirmBtn = backdrop.querySelector("[data-transfer-confirm]");
+                confirmBtn.disabled = true;
+
+                try {
+                    if (chosen.type === "new-account") {
+                        const newName = (backdrop.querySelector("[data-transfer-new-name]").value || "").trim() || "Nueva cuenta";
+                        if (selectedOnly) {
+                            const response = await frappe.call({
+                                method: "restaurant.pos.split_order",
+                                type: "POST",
+                                args: {
+                                    order_name: context.order.name,
+                                    split_items: this.selectedSplitItems(),
+                                    new_order_name: newName,
+                                    expected_modified: context.order.modified
+                                },
+                                freeze: true,
+                                freeze_message: "Creando nueva cuenta…"
+                            });
+                            const payload = response.message;
+                            backdrop.remove();
+                            if (payload.original_order) this.upsertOrderInBootstrap(payload.original_order);
+                            this.upsertOrderInBootstrap(payload.new_order);
+                            this.currentOrder = payload.new_order;
+                            this.closeSplitView(false);
+                            this.activeTab = "Caja";
+                            await this.loadBootstrap();
+                            this.render();
+                            frappe.show_alert({message: `Se transfirieron los platillos a la nueva cuenta ${payload.new_order.order_name}.`, indicator: "green"});
+                            return;
+                        } else {
+                            const response = await frappe.call({
+                                method: "restaurant.pos.transfer_order_table",
+                                type: "POST",
+                                args: {
+                                    order_name: context.order.name,
+                                    new_order_name: newName,
+                                    expected_modified: context.order.modified
+                                },
+                                freeze: true,
+                                freeze_message: "Transfiriendo a nueva cuenta…"
+                            });
+                            const payload = response.message;
+                            backdrop.remove();
+                            this.upsertOrderInBootstrap(payload.order);
+                            this.currentOrder = payload.order;
+                            this.closeSplitView(false);
+                            this.activeTab = "Caja";
+                            await this.loadBootstrap();
+                            this.render();
+                            frappe.show_alert({message: `La cuenta se transfirió como ${payload.order.order_name}.`, indicator: "green"});
+                            return;
+                        }
+                    }
+
+                    const args = { order_name: context.order.name, expected_modified: context.order.modified };
+                    if (chosen.type === "table") args.target_table = chosen.name;
+                    else {
+                        args.target_order = chosen.name;
+                        if (chosen.modified) args.target_modified = chosen.modified;
+                    }
+                    if (selectedOnly) {
+                        args.split_items = this.selectedSplitItems();
+                        if (this.splitAccountName.trim()) args.new_order_name = this.splitAccountName.trim();
+                    }
+                    const response = await frappe.call({
+                        method: "restaurant.pos.transfer_order_table",
+                        type: "POST",
+                        args,
+                        freeze: true,
+                        freeze_message: "Transfiriendo la cuenta…"
+                    });
+                    const payload = response.message;
+                    backdrop.remove();
+                    if (payload.original_order) this.upsertOrderInBootstrap(payload.original_order);
+                    this.upsertOrderInBootstrap(payload.order);
+                    this.currentOrder = payload.order;
+                    this.bootstrap.areas = payload.areas || this.bootstrap.areas;
+                    this.closeSplitView(false);
+                    this.activeTab = "Caja";
+                    await this.loadBootstrap();
+                    this.render();
+                    frappe.show_alert({message: payload.merged ? "Las cuentas se fusionaron correctamente." : "La cuenta se transfirió correctamente.", indicator: "green"});
+                } catch (error) {
+                    frappe.show_alert({message: "No se pudo transferir. Revisa que las mesas o cuentas sigan activas y disponibles.", indicator: "red"});
+                } finally {
+                    this.operationBusy = false;
+                    if (backdrop.isConnected) confirmBtn.disabled = false;
+                }
+            });
+
+            renderDestinations();
+        } catch (error) {
+            frappe.show_alert({message: "No se pudieron cargar los destinos. Actualiza la cuenta y vuelve a intentarlo.", indicator: "red"});
+        } finally {
+            this.operationBusy = false;
+        }
+    }
     openCustomerNoteModal() {
         const backdrop = this.createModal(
             "Nota general para el cliente / factura",

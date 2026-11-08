@@ -134,7 +134,7 @@
    "fieldname": "kds_status",
    "label": "Estado en cocina",
    "fieldtype": "Select",
-   "options": "Pendiente\nEn preparación\nListo\nEntregado",
+   "options": "Pendiente\nEn preparación\nListo\nEntregado\nCerrado",
    "default": "Pendiente"
   }
  ],

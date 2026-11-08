@@ -9,8 +9,8 @@ from frappe.utils import cint, cstr, flt, get_datetime, get_fullname, now_dateti
 
 ALLOWED_SERVICE_TYPES = ("Comer en el local", "Para llevar", "Entrega")
 ALLOWED_ORDER_STATUSES = ("En curso", "Facturada", "Cancelada")
-ALLOWED_KDS_STATUSES = ("Sin enviar", "En preparación", "Listo", "Entregado")
-ALLOWED_ITEM_KDS_STATUSES = ("Pendiente", "En preparación", "Listo", "Entregado")
+ALLOWED_KDS_STATUSES = ("Sin enviar", "En preparación", "Listo", "Entregado", "Cerrado")
+ALLOWED_ITEM_KDS_STATUSES = ("Pendiente", "En preparación", "Listo", "Entregado", "Cerrado")
 
 DEFAULT_CATEGORY_COLORS = (
     "#D9468F",
@@ -40,7 +40,7 @@ def _require_pos_user():
             _("Debes iniciar sesión para acceder al Punto de Venta de Restaurante."),
             frappe.PermissionError,
         )
-    if not {"System Manager", "Restaurant Manager"}.intersection(frappe.get_roles()):
+    if not {"System Manager", "Restaurant Manager", "Restaurant User"}.intersection(frappe.get_roles()):
         frappe.throw(
             _("No tienes permiso para acceder al Punto de Venta de Restaurante."),
             frappe.PermissionError,
@@ -179,7 +179,11 @@ def validate_order(doc):
         frappe.throw(_("El estado de la orden debe ser En curso, Facturada o Cancelada."))
 
     doc.service_type = cstr(doc.service_type or "Comer en el local").strip()
-    if doc.service_type not in ALLOWED_SERVICE_TYPES:
+    if frappe.db.table_exists("Restaurant Order Preset"):
+        valid_presets = frappe.get_all("Restaurant Order Preset", filters={"enabled": 1}, pluck="preset_name")
+        if valid_presets and doc.service_type not in valid_presets:
+            frappe.throw(_("La modalidad seleccionada '{0}' no es válida según los ajustes preestablecidos.").format(doc.service_type))
+    elif doc.service_type not in ALLOWED_SERVICE_TYPES:
         frappe.throw(_("La modalidad debe ser Comer en el local, Para llevar o Entrega."))
 
     doc.kds_status = cstr(doc.kds_status or "Sin enviar").strip()
@@ -253,7 +257,7 @@ def validate_order(doc):
             as_dict=True,
         )
         row.item_name = cstr(row.item_name or (item_info.item_name if item_info else row.item_code)).strip()
-        row.item_group = row.item_group or (item_info.item_group if item_info else None)
+        row.item_group = (item_info.item_group if item_info and item_info.item_group else row.item_group)
         row.uom = row.uom or (item_info.stock_uom if item_info else None)
 
         row.qty = flt(row.qty)
@@ -279,9 +283,8 @@ def validate_order(doc):
 
         row.note = cstr(row.note).strip()[:300]
         row.options_summary = cstr(row.options_summary).strip()[:500]
-        if not row.command_station and row.item_group:
-            stations = command_map.get(row.item_group) or []
-            row.command_station = ", ".join(stations) if stations else "Cocina General"
+        stations = (command_map.get(row.item_group) or []) if row.item_group else []
+        row.command_station = ", ".join(stations) if stations else "Cocina General"
         if row.kds_status not in ALLOWED_ITEM_KDS_STATUSES:
             row.kds_status = "Pendiente"
 
@@ -351,11 +354,12 @@ def _serialize_order(doc):
             except Exception:
                 selected_options = []
         items.append({
+            "name": row.name,
             "idx": row.idx,
             "item_code": row.item_code,
             "item_name": row.item_name,
             "item_group": row.item_group,
-            "qty": flt(row.qty, 2),
+            "qty": flt(row.qty),
             "uom": row.uom,
             "base_rate": flt(row.base_rate, 2),
             "options_rate": flt(row.options_rate, 2),
@@ -394,6 +398,12 @@ def _serialize_order(doc):
         "currency": doc.currency or "HNL",
         "selling_price_list": doc.selling_price_list or "",
         "kds_status": doc.kds_status or "Sin enviar",
+        "kds_stage": (
+            "Cerrado" if (doc.kds_status or "Sin enviar") == "Cerrado"
+            else "Para Entregar" if (doc.kds_status or "Sin enviar") == "Listo"
+            else "Completadas" if (doc.kds_status or "Sin enviar") == "Entregado"
+            else "Por Preparar"
+        ),
         "sent_to_kitchen_at": str(doc.sent_to_kitchen_at) if doc.sent_to_kitchen_at else "",
         "scheduled_time": doc.scheduled_time or "",
         "customer_note": doc.customer_note or "",
@@ -926,6 +936,7 @@ def get_pos_bootstrap(area_name=None):
         "modes_of_payment": modes_of_payment,
         "orders": orders,
         "command_stations": get_command_stations(),
+        "presets": get_order_presets(),
         "fiscal_defaults": {
             "cai": fiscal_info["cai"],
             "due_date_cai": fiscal_info["due_date_cai"],
@@ -1277,10 +1288,14 @@ def save_pos_order(order):
             doc.company = doc.company or active_shift["company"]
 
     if "items" in payload and isinstance(payload.get("items"), list):
+        existing_rows = {r.name: r for r in (doc.items or []) if getattr(r, "name", None)}
         item_rows = []
         for raw_row in payload["items"]:
             if not isinstance(raw_row, dict) or not raw_row.get("item_code"):
                 continue
+            row_name = cstr(raw_row.get("name") or "").strip()
+            old_row = existing_rows.get(row_name)
+
             selected_options = raw_row.get("selected_options") or []
             if isinstance(selected_options, str):
                 try:
@@ -1300,11 +1315,20 @@ def save_pos_order(order):
                         )
             if raw_row.get("options_rate") is not None and not selected_options:
                 options_rate = flt(raw_row.get("options_rate"), 2)
-            item_rows.append({
+
+            qty = flt(raw_row.get("qty") or 1)
+            kds_status = raw_row.get("kds_status") or "Pendiente"
+            if old_row:
+                if old_row.kds_status not in (None, "", "Pendiente"):
+                    if abs(flt(old_row.qty) - qty) > 0.001:
+                        frappe.throw(_("No se puede modificar la cantidad de un platillo que ya fue enviado a cocina."), frappe.ValidationError)
+                    kds_status = old_row.kds_status
+
+            row_data = {
                 "item_code": raw_row.get("item_code"),
                 "item_name": raw_row.get("item_name"),
                 "item_group": raw_row.get("item_group"),
-                "qty": flt(raw_row.get("qty") or 1),
+                "qty": qty,
                 "uom": raw_row.get("uom"),
                 "base_rate": flt(raw_row.get("base_rate") if raw_row.get("base_rate") is not None else raw_row.get("rate") or 0),
                 "options_rate": flt(options_rate, 2),
@@ -1314,8 +1338,11 @@ def save_pos_order(order):
                 "selected_options_json": json.dumps(selected_options, ensure_ascii=False),
                 "note": cstr(raw_row.get("note") or "").strip(),
                 "command_station": raw_row.get("command_station"),
-                "kds_status": raw_row.get("kds_status") or "Pendiente",
-            })
+                "kds_status": kds_status,
+            }
+            if old_row:
+                row_data["name"] = old_row.name
+            item_rows.append(row_data)
         doc.set("items", item_rows)
 
     if doc.is_new():
@@ -1348,6 +1375,42 @@ def get_command_stations():
     if "Cocina General" not in names:
         names.append("Cocina General")
     return names
+
+
+def get_order_presets():
+    """Return active order presets (Comer en el local, Para llevar, Entrega)."""
+    default_presets = [
+        {"preset_name": "Comer en el local", "color_bg": "#cce3fd", "color_border": "#3b82f6", "is_default": 1},
+        {"preset_name": "Para llevar", "color_bg": "#fef0a6", "color_border": "#eab308", "is_default": 0},
+        {"preset_name": "Entrega", "color_bg": "#fcd5b5", "color_border": "#f97316", "is_default": 0},
+    ]
+    if frappe.db.table_exists("Restaurant Order Preset"):
+        records = frappe.get_all(
+            "Restaurant Order Preset",
+            filters={"enabled": 1},
+            fields=["name", "preset_name", "color_bg", "color_border", "is_default"],
+            order_by="idx asc, creation asc",
+        )
+        if records:
+            return records
+        for p in default_presets:
+            if not frappe.db.exists("Restaurant Order Preset", p["preset_name"]):
+                doc = frappe.get_doc({
+                    "doctype": "Restaurant Order Preset",
+                    "preset_name": p["preset_name"],
+                    "color_bg": p["color_bg"],
+                    "color_border": p["color_border"],
+                    "is_default": p["is_default"],
+                    "enabled": 1,
+                })
+                doc.insert(ignore_permissions=True)
+        return frappe.get_all(
+            "Restaurant Order Preset",
+            filters={"enabled": 1},
+            fields=["name", "preset_name", "color_bg", "color_border", "is_default"],
+            order_by="idx asc, creation asc",
+        )
+    return default_presets
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1383,7 +1446,7 @@ def send_order_to_kitchen(order_name, station=None, include_sent=0):
                 continue
             stations.setdefault(station_name, []).append({
                 "item_name": row.item_name,
-                "qty": flt(row.qty, 2),
+                "qty": flt(row.qty),
                 "options_summary": row.options_summary or "",
                 "note": row.note or "",
             })
@@ -1581,7 +1644,7 @@ def pay_and_invoice_order(
             "item_code": row.item_code,
             "item_name": row.item_name,
             "description": " | ".join(desc_parts),
-            "qty": flt(row.qty, 2),
+            "qty": flt(row.qty),
             "uom": row.uom,
             "rate": flt(row.rate, 2),
             "price_list_rate": flt(row.base_rate + row.options_rate, 2),
@@ -1695,9 +1758,6 @@ def pay_and_invoice_order(
     doc.cai = si.cai or cai_value
     doc.due_date_cai = si.due_date_cai or due_cai_value
     doc.status = "Facturada"
-    doc.kds_status = "Entregado"
-    for row in doc.items:
-        row.kds_status = "Entregado"
     doc.save()
 
     return {
@@ -1731,161 +1791,45 @@ def pay_and_invoice_order(
 
 
 @frappe.whitelist(methods=["POST"])
-def transfer_order_table(order_name, target_table):
-    """Transfer an open order to another table or merge it if the target table is occupied."""
-    _require_pos_user()
-    if not order_name or not frappe.db.exists("Restaurant Order", order_name):
-        frappe.throw(_("La cuenta de origen no existe."))
-    if not target_table or not frappe.db.exists("Restaurant Table", target_table):
-        frappe.throw(_("Selecciona una mesa de destino válida."))
-
-    source_doc = frappe.get_doc("Restaurant Order", order_name)
-    source_doc.check_permission("write")
-    if source_doc.status != "En curso":
-        frappe.throw(_("Solo se pueden transferir cuentas en curso."))
-
-    if source_doc.restaurant_table == target_table:
-        frappe.throw(_("La cuenta ya está asignada a esa mesa."))
-
-    existing_target = frappe.db.get_value(
-        "Restaurant Order",
-        {"restaurant_table": target_table, "status": "En curso", "name": ["!=", source_doc.name]},
-        "name",
+def transfer_order_table(order_name, target_table=None, target_order=None, expected_modified=None,
+                         target_modified=None, split_items=None, new_order_name=None):
+    """Transfer an open order to another table, merge into target order, or create a new order."""
+    from restaurant.order_operations import transfer_account
+    return transfer_account(
+        order_name,
+        target_table=target_table,
+        target_order=target_order,
+        expected_modified=expected_modified,
+        target_modified=target_modified,
+        split_items=split_items,
+        new_order_name=new_order_name,
     )
-    if existing_target:
-        target_doc = frappe.get_doc("Restaurant Order", existing_target)
-        target_doc.check_permission("write")
-        for row in source_doc.items:
-            target_doc.append("items", {
-                "item_code": row.item_code,
-                "item_name": row.item_name,
-                "item_group": row.item_group,
-                "qty": row.qty,
-                "uom": row.uom,
-                "base_rate": row.base_rate,
-                "options_rate": row.options_rate,
-                "discount_percentage": row.discount_percentage,
-                "tax_rate": row.tax_rate,
-                "options_summary": row.options_summary,
-                "selected_options_json": row.selected_options_json,
-                "note": row.note,
-                "command_station": row.command_station,
-                "kds_status": row.kds_status,
-            })
-        target_doc.save()
-        source_doc.status = "Cancelada"
-        source_doc.restaurant_table = None
-        source_doc.save()
-        return {
-            "merged": True,
-            "order": _serialize_order(target_doc),
-            "areas": _get_areas_with_live_tables(),
-        }
-
-    table_info = frappe.db.get_value(
-        "Restaurant Table", target_table, ["table_number", "restaurant_area"], as_dict=True
-    )
-    source_doc.restaurant_table = target_table
-    source_doc.restaurant_area = table_info.restaurant_area if table_info else source_doc.restaurant_area
-    source_doc.table_label = table_info.table_number if table_info else target_table
-    source_doc.save()
-    return {
-        "merged": False,
-        "order": _serialize_order(source_doc),
-        "areas": _get_areas_with_live_tables(),
-    }
 
 
 @frappe.whitelist(methods=["POST"])
-def split_order(order_name, split_items):
+def split_order(order_name, split_items, new_order_name=None, expected_modified=None):
     """Split selected quantities from an open Restaurant Order into a second open account."""
-    _require_pos_user()
-    if not order_name or not frappe.db.exists("Restaurant Order", order_name):
-        frappe.throw(_("La cuenta que deseas dividir no existe."))
-    doc = frappe.get_doc("Restaurant Order", order_name)
-    doc.check_permission("write")
-    if doc.status != "En curso":
-        frappe.throw(_("Solo se pueden dividir cuentas en curso."))
+    from restaurant.order_operations import split_account
+    return split_account(
+        order_name,
+        split_items,
+        new_order_name=new_order_name,
+        expected_modified=expected_modified,
+    )
 
-    parsed = frappe.parse_json(split_items) if isinstance(split_items, str) else split_items
-    if not isinstance(parsed, list) or not parsed:
-        frappe.throw(_("Selecciona al menos un platillo o cantidad para dividir la cuenta."))
 
-    split_map = {cint(entry.get("idx")): flt(entry.get("qty")) for entry in parsed if isinstance(entry, dict)}
-    new_items = []
-    remaining_items = []
+@frappe.whitelist()
+def get_order_operation_context(order_name):
+    """Read permitted open destinations and split feasibility."""
+    from restaurant.order_operations import get_order_operation_context as _get_ctx
+    return _get_ctx(order_name)
 
-    for row in doc.items:
-        move_qty = flt(split_map.get(cint(row.idx), 0))
-        if move_qty > 0:
-            move_qty = min(move_qty, flt(row.qty))
-            new_items.append({
-                "item_code": row.item_code,
-                "item_name": row.item_name,
-                "item_group": row.item_group,
-                "qty": move_qty,
-                "uom": row.uom,
-                "base_rate": row.base_rate,
-                "options_rate": row.options_rate,
-                "discount_percentage": row.discount_percentage,
-                "tax_rate": row.tax_rate,
-                "options_summary": row.options_summary,
-                "selected_options_json": row.selected_options_json,
-                "note": row.note,
-                "command_station": row.command_station,
-                "kds_status": row.kds_status,
-            })
-        stay_qty = flt(row.qty - move_qty, 2)
-        if stay_qty > 0:
-            remaining_items.append({
-                "item_code": row.item_code,
-                "item_name": row.item_name,
-                "item_group": row.item_group,
-                "qty": stay_qty,
-                "uom": row.uom,
-                "base_rate": row.base_rate,
-                "options_rate": row.options_rate,
-                "discount_percentage": row.discount_percentage,
-                "tax_rate": row.tax_rate,
-                "options_summary": row.options_summary,
-                "selected_options_json": row.selected_options_json,
-                "note": row.note,
-                "command_station": row.command_station,
-                "kds_status": row.kds_status,
-            })
 
-    if not new_items or not remaining_items:
-        frappe.throw(_("Al dividir la cuenta, ambas cuentas deben conservar al menos un platillo."))
-
-    doc.set("items", remaining_items)
-    doc.save()
-
-    second_doc = frappe.get_doc({
-        "doctype": "Restaurant Order",
-        "order_name": f"{doc.order_name} (Cuenta 2)",
-        "reference_note": doc.reference_note,
-        "service_type": doc.service_type,
-        "restaurant_area": doc.restaurant_area,
-        "restaurant_table": doc.restaurant_table,
-        "guests": 1,
-        "waiter": doc.waiter,
-        "customer": doc.customer,
-        "tax_id": doc.tax_id,
-        "pos_profile": doc.pos_profile,
-        "pos_opening_shift": doc.pos_opening_shift,
-        "company": doc.company,
-        "currency": doc.currency,
-        "selling_price_list": doc.selling_price_list,
-        "kds_status": doc.kds_status,
-        "items": new_items,
-    })
-    second_doc.insert()
-
-    return {
-        "original_order": _serialize_order(doc),
-        "new_order": _serialize_order(second_doc),
-        "areas": _get_areas_with_live_tables(),
-    }
+@frappe.whitelist(methods=["POST"])
+def preview_split_order(order_name, split_items, expected_modified=None):
+    """Calculate the financial impact of a proposed account split."""
+    from restaurant.order_operations import preview_split
+    return preview_split(order_name, split_items, expected_modified=expected_modified)
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1952,24 +1896,54 @@ def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None):
 def get_kds_orders(station=None, status_filter=None):
     """Return active kitchen orders and station filters for the Kitchen Display System (KDS)."""
     _require_pos_user()
-    filters = {"status": "En curso"}
+    filters = {
+        "status": ["in", ["En curso", "Facturada"]],
+        "kds_status": ["in", ["Sin enviar", "En preparación", "Listo", "Entregado"]],
+    }
     if status_filter and status_filter in ALLOWED_KDS_STATUSES:
         filters["kds_status"] = status_filter
-    else:
-        filters["kds_status"] = ["in", ["Sin enviar", "En preparación", "Listo"]]
 
     rows = frappe.get_all(
         "Restaurant Order",
         filters=filters,
         fields=["name"],
         order_by="sent_to_kitchen_at asc, creation asc",
-        limit_page_length=100,
+        limit_page_length=150,
     )
     orders = []
     stations_set = {"Todas las estaciones", "Cocina General"}
+    command_displays = []
     if frappe.db.exists("DocType", "Restaurant Command"):
         for cmd_name in frappe.get_all("Restaurant Command", filters={"enabled": 1}, pluck="command_name"):
             stations_set.add(cmd_name)
+        cmd_docs = frappe.get_all(
+            "Restaurant Command",
+            filters={"enabled": 1},
+            fields=["name", "command_name", "branch", "enabled"],
+            order_by="command_name asc",
+        )
+        for cmd in cmd_docs:
+            stations_set.add(cmd.command_name)
+            groups = frappe.get_all(
+                "Restaurant Command Group",
+                filters={"parent": cmd.name, "parenttype": "Restaurant Command"},
+                pluck="item_group",
+            )
+            command_displays.append({
+                "name": cmd.name,
+                "command_name": cmd.command_name,
+                "branch": cmd.branch or "Restaurante",
+                "enabled": cint(cmd.enabled),
+                "groups": groups,
+            })
+
+    counts = {
+        "Todas": 0,
+        "Por Preparar": 0,
+        "Para Entregar": 0,
+        "Completadas": 0,
+    }
+    now_dt = now_datetime()
 
     for r in rows:
         serialized = _serialize_order(r.name)
@@ -1980,7 +1954,7 @@ def get_kds_orders(station=None, status_filter=None):
                 for st in item["command_station"].split(","):
                     if st.strip():
                         stations_set.add(st.strip())
-        if station and station != "Todas las estaciones":
+        if station and station not in ("Todas las estaciones", "ALL", "Todas"):
             filtered_items = [
                 it for it in serialized["items"]
                 if station.lower() in (it.get("command_station") or "").lower()
@@ -1988,15 +1962,49 @@ def get_kds_orders(station=None, status_filter=None):
             if not filtered_items:
                 continue
             serialized["items"] = filtered_items
+
+        raw_kds = serialized.get("kds_status") or "Sin enviar"
+        if raw_kds == "Cerrado":
+            continue
+        if raw_kds == "Listo":
+            stage = "Para Entregar"
+        elif raw_kds == "Entregado":
+            stage = "Completadas"
+        else:
+            stage = "Por Preparar"
+
+        timer_ref = serialized.get("sent_to_kitchen_at") or serialized.get("creation")
+        ref_dt = get_datetime(timer_ref) if timer_ref else now_dt
+        wait_mins = max(0, int((now_dt - ref_dt).total_seconds() // 60))
+
+        serialized["kds_stage"] = stage
+        serialized["kds_timer_start"] = str(timer_ref or now_dt)
+        serialized["kds_wait_minutes"] = wait_mins
+
+        counts["Todas"] += 1
+        counts[stage] = counts.get(stage, 0) + 1
         orders.append(serialized)
+
+    in_progress_orders = [o for o in orders if o.get("kds_stage") == "Por Preparar"]
+    in_progress_count = len(in_progress_orders)
+    avg_wait_minutes = (
+        int(round(sum(int(o.get("kds_wait_minutes") or 0) for o in in_progress_orders) / in_progress_count))
+        if in_progress_count
+        else 0
+    )
 
     return {
         "stations": sorted(stations_set),
+        "command_displays": command_displays,
         "orders": orders,
+        "counts": counts,
+        "in_progress_count": in_progress_count,
+        "avg_wait_minutes": avg_wait_minutes,
+        "server_now": str(now_dt),
     }
 
 
-@frappe.whitelist(methods=["POST"])
+@frappe.whitelist()
 def update_kds_status(order_name, kds_status, item_idx=None):
     """Advance or update the Kitchen KDS status of an order or individual dish line."""
     _require_pos_user()
@@ -2005,30 +2013,80 @@ def update_kds_status(order_name, kds_status, item_idx=None):
     doc = frappe.get_doc("Restaurant Order", order_name)
     doc.check_permission("write")
 
+    stage_aliases = {
+        "Por Preparar": "En preparación",
+        "Para Entregar": "Listo",
+        "Completadas": "Entregado",
+    }
+    target_status = stage_aliases.get(cstr(kds_status).strip(), cstr(kds_status).strip())
+
     if item_idx is not None and item_idx != "":
         target_idx = cint(item_idx)
         for row in doc.items:
-            if cint(row.idx) == target_idx and kds_status in ALLOWED_ITEM_KDS_STATUSES:
-                row.kds_status = kds_status
+            if cint(row.idx) == target_idx and target_status in ALLOWED_ITEM_KDS_STATUSES:
+                row.kds_status = target_status
         statuses = {row.kds_status for row in doc.items}
-        if statuses == {"Entregado"}:
+        if statuses == {"Cerrado"}:
+            doc.kds_status = "Cerrado"
+        elif statuses == {"Entregado"}:
             doc.kds_status = "Entregado"
         elif statuses <= {"Listo", "Entregado"}:
             doc.kds_status = "Listo"
         else:
             doc.kds_status = "En preparación"
     else:
-        if kds_status not in ALLOWED_KDS_STATUSES:
+        if target_status not in ALLOWED_KDS_STATUSES:
             frappe.throw(_("El estado de cocina no es válido."))
-        doc.kds_status = kds_status
+        doc.kds_status = target_status
+        if target_status == "En preparación" and not doc.sent_to_kitchen_at:
+            doc.sent_to_kitchen_at = now_datetime()
         mapped_item_status = (
-            "Pendiente" if kds_status == "Sin enviar" else kds_status
+            "Pendiente" if target_status == "Sin enviar" else target_status
         )
         for row in doc.items:
             row.kds_status = mapped_item_status
 
     doc.save()
-    return {"order": _serialize_order(doc)}
+    serialized = _serialize_order(doc)
+    return {
+        "order": serialized,
+        "kds_status": serialized["kds_status"],
+        "kds_stage": serialized["kds_stage"],
+    }
+
+
+@frappe.whitelist()
+def clear_completed_kds_orders(order_names=None):
+    """Close completed ('Entregado') KDS tickets so they disappear from the active KDS monitor."""
+    _require_pos_user()
+    names = []
+    if order_names:
+        parsed = frappe.parse_json(order_names) if isinstance(order_names, str) else order_names
+        if isinstance(parsed, list):
+            names = [cstr(n).strip() for n in parsed if cstr(n).strip()]
+    if not names:
+        names = frappe.get_all(
+            "Restaurant Order",
+            filters={
+                "status": ["in", ["En curso", "Facturada"]],
+                "kds_status": "Entregado",
+            },
+            pluck="name",
+            limit_page_length=200,
+        )
+    closed = []
+    for name in names:
+        if not frappe.db.exists("Restaurant Order", name):
+            continue
+        doc = frappe.get_doc("Restaurant Order", name)
+        if not doc.has_permission("write"):
+            continue
+        doc.kds_status = "Cerrado"
+        for row in doc.items:
+            row.kds_status = "Cerrado"
+        doc.save()
+        closed.append(doc.name)
+    return {"closed": closed, "closed_orders": closed}
 
 
 @frappe.whitelist()

@@ -17,7 +17,7 @@
  "is_hidden": 0,
  "label": "Restaurante",
  "links": [],
- "modified": "2026-11-04 11:54:45.762019",
+ "modified": "2026-11-06 17:02:12.824140",
  "modified_by": "Administrator",
  "module": "Restaurant",
  "name": "Restaurante",
@@ -39,7 +39,7 @@
   {
    "doc_view": "Tree",
    "icon": "organization",
-   "label": "Categorías y subcategorías",
+   "label": "Categor\u00edas y subcategor\u00edas",
    "link_to": "Item Group",
    "type": "DocType"
   },
@@ -48,6 +48,20 @@
    "icon": "tag",
    "label": "Precios de productos",
    "link_to": "Item Price",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "icon": "flag",
+   "label": "Etapas de preparaci\u00f3n",
+   "link_to": "Restaurant Preparation Stage",
+   "type": "DocType"
+  },
+  {
+   "doc_view": "List",
+   "icon": "credit-card",
+   "label": "M\u00e9todos de pago",
+   "link_to": "Mode of Payment",
    "type": "DocType"
   },
   {
@@ -81,11 +95,11 @@
    "type": "DocType"
   },
   {
-   "type": "URL",
-   "label": "Áreas",
-   "url": "/app/restaurant-location",
+   "doc_view": "",
    "icon": "map",
-   "doc_view": ""
+   "label": "\u00c1reas",
+   "type": "URL",
+   "url": "/app/restaurant-location"
   },
   {
    "doc_view": "List",
@@ -95,11 +109,11 @@
    "type": "DocType"
   },
   {
-   "type": "URL",
-   "label": "Mapa de mesas",
-   "url": "/app/restaurant-table-map",
+   "doc_view": "",
    "icon": "grid",
-   "doc_view": ""
+   "label": "Mapa de mesas",
+   "type": "URL",
+   "url": "/app/restaurant-table-map"
   },
   {
    "color": "Green",
@@ -109,11 +123,11 @@
    "url": "/restaurant-welcome"
   },
   {
-   "type": "URL",
-   "label": "Comandas",
-   "url": "/app/restaurant-commands",
+   "doc_view": "",
    "icon": "file",
-   "doc_view": ""
+   "label": "Comandas",
+   "type": "URL",
+   "url": "/app/restaurant-commands"
   }
  ],
  "title": "Restaurante"

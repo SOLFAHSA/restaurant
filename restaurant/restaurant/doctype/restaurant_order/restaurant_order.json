@@ -9,34 +9,19 @@
  "engine": "InnoDB",
  "field_order": [
   "order_name",
-  "reference_note",
   "status",
   "service_type",
-  "column_break_header",
   "restaurant_area",
   "restaurant_table",
   "table_label",
   "guests",
-  "section_break_people",
-  "waiter",
-  "waiter_name",
+  "column_break_header",
   "customer",
   "customer_name",
   "tax_id",
-  "column_break_pos",
-  "pos_profile",
-  "pos_opening_shift",
-  "cashier",
-  "company",
-  "currency",
-  "selling_price_list",
-  "section_break_kitchen",
-  "kds_status",
-  "sent_to_kitchen_at",
-  "scheduled_time",
-  "column_break_notes",
-  "customer_note",
-  "precuenta_printed",
+  "waiter",
+  "waiter_name",
+  "products_tab",
   "section_break_items",
   "items",
   "section_break_totals",
@@ -51,10 +36,31 @@
   "tip_percentage",
   "tip_amount",
   "grand_total",
+  "payments_tab",
   "section_break_invoice",
   "sales_invoice",
+  "precuenta_printed",
+  "column_break_fiscal",
   "cai",
-  "due_date_cai"
+  "due_date_cai",
+  "additional_info_tab",
+  "section_break_pos",
+  "pos_profile",
+  "pos_opening_shift",
+  "cashier",
+  "column_break_pos",
+  "company",
+  "currency",
+  "selling_price_list",
+  "section_break_kitchen",
+  "kds_status",
+  "sent_to_kitchen_at",
+  "column_break_kitchen",
+  "scheduled_time",
+  "notes_tab",
+  "section_break_notes",
+  "customer_note",
+  "reference_note"
  ],
  "fields": [
   {
@@ -64,12 +70,6 @@
    "reqd": 1,
    "in_list_view": 1,
    "in_standard_filter": 1
-  },
-  {
-   "fieldname": "reference_note",
-   "label": "Referencia",
-   "fieldtype": "Data",
-   "in_list_view": 1
   },
   {
    "fieldname": "status",
@@ -88,12 +88,7 @@
    "options": "Comer en el local\nPara llevar\nEntrega",
    "default": "Comer en el local",
    "reqd": 1,
-   "in_list_view": 1,
    "in_standard_filter": 1
-  },
-  {
-   "fieldname": "column_break_header",
-   "fieldtype": "Column Break"
   },
   {
    "fieldname": "restaurant_area",
@@ -118,29 +113,14 @@
   },
   {
    "fieldname": "guests",
-   "label": "Invitados",
+   "label": "Invitados / Comensales",
    "fieldtype": "Int",
    "default": "1",
    "non_negative": 1
   },
   {
-   "fieldname": "section_break_people",
-   "label": "Atención y Cliente",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "waiter",
-   "label": "Mesero que atenderá",
-   "fieldtype": "Link",
-   "options": "Employee",
-   "in_list_view": 1,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "waiter_name",
-   "label": "Nombre del mesero",
-   "fieldtype": "Data",
-   "read_only": 1
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "customer",
@@ -163,96 +143,32 @@
    "fieldtype": "Data"
   },
   {
-   "fieldname": "column_break_pos",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "pos_profile",
-   "label": "Perfil de Punto de Venta",
+   "fieldname": "waiter",
+   "label": "Atendido por (Mesero)",
    "fieldtype": "Link",
-   "options": "POS Profile"
-  },
-  {
-   "fieldname": "pos_opening_shift",
-   "label": "Turno de caja",
-   "fieldtype": "Link",
-   "options": "POS Opening Shift"
-  },
-  {
-   "fieldname": "cashier",
-   "label": "Cajero",
-   "fieldtype": "Link",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "company",
-   "label": "Empresa",
-   "fieldtype": "Link",
-   "options": "Company"
-  },
-  {
-   "fieldname": "currency",
-   "label": "Moneda",
-   "fieldtype": "Link",
-   "options": "Currency",
-   "default": "HNL"
-  },
-  {
-   "fieldname": "selling_price_list",
-   "label": "Lista de precios",
-   "fieldtype": "Link",
-   "options": "Price List"
-  },
-  {
-   "fieldname": "section_break_kitchen",
-   "label": "Cocina y Comanda",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "kds_status",
-   "label": "Estado en cocina (KDS)",
-   "fieldtype": "Select",
-   "options": "Sin enviar\nEn preparación\nListo\nEntregado",
-   "default": "Sin enviar",
+   "options": "Employee",
    "in_list_view": 1,
    "in_standard_filter": 1
   },
   {
-   "fieldname": "sent_to_kitchen_at",
-   "label": "Enviado a cocina",
-   "fieldtype": "Datetime",
+   "fieldname": "waiter_name",
+   "label": "Nombre del mesero",
+   "fieldtype": "Data",
    "read_only": 1
   },
   {
-   "fieldname": "scheduled_time",
-   "label": "Tiempo / Hora programada",
-   "fieldtype": "Data"
-  },
-  {
-   "fieldname": "column_break_notes",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "customer_note",
-   "label": "Nota para el cliente",
-   "fieldtype": "Small Text"
-  },
-  {
-   "fieldname": "precuenta_printed",
-   "label": "Precuenta generada",
-   "fieldtype": "Check",
-   "default": "0",
-   "read_only": 1
+   "fieldname": "products_tab",
+   "label": "Productos",
+   "fieldtype": "Tab Break"
   },
   {
    "fieldname": "section_break_items",
-   "label": "Detalle de la Orden",
+   "label": "Platillos y productos",
    "fieldtype": "Section Break"
   },
   {
    "fieldname": "items",
-   "label": "Platillos y productos",
+   "label": "Detalle de platillos",
    "fieldtype": "Table",
    "options": "Restaurant Order Item"
   },
@@ -346,8 +262,13 @@
    "in_list_view": 1
   },
   {
+   "fieldname": "payments_tab",
+   "label": "Pagos",
+   "fieldtype": "Tab Break"
+  },
+  {
    "fieldname": "section_break_invoice",
-   "label": "Control Fiscal SAR (Factura y CAI)",
+   "label": "Control Fiscal SAR y Facturación",
    "fieldtype": "Section Break"
   },
   {
@@ -355,7 +276,20 @@
    "label": "Factura de venta (SAR)",
    "fieldtype": "Link",
    "options": "Sales Invoice",
+   "read_only": 1,
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "precuenta_printed",
+   "label": "Precuenta generada",
+   "fieldtype": "Check",
+   "default": "0",
    "read_only": 1
+  },
+  {
+   "fieldname": "column_break_fiscal",
+   "fieldtype": "Column Break"
   },
   {
    "fieldname": "cai",
@@ -368,6 +302,110 @@
    "label": "Fecha límite de emisión CAI",
    "fieldtype": "Date",
    "read_only": 1
+  },
+  {
+   "fieldname": "additional_info_tab",
+   "label": "Información adicional",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "section_break_pos",
+   "label": "Punto de Venta y Turno",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "pos_profile",
+   "label": "Punto de venta",
+   "fieldtype": "Link",
+   "options": "POS Profile",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "pos_opening_shift",
+   "label": "Sesión (Turno de caja)",
+   "fieldtype": "Link",
+   "options": "POS Opening Shift",
+   "in_list_view": 1,
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "cashier",
+   "label": "Cajero",
+   "fieldtype": "Link",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_pos",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "company",
+   "label": "Empresa",
+   "fieldtype": "Link",
+   "options": "Company"
+  },
+  {
+   "fieldname": "currency",
+   "label": "Moneda",
+   "fieldtype": "Link",
+   "options": "Currency",
+   "default": "HNL"
+  },
+  {
+   "fieldname": "selling_price_list",
+   "label": "Lista de precios",
+   "fieldtype": "Link",
+   "options": "Price List"
+  },
+  {
+   "fieldname": "section_break_kitchen",
+   "label": "Cocina (KDS)",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "kds_status",
+   "label": "Estado en cocina (KDS)",
+   "fieldtype": "Select",
+   "options": "Sin enviar\nEn preparación\nListo\nEntregado\nCerrado",
+   "default": "Sin enviar",
+   "in_standard_filter": 1
+  },
+  {
+   "fieldname": "sent_to_kitchen_at",
+   "label": "Enviado a cocina",
+   "fieldtype": "Datetime",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_kitchen",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "scheduled_time",
+   "label": "Tiempo / Hora programada",
+   "fieldtype": "Data"
+  },
+  {
+   "fieldname": "notes_tab",
+   "label": "Nota para el cliente",
+   "fieldtype": "Tab Break"
+  },
+  {
+   "fieldname": "section_break_notes",
+   "label": "Notas y referencias",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "customer_note",
+   "label": "Nota para el cliente",
+   "fieldtype": "Small Text"
+  },
+  {
+   "fieldname": "reference_note",
+   "label": "Referencia interna",
+   "fieldtype": "Data"
   }
  ],
  "permissions": [
@@ -388,6 +426,14 @@
    "create": 1,
    "delete": 1,
    "report": 1
+  },
+  {
+   "role": "Restaurant User",
+   "read": 1,
+   "write": 1,
+   "create": 1,
+   "delete": 0,
+   "report": 1
   }
  ],
  "actions": [],
@@ -399,4 +445,3 @@
  "sort_order": "DESC",
  "quick_entry": 0
 }
-

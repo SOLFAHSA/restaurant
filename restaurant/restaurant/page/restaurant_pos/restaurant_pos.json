@@ -11,6 +11,9 @@
   },
   {
    "role": "Restaurant Manager"
+  },
+  {
+   "role": "Restaurant User"
   }
  ],
  "system_page": 0
