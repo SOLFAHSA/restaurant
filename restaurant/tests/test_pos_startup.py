@@ -7,7 +7,15 @@ import frappe
 from frappe.desk.desk_page import get as get_page
 from frappe.tests.utils import FrappeTestCase
 
-from restaurant.pos import _require_pos_user, get_pos_bootstrap
+from restaurant.pos import (
+    _require_pos_user,
+    clear_completed_kds_orders,
+    get_kds_orders,
+    get_pos_bootstrap,
+    save_pos_order,
+    send_order_to_kitchen,
+    update_kds_status,
+)
 
 
 class TestPosStartup(FrappeTestCase):
@@ -101,8 +109,122 @@ class TestPosStartup(FrappeTestCase):
                     _require_pos_user()
 
     def test_operational_page_roles_are_accepted_without_creating_users(self):
-        for role in ("Restaurant Manager", "System Manager"):
+        for role in ("Restaurant Manager", "System Manager", "Restaurant User"):
             with self.subTest(role=role):
                 with patch.dict(frappe.local.session, {"user": "pos-operator@example.invalid"}):
                     with patch("frappe.get_roles", return_value=["All", role]):
                         _require_pos_user()
+
+    def test_role_matrix_enforces_least_privilege_on_restaurant_order(self):
+        meta = frappe.get_meta("Restaurant Order")
+        perms_by_role = {p.role: p for p in meta.permissions}
+        self.assertIn("System Manager", perms_by_role)
+        self.assertIn("Restaurant Manager", perms_by_role)
+        self.assertIn("Restaurant User", perms_by_role)
+        self.assertNotIn("Guest", perms_by_role)
+        self.assertEqual(perms_by_role["System Manager"].delete, 1)
+        self.assertEqual(getattr(perms_by_role["System Manager"], "import"), 1)
+        self.assertEqual(perms_by_role["Restaurant Manager"].delete, 1)
+        self.assertEqual(perms_by_role["Restaurant User"].read, 1)
+        self.assertEqual(perms_by_role["Restaurant User"].create, 1)
+        self.assertEqual(perms_by_role["Restaurant User"].write, 1)
+        self.assertEqual(perms_by_role["Restaurant User"].delete, 0)
+
+    def test_kds_page_loader_and_orders_api_return_stage_metadata(self):
+        kds_page = get_page("restaurant-kds")
+        self.assertEqual(kds_page["name"], "restaurant-kds")
+        self.assertEqual(kds_page["module"], "Restaurant")
+        self.assertIsInstance(kds_page.get("script"), str)
+        self.assertIn('frappe.pages["restaurant-kds"].on_page_load', kds_page["script"])
+        for token in (
+            "Kitchen Display",
+            "Pantalla de preparación",
+            "Etapas de preparación",
+            "Casi lista",
+            "Lista",
+            "Pantalla de",
+            "Pantalla del estado de",
+            "En progreso",
+            "Tiempo promedio",
+            "Por Preparar",
+            "Para Entregar",
+            "Completadas",
+            "Restablecer",
+            "Regresar a etapa anterior",
+            'data-kds-action="toggle-item"',
+            '"restaurant.kds.get_kds_state"',
+            '"toggle_item"',
+            '"dismiss_ticket"',
+            '"save_display"',
+            '"save_stage"',
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, kds_page["script"])
+        self.assertIsInstance(kds_page.get("style"), str)
+        self.assertIn(".rkds-shell", kds_page["style"])
+        self.assertIn(".rkds-hub-card", kds_page["style"])
+        self.assertIn(".rkds-item-row.is-struck", kds_page["style"])
+        self.assertIn(".rkds-card", kds_page["style"])
+        self.assertIn(".rkds-card-footer", kds_page["style"])
+        payload = get_kds_orders()
+        self.assertIsInstance(payload, dict)
+        self.assertIsInstance(payload.get("orders"), list)
+        self.assertIsInstance(payload.get("counts"), dict)
+        self.assertTrue(bool(payload.get("server_now")))
+        for stage_key in ("Todas", "Por Preparar", "Para Entregar", "Completadas"):
+            with self.subTest(stage_key=stage_key):
+                self.assertIn(stage_key, payload["counts"])
+
+    def test_kds_stage_lifecycle_por_preparar_para_entregar_completadas_restablecer_and_listo(self):
+        sp = "kds_lifecycle_sp"
+        frappe.db.savepoint(sp)
+        try:
+            ctx = get_pos_bootstrap()
+            first_item = ctx["items"][0]["item_code"]
+            saved = save_pos_order({
+                "order_name": "KDS Test Order",
+                "service_type": "Comer en el local",
+                "guests": 2,
+                "items": [
+                    {"item_code": first_item, "qty": 1, "note": "Sides : Sweet potato fries"},
+                    {"item_code": first_item, "qty": 1, "note": "Sin cebolla"},
+                ],
+            })
+            order_name = saved["order"]["name"]
+            send_order_to_kitchen(order_name)
+
+            kds_after_send = get_kds_orders()
+            matched = next((o for o in kds_after_send["orders"] if o["name"] == order_name), None)
+            self.assertIsNotNone(matched)
+            self.assertEqual(matched["kds_stage"], "Por Preparar")
+            self.assertIsInstance(matched["kds_wait_minutes"], int)
+
+            after_first_strike = update_kds_status(order_name, "Listo", item_idx=1)
+            self.assertEqual(after_first_strike["kds_stage"], "Por Preparar")
+            self.assertEqual(after_first_strike["order"]["items"][0]["kds_status"], "Listo")
+
+            to_ready = update_kds_status(order_name, "Listo", item_idx=2)
+            self.assertEqual(to_ready["kds_stage"], "Para Entregar")
+            self.assertEqual(to_ready["kds_status"], "Listo")
+
+            to_completed = update_kds_status(order_name, "Completadas")
+            self.assertEqual(to_completed["kds_stage"], "Completadas")
+            self.assertEqual(to_completed["kds_status"], "Entregado")
+
+            reset_to_cook = update_kds_status(order_name, "Por Preparar")
+            self.assertEqual(reset_to_cook["kds_stage"], "Por Preparar")
+            self.assertEqual(reset_to_cook["kds_status"], "En preparación")
+
+            update_kds_status(order_name, "Completadas")
+            closed = update_kds_status(order_name, "Cerrado")
+            self.assertEqual(closed["kds_stage"], "Cerrado")
+            self.assertEqual(closed["kds_status"], "Cerrado")
+
+            kds_after_close = get_kds_orders()
+            self.assertFalse(any(o["name"] == order_name for o in kds_after_close["orders"]))
+
+            update_kds_status(order_name, "Completadas")
+            cleared = clear_completed_kds_orders([order_name])
+            self.assertIn(order_name, cleared["closed_orders"])
+        finally:
+            frappe.db.rollback(save_point=sp)
