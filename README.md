@@ -8,23 +8,29 @@ MIT
 
 ---
 
-## Entrega académica: semana 1
+## Entregas académicas (Semanas 1 a 4)
 
 - Participante: **Manuel Padilla**, Ingeniería en Sistemas, CEUTEC.
 - Token de identificación de la entrega: **`LEARN-CAP-57D6DFA7`**.
 - Repositorio principal (Upstream académico): `https://github.com/SOLFAHSA/restaurant.git`
+- App en línea (HTTPS): `https://leaf-dev.hsjddhn.com/#login`
 - Rama activa de desarrollo: `feature/modulo-restaurante`
 - [Visión, evidencia, Lean Canvas, hipótesis y alcance](docs/vision.md).
-- [Bitácora de la semana 1](docs/bitacora/semana-1.md).
+- [Mapa de historias y planificación](docs/mapa-historias.md) · [Plan de entregas](docs/plan.md).
+- [Modelo de datos y diccionario](docs/modelo-datos.md).
+- [Matriz de permisos, roles y propiedad del dato (`docs/permisos.md`)](docs/permisos.md).
+- Bitácoras semanales:
+  - [Bitácora de la semana 1](docs/bitacora/semana-1.md)
+  - [Bitácora de la semana 2](docs/bitacora/semana-2.md)
+  - [Bitácora de la semana 3](docs/bitacora/semana-3.md)
+  - [Bitácora de la semana 4](docs/bitacora/semana-4.md)
 
 Este token identifica la entrega académica del participante; no modifica la
 licencia ni la atribución del proyecto Grintsys.
 
 **Estado:** repositorio de la Custom App estructurado bajo control del autor en
 `SOLFAHSA/restaurant` para evaluación docente y preparado para integración vía
-**Fork / Merge** hacia la organización **Grintsys**. La URL de demostración
-pública por HTTPS continúa pendiente; la dirección `localhost` corresponde al
-entorno local de desarrollo.
+**Fork / Merge** hacia la organización **Grintsys**, con entorno en línea publicado bajo HTTPS en `https://leaf-dev.hsjddhn.com/#login`.
 
 ---
 
@@ -192,9 +198,9 @@ La app versiona únicamente el cargo **Mesero** en `restaurant/fixtures/designat
 Los empleados, teléfonos y sucursales de cada sitio no se exportan como fixtures.
 Frappe importa esta configuración al instalar o migrar la app por el flujo nativo.
 
-## Ubicaciones y áreas del restaurante
+## Áreas del restaurante
 
-El acceso **Restaurante → Configuración → Ubicaciones** abre una pantalla Desk
+El acceso **Restaurante → Configuración → Áreas** abre una pantalla Desk
 propia en `/app/restaurant-location`, respaldada por el nuevo DocType independiente
 `Restaurant Area`, módulo `Restaurant`. La pantalla reproduce la estructura y
 los colores del mockup, con información general, vista previa, configuración
@@ -209,16 +215,16 @@ posterior a la inducción documentada en la semana 1.
 Para registrar un área:
 
 1. Registra primero la sucursal real desde **Sucursales**, si aún no existe.
-2. Abre **Ubicaciones** y pulsa **Nueva ubicación**.
-3. Completa nombre, sucursal, tipo de área y capacidad; el nombre es único en el
+2. Abre **Áreas** y pulsa **Nueva área**.
+3. Completa nombre del área, sucursal y capacidad; el nombre es único en el
    sitio. Usa nombres como **Centro - Terraza** y **Norte - Terraza** si corresponde.
 4. Selecciona estado, visibilidad, orden, color e icono o imagen. La impresora y el
    mesero son opcionales; el mesero debe estar activo, tener cargo **Mesero** y
    pertenecer a la sucursal elegida.
-5. Pulsa **Guardar ubicación**. El registro se puede reabrir desde el listado.
+5. Pulsa **Guardar área**. El registro se puede reabrir desde el listado.
 
 El formulario nativo sigue disponible en `/app/restaurant-area`; su botón
-**Abrir diseño de ubicaciones** permite regresar al editor visual. Los controles
+**Abrir diseño de áreas** permite regresar al editor visual. Los controles
 se adaptan a móvil. Los roles autorizados son `System Manager` y
 `Restaurant Manager`, respetando las restricciones por sucursal.
 
@@ -248,7 +254,7 @@ conservan su presentación nativa. Los iconos provienen del sprite SVG de Frappe
 del conjunto Font Awesome incluido en LEAF y del icono de restaurante existente.
 
 Los accesos de productos, grupos, precios, meseros y clientes abren los
-documentos nativos. Ubicaciones abre el editor de `Restaurant Area`. **Punto de venta** abre el POS Awesome ya instalado; no
+documentos nativos. Áreas abre el editor de `Restaurant Area`. **Punto de venta** abre el POS Awesome ya instalado; no
 representa la implementación del nuevo POS táctil gastronómico. **Reportes**
 ofrece los reportes nativos de ventas. **Configuración** conserva los accesos a
 sucursales, listas de precios, unidades de medida y bienvenida. Los filtros y
@@ -285,11 +291,11 @@ Es idempotente: una segunda ejecución no duplica registros. Los nombres usan
 el prefijo `DEMO-REST`; ante un conflicto no sobrescribe registros existentes.
 Consulta el [contenido, las pruebas y los límites del conjunto](docs/datos-semilla.md).
 
-## Paginación y búsqueda de ubicaciones
+## Paginación y búsqueda de áreas
 
 El listado de `/app/restaurant-location` consulta páginas en el servidor mediante
 la API de la app y `frappe.get_list`, conservando los permisos de rol y por sucursal.
-Muestra 12 ubicaciones por defecto y permite seleccionar 24 o 48. Los controles
+Muestra 12 áreas por defecto y permite seleccionar 24 o 48. Los controles
 **Anterior** y **Siguiente** muestran el rango de registros de la página actual.
 
 La búsqueda por nombre o sucursal se ejecuta después de una breve pausa al
@@ -303,3 +309,18 @@ El [modelo de datos](docs/modelo-datos.md) reúne diagramas entidad–relación 
 Mermaid, el diccionario de campos, restricciones y políticas de eliminación.
 Distingue las entidades nativas de ERPNext, Restaurant Area implementado y
 las propuestas de atención y cocina pendientes de desarrollo.
+
+## Configuración de platillos en Producto
+
+El formulario completo de Item incorpora la pestaña Restaurante con Activar receta
+y Activar opciones del platillo. Desde el acceso Productos y platillos del
+Workspace, Agregar producto abre el formulario completo sin deshabilitar la
+entrada rápida global de Item.
+
+Después de guardar el producto se pueden configurar componentes con cantidades y
+unidades, y grupos de selección con adicionales cero o positivos. La receta se
+conserva en un Product Bundle nativo deshabilitado; los grupos pertenecen a la app.
+Esta entrega no implementa un POS ni genera movimientos de inventario o facturas.
+No carga productos de ejemplo y preserva los registros existentes.
+
+Consulta la [guía de configuración e ingreso manual](docs/configuracion-platillos.md).

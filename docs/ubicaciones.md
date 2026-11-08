@@ -1,4 +1,4 @@
-# Ubicaciones y áreas del restaurante
+# Áreas del restaurante
 
 ## Decisión de arquitectura
 
@@ -116,3 +116,46 @@ Rutas relativas a la raíz de la app `restaurant`:
 - `restaurant/restaurant/page/restaurant_location/restaurant_location.html`
 - `restaurant/restaurant/page/restaurant_location/restaurant_location.css`
 - `restaurant/restaurant/page/restaurant_location/restaurant_location.js`
+
+## Simplificación del formulario de áreas
+
+**ANALYZED — 4 de noviembre de 2026:** la interfaz utiliza Áreas, Nueva área y
+Nombre del área. Se retira Tipo de área del esquema activo, del editor y de las
+validaciones. Cada restaurante define sus espacios mediante un nombre libre.
+Se conservan Restaurant Area, area_name y la ruta /app/restaurant-location para
+mantener los registros y enlaces existentes.
+
+La sincronización nativa de Frappe conserva la columna histórica area_type;
+no se ejecuta un borrado de columnas ni una actualización de las áreas existentes.
+No se necesita un parche de datos. El orden de visualización se conserva:
+los números menores aparecen primero en el listado; no identifica mesas.
+Las demás opciones conservan su alcance actual.
+
+### Verificación de la simplificación
+
+**VERIFIED — 4 de noviembre de 2026:** sincronización nativa del DocType y de la
+Page en development con Python 3.11.15. Las 24 áreas existentes conservaron
+exactamente todos sus valores e identificadores, incluida la columna histórica
+area_type. La interfaz y los accesos usan Áreas y Nombre del área.
+
+Se ejecutaron 23 pruebas de las suites test_restaurant_area,
+test_restaurant_area_list y restaurant.tests.test_demo_data: 0 fallos y 0 errores.
+Incluyen crear y editar sin tipo de área, clientes antiguos, permisos, concurrencia,
+paginación y repetición segura de datos semilla. Se revirtieron los registros
+temporales y se comprobaron los conteos de 13 tablas antes y después.
+
+Archivos modificados en esta simplificación, desde la raíz de la app:
+
+- README.md
+- docs/modelo-datos.md
+- docs/ubicaciones.md
+- restaurant/demo_data.py
+- restaurant/fixtures/custom_html_block.json
+- restaurant/location.py
+- restaurant/restaurant/doctype/restaurant_area/restaurant_area.js
+- restaurant/restaurant/doctype/restaurant_area/restaurant_area.json
+- restaurant/restaurant/doctype/restaurant_area/test_restaurant_area.py
+- restaurant/restaurant/page/restaurant_location/restaurant_location.html
+- restaurant/restaurant/page/restaurant_location/restaurant_location.js
+- restaurant/restaurant/page/restaurant_location/restaurant_location.json
+- restaurant/restaurant/workspace/restaurante/restaurante.json

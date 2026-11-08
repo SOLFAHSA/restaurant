@@ -631,6 +631,10 @@ Fuente de reglas: [location.py](../restaurant/location.py), invocada por el
 [controller](../restaurant/restaurant/doctype/restaurant_area/restaurant_area.py).
 Los dos Section Break del formulario no crean columnas.
 
+**ANALYZED — Actualización del 4 de noviembre de 2026:** el formulario se denomina
+Áreas y utiliza Nombre del área. Se retira area_type de los metadatos activos
+y las validaciones; su columna histórica se conserva sin reescribir registros.
+
 `name` se genera inicialmente desde `area_name` (`autoname = field:area_name`).
 La unicidad de `area_name` es **global**, no por sucursal. Cambiar un texto visible
 no debe tratarse como actualización manual de PK; para renombrar se requiere el
@@ -640,7 +644,6 @@ proceso nativo de Frappe. `allow_rename = 1` está habilitado.
 | --- | --- | --- | --- |
 | `area_name` | Data / `varchar(140)` NULL; **UNIQUE** | Sí, servidor | Nombre sin espacios extremos, no vacío, hasta 140 caracteres; origina name. |
 | `branch` | Link / `varchar(140)` NULL | Sí, servidor | Branch.name; existencia y permiso de lectura/selección. Sin FK SQL. |
-| `area_type` | Select / `varchar(140)` NULL | Sí, servidor | Área interior, Área abierta (Terraza), Barra, Área privada; default Área interior. |
 | `display_order` | Int / `int(11) NOT NULL` | Valor válido | Entero 0–2147483647; default 0. |
 | `capacity` | Int / `int(11) NOT NULL` | Sí, servidor | Entero 1–2147483647. SQL default 0 no cumple la regla de negocio. |
 | `status` | Select / `varchar(140)` NULL | Sí, servidor | Activa o Inactiva; default Activa. |
@@ -1147,7 +1150,7 @@ idempotency_key. Producto y cantidad original se consultan en la orden nativa.
 | DocType | Campo candidato | Tipo | Obligatoriedad y alcance |
 | --- | --- | --- | --- |
 | `Sales Order` | `restaurant_service` | Link → Restaurant Service | Opcional para el ERP general; exigible por el proceso de restaurante. Validar empresa, sucursal, permisos y estado de sesión. |
-| `Restaurant Area` | `default_kitchen_station` | Link → Restaurant Kitchen Station | Opcional; estación de la misma sucursal. No forma parte de los 15 campos actuales. |
+| `Restaurant Area` | `default_kitchen_station` | Link → Restaurant Kitchen Station | Opcional; estación de la misma sucursal. No forma parte de los 14 campos actuales. |
 
 Antes de crearlos: confirmar camino nativo, revisar datos existentes, versionar
 la extensión dentro de restaurant y definir migración compatible. No se proponen
