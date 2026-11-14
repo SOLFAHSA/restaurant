@@ -6,10 +6,10 @@ app_email = "juanm.padilla13@hotmail.com"
 app_license = "MIT"
 
 # Register scoped colors independently from the icon sprite cache.
-app_include_css = ["/assets/restaurant/css/restaurant_theme.css?v=20261105.4"]
+app_include_css = ["/assets/restaurant/css/restaurant_theme.css?v=20261113.1"]
 app_include_js = [
     "/assets/restaurant/js/restaurant_icons.js",
-    "/assets/restaurant/js/restaurant_theme.js?v=20261105.4",
+    "/assets/restaurant/js/restaurant_theme.js?v=20261113.1",
 ]
 
 # Includes in <head>
@@ -236,6 +236,8 @@ fixtures = [
                 "Product Bundle-restaurant_managed",
                 "Product Bundle Item-restaurant_input_uom",
                 "Product Bundle Item-restaurant_input_factor",
+                "Employee-restaurant_pos_section",
+                "Employee-restaurant_pos_pin",
             ]],
         ],
     },
@@ -252,6 +254,7 @@ website_redirects = [
 before_migrate = "restaurant.setup.ensure_restaurant_roles"
 after_migrate = "restaurant.setup.ensure_link_permissions"
 after_install = "restaurant.setup.ensure_link_permissions"
+extend_bootinfo = "restaurant.setup.sync_restaurant_dashboard_block"
 
 # Extend the native Item form without replacing selling or stock controllers.
 doctype_js = {"Item": "public/js/item_restaurant.js"}

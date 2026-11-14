@@ -1,0 +1,173 @@
+{
+ "actions": [],
+ "autoname": "format:RAUD-{YYYY}-{#####}",
+ "creation": "2026-11-13 15:35:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "event_time",
+  "operation_id",
+  "action",
+  "result",
+  "column_break_actors",
+  "requested_by",
+  "supervisor_user",
+  "section_break_target",
+  "restaurant_order",
+  "item_code",
+  "item_name",
+  "affected_qty",
+  "column_break_states",
+  "previous_state",
+  "resulting_state",
+  "section_break_details",
+  "reason",
+  "detail"
+ ],
+ "fields": [
+  {
+   "default": "Now",
+   "fieldname": "event_time",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Fecha y hora",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "operation_id",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Identificador de operación",
+   "read_only": 1
+  },
+  {
+   "fieldname": "action",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Operación",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "default": "Autorizado",
+   "fieldname": "result",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Resultado",
+   "options": "Autorizado\nRechazado\nBloqueado",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_actors",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Usuario solicitante",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "supervisor_user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Supervisor autorizador",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_target",
+   "fieldtype": "Section Break",
+   "label": "Documento y producto afectado"
+  },
+  {
+   "fieldname": "restaurant_order",
+   "fieldtype": "Link",
+   "label": "Cuenta u orden",
+   "options": "Restaurant Order",
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_code",
+   "fieldtype": "Link",
+   "label": "Producto",
+   "options": "Item",
+   "read_only": 1
+  },
+  {
+   "fieldname": "item_name",
+   "fieldtype": "Data",
+   "label": "Nombre del producto",
+   "read_only": 1
+  },
+  {
+   "fieldname": "affected_qty",
+   "fieldtype": "Float",
+   "label": "Cantidad afectada",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_states",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "previous_state",
+   "fieldtype": "Data",
+   "label": "Estado anterior",
+   "read_only": 1
+  },
+  {
+   "fieldname": "resulting_state",
+   "fieldtype": "Data",
+   "label": "Estado resultante",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_details",
+   "fieldtype": "Section Break",
+   "label": "Motivo y detalle"
+  },
+  {
+   "fieldname": "reason",
+   "fieldtype": "Small Text",
+   "label": "Motivo",
+   "read_only": 1
+  },
+  {
+   "fieldname": "detail",
+   "fieldtype": "Small Text",
+   "label": "Detalle",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "module": "Restaurant",
+ "name": "Restaurant Audit Log",
+ "permissions": [
+  {
+   "create": 0,
+   "delete": 0,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "write": 0
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Restaurant Manager",
+   "write": 0
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "track_changes": 0
+}

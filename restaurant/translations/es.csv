@@ -1,6 +1,9 @@
 Restaurant Area,Área de restaurante
 Restaurant Table,Mesa del restaurante
 Restaurant Manager,Administrador de restaurante
+Restaurant User,Mesero de restaurante
+Restaurant Cashier,Cajero de restaurante
+Restaurant Direct Cashier,Cajero directo de restaurante
 Restaurant Option Group,Grupo de opciones del restaurante
 Restaurant Dish Option,Opción del platillo
 Restaurant Command,Comanda
