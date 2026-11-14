@@ -1,0 +1,30 @@
+{
+ "actions": [],
+ "creation": "2026-11-12 20:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "item_group"
+ ],
+ "fields": [
+  {
+   "fieldname": "item_group",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Categoría (Item Group)",
+   "options": "Item Group",
+   "reqd": 1
+  }
+ ],
+ "istable": 1,
+ "modified": "2026-11-12 20:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Restaurant",
+ "name": "Restaurant Settings Category",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC"
+}
+

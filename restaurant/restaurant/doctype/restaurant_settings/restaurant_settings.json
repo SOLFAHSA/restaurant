@@ -1,0 +1,407 @@
+{
+ "actions": [],
+ "allow_import": 0,
+ "autoname": "",
+ "creation": "2026-11-12 16:55:00.000000",
+ "custom": 0,
+ "doctype": "DocType",
+ "document_type": "Other",
+ "engine": "InnoDB",
+ "field_order": [
+  "pos_profile_section",
+  "pos_profile",
+  "col_break_prof",
+  "company",
+  "default_preset",
+  "self_order_section",
+  "enable_self_order",
+  "self_order_channels",
+  "col_break_so",
+  "enable_mobile_self_order",
+  "enable_kiosk_self_order",
+  "payments_section",
+  "payment_methods",
+  "auto_validate_orders",
+  "col_break_pay",
+  "tips_enabled",
+  "enable_rounded_total",
+  "pos_interface_section",
+  "show_product_images",
+  "show_category_images",
+  "col_break_ui",
+  "group_by_category",
+  "large_scrollbars",
+  "open_orders_section",
+  "share_open_orders",
+  "categories_section",
+  "restrict_categories",
+  "allowed_categories",
+  "col_break_cat",
+  "allow_category_search",
+  "pricing_discounts_section",
+  "allow_line_discount",
+  "price_display_mode",
+  "allow_global_discount",
+  "col_break_prc",
+  "enable_promotions_coupons",
+  "enable_gift_cards",
+  "enable_loyalty_program",
+  "invoices_receipts_section",
+  "allow_whatsapp_invoice",
+  "allow_email_invoice",
+  "col_break_inv",
+  "enable_self_invoicing",
+  "wallpaper_section",
+  "idle_wallpaper_enabled",
+  "idle_wallpaper_show_clock",
+  "idle_wallpaper_minutes",
+  "col_break_wp",
+  "idle_wallpaper_background",
+  "idle_wallpaper_logo"
+ ],
+ "fields": [
+  {
+   "fieldname": "pos_profile_section",
+   "fieldtype": "Section Break",
+   "label": "Punto de Venta y Operación"
+  },
+  {
+   "description": "Selecciona el perfil de Punto de Venta al que se aplicará esta configuración.",
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "label": "Perfil de Punto de Venta",
+   "options": "POS Profile"
+  },
+  {
+   "fieldname": "col_break_prof",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fetch_from": "pos_profile.company",
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Empresa",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "description": "Modalidad de servicio predeterminada al abrir una nueva cuenta.",
+   "fieldname": "default_preset",
+   "fieldtype": "Link",
+   "label": "Modalidad de Servicio Predeterminada",
+   "options": "Restaurant Order Preset"
+  },
+  {
+   "fieldname": "self_order_section",
+   "fieldtype": "Section Break",
+   "label": "Autopedido"
+  },
+  {
+   "default": "0",
+   "description": "Permite que los clientes realicen pedidos sin intervención directa del cajero o mesero.",
+   "fieldname": "enable_self_order",
+   "fieldtype": "Check",
+   "label": "Habilitar autopedido"
+  },
+  {
+   "default": "Ambos canales",
+   "depends_on": "eval:doc.enable_self_order==1",
+   "description": "Selecciona los canales habilitados cuando el autopedido esté activo.",
+   "fieldname": "self_order_channels",
+   "fieldtype": "Select",
+   "label": "Canales disponibles",
+   "options": "Autopedido por celular\nAutopedido por kiosco\nAmbos canales"
+  },
+  {
+   "fieldname": "col_break_so",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_self_order==1",
+   "description": "Permite recibir órdenes mediante menú móvil / código QR.",
+   "fieldname": "enable_mobile_self_order",
+   "fieldtype": "Check",
+   "label": "Habilitar autopedido por celular"
+  },
+  {
+   "default": "0",
+   "depends_on": "eval:doc.enable_self_order==1",
+   "description": "Permite recibir órdenes desde terminales de kiosco.",
+   "fieldname": "enable_kiosk_self_order",
+   "fieldtype": "Check",
+   "label": "Habilitar autopedido mediante kiosco"
+  },
+  {
+   "fieldname": "payments_section",
+   "fieldtype": "Section Break",
+   "label": "Pagos"
+  },
+  {
+   "description": "Métodos de pago de ERPNext (Mode of Payment) habilitados para cobrar en este POS.",
+   "fieldname": "payment_methods",
+   "fieldtype": "Table",
+   "label": "Métodos de pago",
+   "options": "Restaurant Settings Payment"
+  },
+  {
+   "default": "1",
+   "description": "Valida automáticamente las órdenes pagadas respetando impuestos, inventario, permisos y facturación.",
+   "fieldname": "auto_validate_orders",
+   "fieldtype": "Check",
+   "label": "Validar órdenes automáticamente"
+  },
+  {
+   "fieldname": "col_break_pay",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Permite registrar propinas durante el cobro diferenciándolas del importe de los productos.",
+   "fieldname": "tips_enabled",
+   "fieldtype": "Check",
+   "label": "Habilitar propinas"
+  },
+  {
+   "default": "1",
+   "description": "Aplica el redondeo estándar de totales configurado en el perfil POS.",
+   "fieldname": "enable_rounded_total",
+   "fieldtype": "Check",
+   "label": "Habilitar redondeo de totales"
+  },
+  {
+   "fieldname": "pos_interface_section",
+   "fieldtype": "Section Break",
+   "label": "Interfaz del Punto de Venta"
+  },
+  {
+   "default": "1",
+   "description": "Visualizar u ocultar fotografías de los platillos y productos.",
+   "fieldname": "show_product_images",
+   "fieldtype": "Check",
+   "label": "Mostrar imágenes de productos"
+  },
+  {
+   "default": "1",
+   "description": "Mostrar u ocultar las imágenes asociadas a categorías.",
+   "fieldname": "show_category_images",
+   "fieldtype": "Check",
+   "label": "Mostrar imágenes de categorías"
+  },
+  {
+   "fieldname": "col_break_ui",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Organizar los productos según su jerarquía de categorías y subcategorías.",
+   "fieldname": "group_by_category",
+   "fieldtype": "Check",
+   "label": "Agrupar productos por categoría"
+  },
+  {
+   "default": "0",
+   "description": "Utilizar barras de desplazamiento de mayor tamaño para pantallas táctiles.",
+   "fieldname": "large_scrollbars",
+   "fieldtype": "Check",
+   "label": "Barras de desplazamiento grandes"
+  },
+  {
+   "fieldname": "open_orders_section",
+   "fieldtype": "Section Break",
+   "label": "Órdenes abiertas"
+  },
+  {
+   "default": "1",
+   "description": "Permite que usuarios autorizados consulten y continúen trabajando con órdenes abiertas de su empresa y perfil.",
+   "fieldname": "share_open_orders",
+   "fieldtype": "Check",
+   "label": "Compartir órdenes abiertas"
+  },
+  {
+   "fieldname": "categories_section",
+   "fieldtype": "Section Break",
+   "label": "Categorías de productos"
+  },
+  {
+   "default": "0",
+   "description": "Limita las categorías (Item Group) disponibles en este Punto de Venta.",
+   "fieldname": "restrict_categories",
+   "fieldtype": "Check",
+   "label": "Restringir categorías de productos"
+  },
+  {
+   "depends_on": "eval:doc.restrict_categories==1",
+   "description": "Categorías y subcategorías autorizadas para mostrarse en el POS.",
+   "fieldname": "allowed_categories",
+   "fieldtype": "Table",
+   "label": "Categorías permitidas",
+   "options": "Restaurant Settings Category"
+  },
+  {
+   "fieldname": "col_break_cat",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Permite buscar categorías y subcategorías por nombre en el POS.",
+   "fieldname": "allow_category_search",
+   "fieldtype": "Check",
+   "label": "Permitir búsqueda de categorías"
+  },
+  {
+   "fieldname": "pricing_discounts_section",
+   "fieldtype": "Section Break",
+   "label": "Precios y descuentos"
+  },
+  {
+   "default": "1",
+   "description": "Permite a usuarios autorizados aplicar descuentos individuales por producto.",
+   "fieldname": "allow_line_discount",
+   "fieldtype": "Check",
+   "label": "Permitir descuentos por línea"
+  },
+  {
+   "default": "Precio con impuesto incluido",
+   "description": "Controla cómo se presenta el precio de los productos al usuario respetando los impuestos de ERPNext.",
+   "fieldname": "price_display_mode",
+   "fieldtype": "Select",
+   "label": "Visualización de precios e impuestos",
+   "options": "Precio con impuesto incluido\nPrecio sin impuesto incluido"
+  },
+  {
+   "default": "1",
+   "description": "Permite aplicar descuentos al total de la orden respetando autorizaciones.",
+   "fieldname": "allow_global_discount",
+   "fieldtype": "Check",
+   "label": "Permitir descuentos globales"
+  },
+  {
+   "fieldname": "col_break_prc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Integra reglas de precios (Pricing Rule) y códigos de cupón (Coupon Code) de ERPNext.",
+   "fieldname": "enable_promotions_coupons",
+   "fieldtype": "Check",
+   "label": "Habilitar promociones y cupones"
+  },
+  {
+   "default": "0",
+   "description": "Permite redimir tarjetas de regalo válidas con saldo disponible durante el cobro.",
+   "fieldname": "enable_gift_cards",
+   "fieldtype": "Check",
+   "label": "Habilitar tarjetas de regalo"
+  },
+  {
+   "default": "0",
+   "description": "Integra acumulación y redención de puntos del Programa de Lealtad de ERPNext.",
+   "fieldname": "enable_loyalty_program",
+   "fieldtype": "Check",
+   "label": "Habilitar programa de lealtad"
+  },
+  {
+   "fieldname": "invoices_receipts_section",
+   "fieldtype": "Section Break",
+   "label": "Facturas y recibos — Envío y autofacturación"
+  },
+  {
+   "default": "0",
+   "description": "Habilita la opción de compartir el comprobante de factura o recibo mediante WhatsApp.",
+   "fieldname": "allow_whatsapp_invoice",
+   "fieldtype": "Check",
+   "label": "Permitir envío de facturas por WhatsApp"
+  },
+  {
+   "default": "1",
+   "description": "Permite enviar la factura o recibo al correo del cliente usando el correo de Frappe/ERPNext.",
+   "fieldname": "allow_email_invoice",
+   "fieldtype": "Check",
+   "label": "Permitir envío de facturas por correo electrónico"
+  },
+  {
+   "fieldname": "col_break_inv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "description": "Habilita el flujo de autofacturación respetando datos fiscales SAR Honduras y validaciones de ERPNext.",
+   "fieldname": "enable_self_invoicing",
+   "fieldtype": "Check",
+   "label": "Habilitar autofacturación"
+  },
+  {
+   "fieldname": "wallpaper_section",
+   "fieldtype": "Section Break",
+   "label": "Wallpaper y Protector de Pantalla por Inactividad"
+  },
+  {
+   "default": "1",
+   "fieldname": "idle_wallpaper_enabled",
+   "fieldtype": "Check",
+   "label": "Activar protector de pantalla por inactividad"
+  },
+  {
+   "default": "1",
+   "fieldname": "idle_wallpaper_show_clock",
+   "fieldtype": "Check",
+   "label": "Mostrar hora y fecha en vivo"
+  },
+  {
+   "default": "2.0",
+   "description": "Tiempo sin manipulación del Punto de Venta antes de activar el protector.",
+   "fieldname": "idle_wallpaper_minutes",
+   "fieldtype": "Float",
+   "label": "Tiempo de inactividad (minutos)",
+   "non_negative": 1
+  },
+  {
+   "fieldname": "col_break_wp",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Imagen de fondo del wallpaper (SVG, PNG, JPG). Puedes adjuntar background-light.svg.",
+   "fieldname": "idle_wallpaper_background",
+   "fieldtype": "Attach Image",
+   "label": "Fondo del Wallpaper"
+  },
+  {
+   "description": "Logotipo corporativo centrado sobre el fondo del wallpaper.",
+   "fieldname": "idle_wallpaper_logo",
+   "fieldtype": "Attach Image",
+   "label": "Logotipo de la Empresa (Centrado)"
+  }
+ ],
+ "issingle": 1,
+ "modified": "2026-11-12 20:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Restaurant",
+ "name": "Restaurant Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 0,
+   "delete": 0,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Restaurant Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}

@@ -38,23 +38,6 @@ PRODUCTS = (
 )
 
 
-def sync_workspace_block():
-    """Sync the Restaurant Dashboard Custom HTML Block from fixtures into the database."""
-    import json
-    path = frappe.get_app_path("restaurant", "fixtures", "custom_html_block.json")
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)[0]
-    if frappe.db.exists("Custom HTML Block", "Restaurant Dashboard"):
-        doc = frappe.get_doc("Custom HTML Block", "Restaurant Dashboard")
-        doc.html = data["html"]
-        doc.script = data["script"]
-        doc.style = data["style"]
-        doc.save(ignore_permissions=True)
-        frappe.db.commit()
-        return "Synced Restaurant Dashboard Custom HTML Block"
-    return "Restaurant Dashboard not found"
-
-
 def seed():
     """Create missing demo records atomically; the caller owns the commit."""
     _check_environment()
@@ -149,3 +132,4 @@ def _same_value(actual, expected):
         except (ValueError, ArithmeticError):
             return False
     return str(actual or "") == str(expected or "")
+
