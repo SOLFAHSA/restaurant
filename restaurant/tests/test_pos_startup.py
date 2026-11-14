@@ -7,14 +7,10 @@ import frappe
 from frappe.desk.desk_page import get as get_page
 from frappe.tests.utils import FrappeTestCase
 
+from restaurant.kds import get_kds_state
 from restaurant.pos import (
     _require_pos_user,
-    clear_completed_kds_orders,
-    get_kds_orders,
     get_pos_bootstrap,
-    save_pos_order,
-    send_order_to_kitchen,
-    update_kds_status,
 )
 
 
@@ -56,16 +52,23 @@ class TestPosStartup(FrappeTestCase):
             'data-menu-tile="customer-display"',
             'data-menu-tile="toggle-theme"',
             'data-menu-tile="cash-movement"',
-            'data-menu-tile="create-product"',
+            'data-menu-tile="cash-count"',
             'data-menu-tile="reprint-commands"',
             'data-menu-tile="close-register"',
             '"restaurant.pos.create_cash_movement"',
             '"restaurant.pos.get_closing_shift_preview"',
-            '"restaurant.pos.create_pos_product"',
             '"restaurant.pos.get_emitted_commands"',
         ):
             with self.subTest(expected_token=expected_token):
                 self.assertIn(expected_token, page["script"])
+        for removed_token in (
+            'data-menu-tile="install-app"',
+            'data-menu-tile="reload-data"',
+            'data-menu-tile="create-product"',
+            'data-menu-tile="idle-wallpaper"',
+        ):
+            with self.subTest(removed_token=removed_token):
+                self.assertNotIn(removed_token, page["script"])
         self.assertIsInstance(page.get("style"), str)
         self.assertIn(".rpos-shell", page["style"])
         self.assertIn(".rpos-pos-menu-grid", page["style"])
@@ -146,9 +149,6 @@ class TestPosStartup(FrappeTestCase):
             "Pantalla del estado de",
             "En progreso",
             "Tiempo promedio",
-            "Por Preparar",
-            "Para Entregar",
-            "Completadas",
             "Restablecer",
             "Regresar a etapa anterior",
             'data-kds-action="toggle-item"',
@@ -160,71 +160,86 @@ class TestPosStartup(FrappeTestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, kds_page["script"])
+        for legacy_token in ("Por Preparar", "Para Entregar", "Completadas"):
+            with self.subTest(legacy_token=legacy_token):
+                self.assertNotIn(legacy_token, kds_page["script"])
         self.assertIsInstance(kds_page.get("style"), str)
         self.assertIn(".rkds-shell", kds_page["style"])
         self.assertIn(".rkds-hub-card", kds_page["style"])
         self.assertIn(".rkds-item-row.is-struck", kds_page["style"])
         self.assertIn(".rkds-card", kds_page["style"])
         self.assertIn(".rkds-card-footer", kds_page["style"])
-        payload = get_kds_orders()
+        payload = get_kds_state()
         self.assertIsInstance(payload, dict)
         self.assertIsInstance(payload.get("orders"), list)
-        self.assertIsInstance(payload.get("counts"), dict)
+        self.assertIsInstance(payload.get("displays"), list)
+        self.assertIsInstance(payload.get("stages_catalog"), list)
         self.assertTrue(bool(payload.get("server_now")))
-        for stage_key in ("Todas", "Por Preparar", "Para Entregar", "Completadas"):
-            with self.subTest(stage_key=stage_key):
-                self.assertIn(stage_key, payload["counts"])
+        self.assertGreaterEqual(len(payload["stages_catalog"]), 3)
+        stage_names = {row["stage_name"] for row in frappe.get_all("Restaurant Preparation Stage", fields=["stage_name"])}
+        self.assertEqual({row["stage_name"] for row in payload["stages_catalog"]}, stage_names)
 
-    def test_kds_stage_lifecycle_por_preparar_para_entregar_completadas_restablecer_and_listo(self):
-        sp = "kds_lifecycle_sp"
-        frappe.db.savepoint(sp)
-        try:
-            ctx = get_pos_bootstrap()
-            first_item = ctx["items"][0]["item_code"]
-            saved = save_pos_order({
-                "order_name": "KDS Test Order",
-                "service_type": "Comer en el local",
-                "guests": 2,
-                "items": [
-                    {"item_code": first_item, "qty": 1, "note": "Sides : Sweet potato fries"},
-                    {"item_code": first_item, "qty": 1, "note": "Sin cebolla"},
-                ],
-            })
-            order_name = saved["order"]["name"]
-            send_order_to_kitchen(order_name)
+    def test_closing_shift_preview_separates_cash_movements_and_odoo_ui_tokens(self):
+        from types import SimpleNamespace
+        from restaurant.pos import get_closing_shift_preview
 
-            kds_after_send = get_kds_orders()
-            matched = next((o for o in kds_after_send["orders"] if o["name"] == order_name), None)
-            self.assertIsNotNone(matched)
-            self.assertEqual(matched["kds_stage"], "Por Preparar")
-            self.assertIsInstance(matched["kds_wait_minutes"], int)
+        page = get_page("restaurant-pos")
+        for token in (
+            "Cierre de caja registradora",
+            "Diferencia de pagos",
+            "Continuar de todos modos",
+            "Entrada/salida de efectivo",
+            "Venta diaria",
+            "rpos-odoo-methods",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, page["script"])
+        self.assertIn(".rpos-odoo-warn-overlay", page["style"])
 
-            after_first_strike = update_kds_status(order_name, "Listo", item_idx=1)
-            self.assertEqual(after_first_strike["kds_stage"], "Por Preparar")
-            self.assertEqual(after_first_strike["order"]["items"][0]["kds_status"], "Listo")
+        fake_opening = SimpleNamespace(
+            name="POSA-OS-TEST-99",
+            pos_profile="POS 01 HNL",
+            company="Empresa Demostrativa",
+            user="Administrator",
+            period_start_date="2026-11-12 08:00:00",
+            as_dict=lambda: {
+                "name": "POSA-OS-TEST-99",
+                "pos_profile": "POS 01 HNL",
+                "company": "Empresa Demostrativa",
+                "user": "Administrator",
+                "period_start_date": "2026-11-12 08:00:00",
+            },
+        )
+        fake_closing = frappe._dict({
+            "pos_transactions": [{"name": "SINV-1"}, {"name": "SINV-2"}],
+            "grand_total": 38.80,
+            "payment_reconciliation": [
+                SimpleNamespace(mode_of_payment="Efectivo", opening_amount=1500.0, expected_amount=1581.0),
+                SimpleNamespace(mode_of_payment="Tarjetas de credito", opening_amount=0.0, expected_amount=7.80),
+            ],
+        })
+        fake_movements = {
+            "total_ingreso": 100.0,
+            "total_retiro": 50.0,
+            "net_cash_movement": 50.0,
+            "movements": [],
+        }
 
-            to_ready = update_kds_status(order_name, "Listo", item_idx=2)
-            self.assertEqual(to_ready["kds_stage"], "Para Entregar")
-            self.assertEqual(to_ready["kds_status"], "Listo")
+        with (
+            patch("frappe.db.exists", return_value=True),
+            patch("frappe.get_doc", return_value=fake_opening),
+            patch("frappe.get_cached_doc", return_value=frappe._dict({"currency": "HNL", "hide_expected_amount": 0})),
+            patch("restaurant.pos.get_shift_cash_movements", return_value=fake_movements),
+            patch("posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift.make_closing_shift_from_opening", return_value=fake_closing),
+        ):
+            preview = get_closing_shift_preview("POSA-OS-TEST-99")
 
-            to_completed = update_kds_status(order_name, "Completadas")
-            self.assertEqual(to_completed["kds_stage"], "Completadas")
-            self.assertEqual(to_completed["kds_status"], "Entregado")
-
-            reset_to_cook = update_kds_status(order_name, "Por Preparar")
-            self.assertEqual(reset_to_cook["kds_stage"], "Por Preparar")
-            self.assertEqual(reset_to_cook["kds_status"], "En preparación")
-
-            update_kds_status(order_name, "Completadas")
-            closed = update_kds_status(order_name, "Cerrado")
-            self.assertEqual(closed["kds_stage"], "Cerrado")
-            self.assertEqual(closed["kds_status"], "Cerrado")
-
-            kds_after_close = get_kds_orders()
-            self.assertFalse(any(o["name"] == order_name for o in kds_after_close["orders"]))
-
-            update_kds_status(order_name, "Completadas")
-            cleared = clear_completed_kds_orders([order_name])
-            self.assertIn(order_name, cleared["closed_orders"])
-        finally:
-            frappe.db.rollback(save_point=sp)
+        self.assertEqual(preview["invoice_count"], 2)
+        self.assertEqual(preview["total_sales"], 38.80)
+        cash_row, card_row = preview["payment_reconciliation"]
+        self.assertEqual(cash_row["is_cash"], 1)
+        self.assertEqual(cash_row["opening_amount"], 1500.0)
+        self.assertEqual(cash_row["cash_movement_net"], 50.0)
+        self.assertEqual(cash_row["sales_amount"], 31.0)
+        self.assertEqual(card_row["is_cash"], 0)
+        self.assertEqual(card_row["sales_amount"], 7.80)

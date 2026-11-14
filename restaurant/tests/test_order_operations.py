@@ -31,6 +31,7 @@ class TestOrderOperations(FrappeTestCase):
             frappe.db.set_value("Item", item, "stock_uom", self.fractional_uom)
 
     def rich_order(self, **values):
+        target_status = values.pop("status", None)
         order = self.make_order(groups=(0, 1), **values)
         first, second = order.items
         first.qty = 2
@@ -46,7 +47,11 @@ class TestOrderOperations(FrappeTestCase):
         second.base_rate = 100
         second.tax_rate = 18
         order.tip_percentage = 10
-        return order.save()
+        order.save()
+        if target_status and target_status != order.status:
+            frappe.db.set_value("Restaurant Order", order.name, "status", target_status)
+            order.reload()
+        return order
 
     def document(self, name):
         return frappe.get_doc("Restaurant Order", name)
@@ -319,8 +324,8 @@ class TestOrderOperations(FrappeTestCase):
             )
         self.assertEqual(self.operation_snapshot([source, target]), before)
         for status in ("Facturada", "Cancelada"):
-            target.status = status
-            target.save()
+            frappe.db.set_value("Restaurant Order", target.name, "status", status)
+            target.reload()
             before = self.operation_snapshot([source, target])
             with self.assertRaises(frappe.ValidationError):
                 pos.transfer_order_table(
@@ -561,7 +566,12 @@ class TestOrderOperations(FrappeTestCase):
         source.items[0].discount_percentage = 0
         source.tip_percentage = 0
         source.tip_amount = 0
-        source.save()
+        prev_flag = getattr(frappe.flags, "in_restaurant_order_operation", False)
+        frappe.flags.in_restaurant_order_operation = True
+        try:
+            source.save()
+        finally:
+            frappe.flags.in_restaurant_order_operation = prev_flag
         selection = self.selection(source, qty=0.5)
         preview = pos.preview_split_order(source.name, selection, expected_modified=self.token(source))
         result = pos.split_order(source.name, selection, expected_modified=self.token(source))
