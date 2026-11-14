@@ -3,7 +3,7 @@
     if (frappe.restaurant_theme) return;
     const storageKey = "leaf.restaurant.theme.v1";
     const ownPages = new Set(["restaurant-location", "restaurant-table-map", "restaurant-commands", "restaurant-pos", "restaurant-kds"]);
-    const ownTypes = new Set(["Restaurant Command", "Restaurant Command Group", "Restaurant Area", "Restaurant Table", "Restaurant Option Group", "Restaurant Dish Option", "Restaurant Preparation Stage", "Restaurant Preparation Display", "Restaurant Order Preset"]);
+    const ownTypes = new Set(["Restaurant Command", "Restaurant Command Group", "Restaurant Area", "Restaurant Table", "Restaurant Option Group", "Restaurant Dish Option", "Restaurant Preparation Stage", "Restaurant Preparation Display", "Restaurant Preparation Ticket", "Restaurant Order", "Restaurant Order Preset", "Restaurant Settings", "Restaurant Gift Card", "Restaurant Cash Count", "Restaurant Cash Denomination"]);
     const sharedTypes = new Set(["Item", "Item Group", "Item Price", "Price List", "Customer", "Employee", "Designation", "Branch", "UOM", "Mode of Payment"]);
     const reports = new Set(["Sales Analytics", "Sales Register", "Item-wise Sales Register"]);
     let active = false;
@@ -58,6 +58,18 @@
         clear() { active = false; workspace = false; pendingRoute = null; modalOrigin = false; apply(); },
         refresh: update,
     };
+    if (!frappe.leaf_loader) {
+        frappe.leaf_loader = {
+            img: "/assets/frappe/images/leaf.gif",
+            html(message = "Cargando…", inline = false) {
+                const text = frappe.utils.escape_html(message || "Cargando…");
+                if (inline) {
+                    return `<div class="leaf-loader leaf-loader--inline" role="status" aria-live="polite"><img class="leaf-loader-img" src="/assets/frappe/images/leaf.gif" alt="" aria-hidden="true"><span>${text}</span></div>`;
+                }
+                return `<div class="leaf-loader" role="status" aria-live="polite" aria-label="${text}"><img class="leaf-loader-img" src="/assets/frappe/images/leaf.gif" alt="" aria-hidden="true"></div>`;
+            },
+        };
+    }
     document.addEventListener("awesomplete-select", event => {
         if (event.target.id === "navbar-search") {
             frappe.restaurant_theme.clear();

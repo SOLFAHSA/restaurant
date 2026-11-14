@@ -85,7 +85,9 @@ class RestaurantTableMapPage {
 	}
 
 	async loadContext(areaName = null) {
-		this.root.innerHTML = '<div class="rtm-empty-state" role="status">Cargando mapa de mesas…</div>';
+		this.root.innerHTML = frappe.leaf_loader
+			? `<div class="rtm-empty-state">${frappe.leaf_loader.html("Cargando mapa de mesas…")}</div>`
+			: '<div class="rtm-empty-state" role="status">Cargando mapa de mesas…</div>';
 		try {
 			const res = await frappe.call({
 				method: "restaurant.table_management.get_map_context",

@@ -21,11 +21,9 @@ class LeafRestaurantKDS {
         $(wrapper).find(".page-head").hide();
 
         this.viewMode = "hub";
-        this.activeStage = "Por Preparar";
+        this.activeStage = "Todas";
         this.selectedStation = "Todas las estaciones";
         this.stationBarOpen = false;
-        this.hubMenuOpen = false;
-        this.autoClearEnabled = false;
         this.orders = [];
         this.displays = [];
         this.selectedDisplay = null;
@@ -33,9 +31,6 @@ class LeafRestaurantKDS {
         this.stations = ["Todas las estaciones"];
         this.counts = {
             "Todas": 0,
-            "Por Preparar": 0,
-            "Para Entregar": 0,
-            "Completadas": 0,
         };
         this.inProgressCount = 0;
         this.avgWaitMinutes = 0;
@@ -66,7 +61,10 @@ class LeafRestaurantKDS {
     onShow() {
         const routeOptions = frappe.route_options || {};
         frappe.route_options = null;
-        if (routeOptions.view && ["hub", "preparation", "status-screen", "config", "stages-list"].includes(routeOptions.view)) {
+        const allowedViews = this.isKdsManager()
+            ? ["hub", "preparation", "status-screen", "config", "stages-list"]
+            : ["hub", "preparation", "status-screen"];
+        if (routeOptions.view && allowedViews.includes(routeOptions.view)) {
             this.viewMode = routeOptions.view;
         } else {
             this.viewMode = "hub";
@@ -172,7 +170,6 @@ class LeafRestaurantKDS {
             if (this.activeStage !== "Todas" && !this.stageConfigs.some(st => st.name === this.activeStage)) {
                 this.activeStage = this.stageConfigs[0]?.name || "Todas";
             }
-            this.commandDisplays = Array.isArray(payload.command_displays) ? payload.command_displays : [];
             this.stations = Array.isArray(payload.stations) && payload.stations.length
                 ? payload.stations
                 : ["Todas las estaciones", "Cocina General"];
@@ -199,7 +196,7 @@ class LeafRestaurantKDS {
         this.stageConfigs.forEach(stage => { counts[stage.name] = 0; });
         const cookWaitTimes = [];
         this.orders.forEach(ord => {
-            const st = ord.kds_stage || "Por Preparar";
+            const st = ord.kds_stage || this.stageConfigs[0]?.name || "";
             counts["Todas"] += 1;
             if (counts[st] !== undefined) {
                 counts[st] += 1;
@@ -286,7 +283,7 @@ class LeafRestaurantKDS {
         if (this.activeStage === "Todas") {
             return this.orders;
         }
-        return this.orders.filter(ord => (ord.kds_stage || "Por Preparar") === this.activeStage);
+        return this.orders.filter(ord => (ord.kds_stage || this.stageConfigs[0]?.name || "") === this.activeStage);
     }
 
     currentDisplay() {
@@ -320,10 +317,16 @@ class LeafRestaurantKDS {
         this.bindEvents();
     }
 
+    isKdsManager() {
+        const roles = Array.isArray(frappe.user_roles) ? frappe.user_roles : [];
+        return roles.includes("Restaurant Manager") || roles.includes("System Manager") || frappe.session.user === "Administrator";
+    }
+
     renderHubView() {
+        const canConfig = this.isKdsManager();
         return `<header class="rkds-hub-topbar">
             <div class="rkds-hub-topbar-left">
-                <button type="button" class="rkds-admin-new-btn" data-kds-action="new-display">Nuevo</button>
+                ${canConfig ? `<button type="button" class="rkds-admin-new-btn" data-kds-action="new-display">Nuevo</button>` : ""}
                 <span class="rkds-hub-page-title">Pantallas de preparación</span>
                 </div>
             <button type="button" class="rkds-top-btn" data-kds-action="close-kds">Cerrar</button>
@@ -331,7 +334,7 @@ class LeafRestaurantKDS {
             ${this.displays.map(display => `<section class="rkds-hub-card" aria-label="${this.escape(display.display_name)}">
                 <div class="rkds-hub-card-top">
                     <div class="rkds-hub-title-row"><h2 class="rkds-hub-title">${this.escape(display.display_name)}</h2>
-                        <button type="button" class="rkds-hub-card-config-btn" data-kds-action="open-config" data-display="${this.escape(display.name)}" title="Configurar pantalla">⋮</button>
+                        ${canConfig ? `<button type="button" class="rkds-hub-card-config-btn" data-kds-action="open-config" data-display="${this.escape(display.name)}" title="Configurar pantalla">⋮</button>` : ""}
                     </div><p>${this.escape(display.description || "")}</p>
                     <div class="rkds-hub-stage-pills">${display.stages.map(stage => `<button type="button" class="rkds-hub-pill" data-kds-action="open-prep-stage" data-display="${this.escape(display.name)}" data-stage="${this.escape(stage.name)}">${this.escape(stage.stage_name)}</button>`).join("")}</div>
                 </div><div class="rkds-hub-card-bottom"><div class="rkds-hub-actions">
@@ -552,8 +555,27 @@ class LeafRestaurantKDS {
         `;
     }
 
+    formatScheduledHeader(schedStr) {
+        const raw = String(schedStr || "").trim();
+        if (!raw) return "";
+        if (/^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}/.test(raw)) {
+            const [datePart, timePart] = raw.split(/\s+/);
+            const [y, m, d] = datePart.split("-").map(Number);
+            const target = new Date(y, (m || 1) - 1, d || 1);
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const diffDays = Math.round((target - today) / 86400000);
+            const hhmm = timePart.slice(0, 5);
+            if (diffDays === 0) return hhmm;
+            if (diffDays === 1) return `${hhmm} Mañana`;
+            return `${hhmm} ${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}`;
+        }
+        return raw;
+    }
+
     renderTicketCard(ord) {
         const title = this.formatCardTitle(ord);
+        const schedHeader = this.formatScheduledHeader(ord.scheduled_time);
         const guests = Math.max(1, Number(ord.guests || 1));
         const waitMins = this.computeElapsedMinutes(ord);
         const stage = ord.kds_stage;
@@ -571,6 +593,7 @@ class LeafRestaurantKDS {
                      data-card-stage="${this.escape(stage)}">
                 <header class="rkds-card-header">
                     <div class="rkds-card-title">${this.escape(title)}${Number(ord.batch_count) > 1 ? `<small class="rkds-batch-label"> · Grupo ${Number(ord.batch_index)} de ${Number(ord.batch_count)}</small>` : ""}</div>
+                    ${schedHeader ? `<div class="rkds-card-sched" style="font-size:12.5px;font-weight:700;color:#1e293b;">${this.escape(schedHeader)}</div>` : ""}
                     <div class="rkds-card-guests" title="Comensales">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                             <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/>
@@ -596,14 +619,18 @@ class LeafRestaurantKDS {
                     <div class="rkds-card-items">
                         ${(ord.items || []).map(item => {
                             const mods = this.formatItemModifiers(item);
-                            const isItemStruck = !isCompleted && (ord.completed_item_names || []).includes(item.name);
+                            const isItemCancelled = Boolean(item.is_cancelled) || item.kds_status === "Cancelado";
+                            const isItemStruck = !isItemCancelled && !isCompleted && (ord.completed_item_names || []).includes(item.name);
+                            const canToggle = !isCompleted && !isItemCancelled;
                             return `
-                                <div class="rkds-item-row ${!isCompleted ? "is-clickable" : ""} ${isItemStruck ? "is-struck" : ""}"
-                                     ${!isCompleted ? `role="button" tabindex="0" aria-pressed="${isItemStruck}" data-kds-action="toggle-item" data-order="${this.escape(ord.name)}" data-item-name="${this.escape(item.name)}" title="Marcar o desmarcar este platillo en la etapa actual"` : ""}>
-                                    <div class="rkds-item-main">
+                                <div class="rkds-item-row ${canToggle ? "is-clickable" : ""} ${isItemStruck ? "is-struck" : ""} ${isItemCancelled ? "is-cancelled" : ""}"
+                                     ${canToggle ? `role="button" tabindex="0" aria-pressed="${isItemStruck}" data-kds-action="toggle-item" data-order="${this.escape(ord.name)}" data-item-name="${this.escape(item.name)}" title="Marcar o desmarcar este platillo en la etapa actual"` : ""}>
+                                    <div class="rkds-item-main" ${isItemCancelled ? `style="text-decoration:line-through;color:#dc2626;opacity:0.85;"` : ""}>
                                         <span class="rkds-item-qty">${this.escape(this.formatQty(item.qty))}</span>
                                         <span class="rkds-item-name">${this.escape(item.item_name)}</span>
+                                        ${isItemCancelled ? `<span style="margin-left:6px;padding:1px 6px;border-radius:4px;background:#fee2e2;color:#b91c1c;font-size:10px;font-weight:700;text-decoration:none;display:inline-block;">CANCELADO</span>` : ""}
                                     </div>
+                                    ${isItemCancelled && item.cancellation_reason ? `<div class="rkds-item-mod" style="color:#b91c1c;">Motivo: ${this.escape(item.cancellation_reason)}</div>` : ""}
                                     ${mods.map(m => `
                                         <div class="rkds-item-mod">- ${this.escape(m)}</div>
                                     `).join("")}
@@ -691,7 +718,7 @@ class LeafRestaurantKDS {
             try {window.localStorage?.setItem("rkds_dark_mode",this.darkMode ? "1" : "0");} catch(e) { /* Storage may be disabled. */ }
             this.render(); return;
         }
-        if (action === "close-kds") {this.stopTimers(); frappe.set_route("restaurante"); return;}
+        if (action === "close-kds") {this.stopTimers(); frappe.set_route("Workspaces", "Restaurante"); return;}
         if (action === "toggle-item") {await this.toggleOrderItemStrike(el.dataset.order,el.dataset.itemName,el.closest("[data-card-ticket]")?.dataset.cardTicket); return;}
         if (action === "reset-order" || action === "close-order") {
             const ticketId = el.closest("[data-card-ticket]")?.dataset.cardTicket;

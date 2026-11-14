@@ -52,13 +52,6 @@ class RestaurantLocationPage {
     iconKey(value) {
         return { "Terraza": "terrace", "Salón": "dining", "Barra": "bar", "Jardín": "garden" }[value] || "terrace";
     }
-    floorPlan() {
-        return `<svg viewBox="0 0 600 310" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Ilustración de referencia de un área de restaurante">
-          <defs><pattern id="ra-floor" width="32" height="32" patternUnits="userSpaceOnUse"><rect width="32" height="32" fill="#dfcba5"/><path d="M0 0H32V32" fill="none" stroke="#cbb68e" stroke-width="1"/><path d="M4 7h22M5 23h15" stroke="#ead8b8" opacity=".5"/></pattern><filter id="ra-shadow"><feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#4e412e" flood-opacity=".22"/></filter><g id="ra-chair"><rect x="-11" y="-9" width="22" height="18" rx="4" fill="#696552"/><path d="M-8-6H8" stroke="#91876b" stroke-width="2"/></g><g id="ra-round"><use href="#ra-chair" x="0" y="-43"/><use href="#ra-chair" x="0" y="43"/><use href="#ra-chair" transform="translate(-43 0) rotate(90)"/><use href="#ra-chair" transform="translate(43 0) rotate(90)"/><circle r="36" fill="#c89e57"/><circle r="32" fill="#ddb875"/><circle r="28" fill="none" stroke="#e7c892" opacity=".7"/></g><g id="ra-square"><use href="#ra-chair" x="-18" y="-40"/><use href="#ra-chair" x="18" y="-40"/><use href="#ra-chair" x="-18" y="40"/><use href="#ra-chair" x="18" y="40"/><use href="#ra-chair" transform="translate(-42 0) rotate(90)"/><use href="#ra-chair" transform="translate(42 0) rotate(90)"/><rect x="-35" y="-31" width="70" height="62" rx="4" fill="#d1a55f"/><rect x="-31" y="-27" width="62" height="54" rx="2" fill="#debb7e"/></g><g id="ra-plant"><rect x="-10" y="-8" width="20" height="24" rx="3" fill="#a18a57"/><g fill="#7c9a3c" stroke="#617d31" stroke-width="1.4"><ellipse rx="8" ry="17" transform="rotate(0)"/><ellipse rx="8" ry="17" transform="rotate(60)"/><ellipse rx="8" ry="17" transform="rotate(120)"/></g><circle r="6" fill="#9eb447"/></g></defs>
-          <rect width="600" height="310" fill="url(#ra-floor)"/><rect x="8" y="8" width="584" height="294" rx="3" fill="none" stroke="#ad9369" stroke-width="8"/>
-          <g filter="url(#ra-shadow)"><use href="#ra-round" x="162" y="84"/><use href="#ra-round" transform="translate(453 79) scale(.82)"/><use href="#ra-square" x="103" y="210"/><use href="#ra-square" x="506" y="210"/><g transform="translate(300 246)"><use href="#ra-chair" x="-37" y="-43"/><use href="#ra-chair" x="0" y="-43"/><use href="#ra-chair" x="37" y="-43"/><use href="#ra-chair" x="-37" y="43"/><use href="#ra-chair" x="0" y="43"/><use href="#ra-chair" x="37" y="43"/><rect x="-65" y="-32" width="130" height="64" rx="4" fill="#d1a15b"/><rect x="-60" y="-27" width="120" height="54" rx="3" fill="#ddb577"/></g><rect x="267" y="12" width="100" height="33" rx="3" fill="#ac8d54"/><use href="#ra-plant" x="283" y="25"/><use href="#ra-plant" x="315" y="25"/><use href="#ra-plant" x="347" y="25"/><use href="#ra-plant" x="30" y="31"/><use href="#ra-plant" x="30" y="90"/><use href="#ra-plant" x="30" y="147"/><use href="#ra-plant" x="32" y="277"/><use href="#ra-plant" x="565" y="30"/><use href="#ra-plant" x="570" y="215"/><use href="#ra-plant" x="570" y="275"/><use href="#ra-plant" x="421" y="278"/></g>
-        </svg>`;
-    }
 
     async show() {
         const currentId = ++this.requestId;
@@ -66,7 +59,9 @@ class RestaurantLocationPage {
         this.searchRequestId++;
         this.dirty = false;
         this.loading = true;
-        this.root.innerHTML = '<div class="ra-loading" role="status">Cargando áreas…</div>';
+        this.root.innerHTML = frappe.leaf_loader
+            ? `<div class="ra-loading">${frappe.leaf_loader.html("Cargando áreas…")}</div>`
+            : '<div class="ra-loading" role="status">Cargando áreas…</div>';
         const route = frappe.get_route();
         const name = route[1] && route[1] !== "new" ? route[1] : null;
         try {
@@ -129,7 +124,9 @@ class RestaurantLocationPage {
         const target = this.root.querySelector(".ra-location-grid");
         if (!target) return;
         target.setAttribute("aria-busy", "true");
-        target.innerHTML = '<div class="ra-loading" role="status">Cargando áreas…</div>';
+        target.innerHTML = frappe.leaf_loader
+            ? `<div class="ra-loading">${frappe.leaf_loader.html("Cargando áreas…")}</div>`
+            : '<div class="ra-loading" role="status">Cargando áreas…</div>';
         this.root.querySelector("[data-page-range]").textContent = "Cargando…";
         this.updateListNavigation();
     }
@@ -382,32 +379,6 @@ class RestaurantLocationPage {
         }
     }
 
-    selectIcon() {
-        const choices = [["Terraza", "Terraza"], ["Salón", "Salón"], ["Barra", "Barra"], ["Jardín", "Jardín"]];
-        const dialog = new frappe.ui.Dialog({ title: "Seleccionar icono", fields: [{ fieldname: "icons", fieldtype: "HTML" }] });
-        dialog.fields_dict.icons.$wrapper.html(`<div class="ra-icon-picker">${choices.map(([value, label]) => `<button type="button" class="ra-icon-option" data-icon="${value}" aria-label="${label}">${this.symbol(this.iconKey(value))}<span>${label}</span></button>`).join("")}</div>`);
-        dialog.fields_dict.icons.$wrapper.on("click", "[data-icon]", (event) => {
-            this.doc.icon = event.currentTarget.dataset.icon;
-            this.markDirty();
-            this.updatePreview();
-            dialog.hide();
-        });
-        dialog.show();
-    }
-
-    changeImage() {
-        const isSaved = this.doc.name && !this.doc.__islocal;
-        new frappe.ui.FileUploader({
-            doctype: isSaved ? "Restaurant Area" : undefined,
-            docname: isSaved ? this.doc.name : undefined,
-            fieldname: isSaved ? "image" : undefined,
-            dialog_title: "Cambiar imagen del área",
-            allow_multiple: false,
-            restrictions: { allowed_file_types: [".jpg", ".jpeg", ".png", ".webp"], max_file_size: 5 * 1024 * 1024 },
-            on_success: (file) => { this.doc.image = file.file_url; this.markDirty(); this.updatePreview(); },
-        });
-    }
-
     confirmLeave(destination) {
         const leave = () => { this.dirty = false; frappe.set_route(...destination); };
         if (this.dirty) frappe.confirm("Tienes cambios sin guardar. ¿Deseas descartarlos?", leave);
@@ -569,9 +540,5 @@ class RestaurantLocationPage {
             this.deleteLinkedTable(actionEl.dataset.table);
             return;
         }
-        if (!this.editable) return;
-        if (action === "image") this.changeImage();
-        if (action === "icon") this.selectIcon();
-        if (action === "remove-image") { this.doc.image = ""; this.markDirty(); this.updatePreview(); }
     }
 }

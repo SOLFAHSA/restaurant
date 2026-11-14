@@ -17,7 +17,7 @@ class RestaurantCommandsPage {
             <div class="rc-intro"><h2>Comandas</h2><p>Asigna los grupos de platillos a los destinos de preparación de cada sucursal.</p></div>
             <div class="rc-tools"><input class="form-control rc-search" type="search" maxlength="140" placeholder="Buscar comanda o sucursal" aria-label="Buscar comanda o sucursal"><span class="rc-status" role="status" aria-live="polite"></span></div>
             <div class="rc-table-wrap" aria-busy="true"><table class="table rc-table">
-                <thead><tr><th>Comanda</th><th>Sucursal</th><th>Grupos asignados</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
+                <thead><tr><th>Comanda</th><th>Sucursal</th><th>Impresora / Salida</th><th>Grupos asignados</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
                 <tbody></tbody></table></div>
             <nav class="rc-pagination" aria-label="Paginación de comandas"><button type="button" class="btn btn-default" data-action="previous" disabled>Anterior</button><span data-range></span><button type="button" class="btn btn-default" data-action="next" disabled>Siguiente</button></nav>
             <p class="rc-note">Un grupo puede estar en varias comandas de la misma sucursal. Esta pantalla configura destinos; el envío desde el POS se conectará en la siguiente etapa.</p>`;
@@ -49,7 +49,9 @@ class RestaurantCommandsPage {
         const requestId = ++this.requestId;
         this.loading = true;
         this.root.querySelector(".rc-table-wrap").setAttribute("aria-busy", "true");
-        this.root.querySelector(".rc-status").textContent = "Cargando…";
+        this.root.querySelector(".rc-status").innerHTML = frappe.leaf_loader
+            ? frappe.leaf_loader.html("Cargando…", true)
+            : "Cargando…";
         this.root.querySelectorAll(".rc-pagination button").forEach(button => { button.disabled = true; });
         try {
             const response = await frappe.call({
@@ -66,17 +68,18 @@ class RestaurantCommandsPage {
             });
             this.root.querySelector("tbody").innerHTML = context.items.length ? context.items.map(row => `
                 <tr><td><strong>${this.escape(row.command_name)}</strong></td><td>${this.escape(row.branch)}</td>
+                <td><span class="rc-chip">${this.escape(row.print_mode || "Impresora del navegador")}${row.printer_ip ? ` (${this.escape(row.printer_ip)}:${row.printer_port || 9100})` : (row.network_printer ? ` (${this.escape(row.network_printer)})` : "")}</span></td>
                 <td><div class="rc-chips">${row.groups.map(group => `<span class="rc-chip">${this.escape(group)}</span>`).join("")}</div></td>
                 <td><span class="rc-state ${row.enabled ? "" : "is-disabled"}">${row.enabled ? "Activa" : "Inactiva"}</span></td>
                 <td><button type="button" class="btn btn-default btn-sm" data-action="edit" data-name="${this.escape(row.name)}">${row.can_write ? "Editar" : "Ver"}</button></td></tr>
-            `).join("") : '<tr><td colspan="5" class="rc-empty">No hay comandas para mostrar.<p>Crea una comanda o cambia la búsqueda.</p></td></tr>';
+            `).join("") : '<tr><td colspan="6" class="rc-empty">No hay comandas para mostrar.<p>Crea una comanda o cambia la búsqueda.</p></td></tr>';
             this.root.querySelector('[data-action="previous"]').disabled = this.start === 0;
             this.root.querySelector('[data-action="next"]').disabled = !context.has_next;
             this.root.querySelector("[data-range]").textContent = context.items.length ? `${this.start + 1}–${this.start + context.items.length}` : "0 registros";
             this.root.querySelector(".rc-status").textContent = "";
         } catch (error) {
             if (requestId !== this.requestId) return;
-            this.root.querySelector("tbody").innerHTML = '<tr><td colspan="5" class="rc-empty">No se pudieron cargar las comandas. <button type="button" class="btn btn-default" data-action="retry">Reintentar</button></td></tr>';
+            this.root.querySelector("tbody").innerHTML = '<tr><td colspan="6" class="rc-empty">No se pudieron cargar las comandas. <button type="button" class="btn btn-default" data-action="retry">Reintentar</button></td></tr>';
             this.root.querySelector(".rc-status").textContent = "Error al cargar";
         } finally {
             if (requestId === this.requestId) {
@@ -107,6 +110,14 @@ class RestaurantCommandsPage {
                 { fieldname: "command_name", fieldtype: "Data", label: "Nombre o descripción de la comanda", reqd: 1, default: doc.command_name || "", read_only: !editable },
                 { fieldname: "branch", fieldtype: "Link", label: "Sucursal", options: "Branch", reqd: 1, default: doc.branch || "", read_only: !editable },
                 { fieldname: "enabled", fieldtype: "Check", label: "Activa", default: name ? doc.enabled : 1, read_only: !editable },
+                { fieldname: "printer_section", fieldtype: "Section Break", label: "Configuración de Impresora de Estación" },
+                { fieldname: "print_mode", fieldtype: "Select", label: "Modo de impresión de comanda", options: "Impresora del navegador\nImpresora de red directa (ESC/POS IP:Puerto)\nNetwork Printer Settings (CUPS)\nSolo KDS (Sin ticket físico)", default: doc.print_mode || "Impresora del navegador", read_only: !editable },
+                { fieldname: "auto_print_on_send", fieldtype: "Check", label: "Imprimir automáticamente al pulsar Enviar", default: name ? (doc.auto_print_on_send ?? 1) : 1, read_only: !editable },
+                { fieldname: "paper_width_mm", fieldtype: "Select", label: "Ancho de papel térmico", options: "80mm\n58mm", default: doc.paper_width_mm || "80mm", read_only: !editable },
+                { fieldname: "printer_col", fieldtype: "Column Break" },
+                { fieldname: "network_printer", fieldtype: "Link", label: "Impresora de red Frappe (Network Printer Settings)", options: "Network Printer Settings", default: doc.network_printer || "", read_only: !editable },
+                { fieldname: "printer_ip", fieldtype: "Data", label: "IP de impresora térmica (ESC/POS)", default: doc.printer_ip || "", read_only: !editable },
+                { fieldname: "printer_port", fieldtype: "Int", label: "Puerto TCP (9100)", default: doc.printer_port || 9100, read_only: !editable },
                 { fieldname: "groups_section", fieldtype: "Section Break", label: "Grupos asignados" },
                 { fieldname: "group_picker", fieldtype: "HTML" },
             ],
@@ -162,6 +173,5 @@ class RestaurantCommandsPage {
         updateCount();
         dialog.show();
         if (!editable) dialog.get_primary_btn().hide();
-        dialog.$wrapper.addClass("restaurant-theme-dialog");
     }
 }

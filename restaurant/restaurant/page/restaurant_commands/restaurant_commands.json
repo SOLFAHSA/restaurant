@@ -1,17 +1,29 @@
 {
+ "content": null,
+ "creation": "2026-11-13 15:43:20.813902",
+ "docstatus": 0,
  "doctype": "Page",
+ "idx": 0,
+ "modified": "2026-11-13 21:04:22.472269",
+ "modified_by": "Administrator",
  "module": "Restaurant",
  "name": "restaurant-commands",
+ "owner": "Administrator",
  "page_name": "restaurant-commands",
- "title": "Comandas",
- "standard": "Yes",
  "roles": [
   {
    "role": "System Manager"
   },
   {
    "role": "Restaurant Manager"
+  },
+  {
+   "role": "Restaurant Cashier"
   }
  ],
- "system_page": 0
+ "script": null,
+ "standard": "Yes",
+ "style": null,
+ "system_page": 0,
+ "title": "Comandas"
 }

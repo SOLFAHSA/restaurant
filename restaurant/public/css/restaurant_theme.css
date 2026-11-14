@@ -135,3 +135,69 @@ body.restaurant-theme-context .rtm-element.is-selected .rtm-el-radio {
 body.restaurant-theme-context .rtm-element.is-selected .rtm-el-radio::after {
     background-color: var(--restaurant-green);
 }
+
+/* Improved List View readability and green primary actions for Restaurant DocTypes */
+body.restaurant-theme-context .frappe-list .result {
+    overflow-x: auto;
+}
+body.restaurant-theme-context .frappe-list .list-row-head,
+body.restaurant-theme-context .frappe-list .list-row {
+    min-width: 920px;
+}
+body.restaurant-theme-context .frappe-list .list-row-col {
+    min-width: 0;
+}
+body.restaurant-theme-context .page-actions .primary-action.btn-primary {
+    background-color: var(--restaurant-green) !important;
+    background-image: linear-gradient(#3b9305, var(--restaurant-green)) !important;
+    border-color: var(--restaurant-green) !important;
+    color: #fff !important;
+}
+body.restaurant-theme-context .page-actions .primary-action.btn-primary:hover {
+    background-color: var(--restaurant-green-dark) !important;
+    background-image: linear-gradient(var(--restaurant-green), var(--restaurant-green-dark)) !important;
+    border-color: var(--restaurant-green-dark) !important;
+}
+
+/* Global LEAF animated leaf loader for freeze overlays and page loading states */
+#freeze .freeze-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+}
+#freeze .freeze-message::before {
+    content: "";
+    display: block;
+    width: 56px;
+    height: 56px;
+    background: url("/assets/frappe/images/leaf.gif") center / contain no-repeat;
+}
+.leaf-loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 20px 12px;
+    text-align: center;
+}
+.leaf-loader--inline {
+    flex-direction: row;
+    padding: 0;
+    gap: 8px;
+}
+.leaf-loader-img {
+    display: block;
+    width: 52px;
+    height: 52px;
+    object-fit: contain;
+    margin: 0 auto;
+}
+.leaf-loader--inline .leaf-loader-img {
+    width: 22px;
+    height: 22px;
+    margin: 0;
+}
+
