@@ -8,7 +8,7 @@ MIT
 
 ---
 
-## Entregas académicas (Semanas 1 a 4)
+## Entregas académicas (Semanas 1 a 5)
 
 - Participante: **Manuel Padilla**, Ingeniería en Sistemas, CEUTEC.
 - Token de identificación de la entrega: **`LEARN-CAP-57D6DFA7`**.
@@ -19,11 +19,13 @@ MIT
 - [Mapa de historias y planificación](docs/mapa-historias.md) · [Plan de entregas](docs/plan.md).
 - [Modelo de datos y diccionario](docs/modelo-datos.md).
 - [Matriz de permisos, roles y propiedad del dato (`docs/permisos.md`)](docs/permisos.md).
+- [Pruebas con usuarios reales, guion, hallazgos y decisión sobre hipótesis (`docs/pruebas-usuarios.md`)](docs/pruebas-usuarios.md).
 - Bitácoras semanales:
   - [Bitácora de la semana 1](docs/bitacora/semana-1.md)
   - [Bitácora de la semana 2](docs/bitacora/semana-2.md)
   - [Bitácora de la semana 3](docs/bitacora/semana-3.md)
   - [Bitácora de la semana 4](docs/bitacora/semana-4.md)
+  - [Bitácora de la semana 5](docs/bitacora/semana-5.md)
 
 Este token identifica la entrega académica del participante; no modifica la
 licencia ni la atribución del proyecto Grintsys.
