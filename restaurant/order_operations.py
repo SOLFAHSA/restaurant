@@ -32,11 +32,15 @@ def _atomic_operation():
     """Preserve the caller transaction while undoing an incomplete operation."""
     savepoint = "restaurant_operation_" + uuid4().hex
     frappe.db.savepoint(savepoint)
+    prev_flag = getattr(frappe.flags, "in_restaurant_order_operation", False)
+    frappe.flags.in_restaurant_order_operation = True
     try:
         yield
     except Exception:
         frappe.db.rollback(save_point=savepoint)
         raise
+    finally:
+        frappe.flags.in_restaurant_order_operation = prev_flag
 
 
 def _identifier(value, label):
@@ -193,6 +197,12 @@ def _summary(doc, source=None):
     }
 
 
+def _can_access(doc, ptype="read"):
+    """Check document permission without polluting frappe.message_log via push_perm_check_log."""
+    from frappe.permissions import get_doc_permissions
+    return bool(get_doc_permissions(doc, user=frappe.session.user, ptype=ptype).get(ptype))
+
+
 def _is_active_destination_area(area_name, cache=None):
     if not area_name:
         return False
@@ -203,7 +213,7 @@ def _is_active_destination_area(area_name, cache=None):
     area = frappe.get_doc("Restaurant Area", area_name)
     active = (
         area.status == "Activa" and cint(area.visible_in_pos) == 1
-        and area.has_permission("read")
+        and _can_access(area, "read")
     )
     if cache is not None:
         cache[area_name] = active
@@ -222,7 +232,7 @@ def _has_active_destination_table(account, cache=None):
     if not frappe.db.exists(TABLE, account.restaurant_table):
         return False
     table = frappe.get_doc(TABLE, account.restaurant_table)
-    return table.has_permission("read") and table.has_permission("write") and _is_active_destination_table(table, cache=cache)
+    return _can_access(table, "read") and _is_active_destination_table(table, cache=cache)
 
 
 def get_context(order_name):
@@ -236,9 +246,12 @@ def get_context(order_name):
     accounts = []
     for row in account_rows:
         account = frappe.get_doc(ORDER, row.name)
-        if account.sales_invoice or not account.has_permission("write") or not _has_active_destination_table(account, cache=area_cache):
+        if (
+            account.sales_invoice
+            or not _can_access(account, "write")
+            or not _has_active_destination_table(account, cache=area_cache)
+        ):
             continue
-        account.check_permission("read")
         accounts.append(_summary(account, source))
     tables = []
     for row in frappe.get_list(
@@ -246,9 +259,8 @@ def get_context(order_name):
         fields=["name"], order_by="restaurant_area asc, display_order asc, table_number asc", limit_page_length=0,
     ):
         table = frappe.get_doc(TABLE, row.name)
-        if not table.has_permission("write") or not _is_active_destination_table(table, cache=area_cache):
+        if not _can_access(table, "read") or not _is_active_destination_table(table, cache=area_cache):
             continue
-        table.check_permission("read")
         occupants = frappe.get_all(
             ORDER,
             filters={"restaurant_table": table.name, "status": "En curso", "docstatus": 0, "name": ["!=", source.name]},
@@ -335,7 +347,6 @@ def _destination_table(target_table):
     name = _identifier(target_table, _("la mesa de destino"))
     doc = frappe.get_doc(TABLE, name, for_update=True)
     doc.check_permission("read")
-    doc.check_permission("write")
     if not _is_active_destination_table(doc):
         frappe.throw(_("La mesa seleccionada no está activa o su área no está disponible en el POS."))
     return doc
@@ -344,6 +355,10 @@ def _destination_table(target_table):
 def transfer_account(order_name, target_table=None, target_order=None, expected_modified=None,
                      target_modified=None, split_items=None, new_order_name=None):
     _require_pos_user()
+    if target_table:
+        from restaurant.pos_auth import is_direct_cashier
+        if is_direct_cashier():
+            frappe.throw(_("Tu perfil de facturación directa no permite asignar mesas."), frappe.PermissionError)
     source_name = _identifier(order_name, _("la cuenta de origen"))
     with _atomic_operation():
         table = _destination_table(target_table) if target_table else None

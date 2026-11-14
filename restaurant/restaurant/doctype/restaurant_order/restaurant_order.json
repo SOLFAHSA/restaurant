@@ -69,7 +69,8 @@
    "fieldtype": "Data",
    "reqd": 1,
    "in_list_view": 1,
-   "in_standard_filter": 1
+   "in_standard_filter": 1,
+   "columns": 2
   },
   {
    "fieldname": "status",
@@ -79,7 +80,8 @@
    "default": "En curso",
    "reqd": 1,
    "in_list_view": 1,
-   "in_standard_filter": 1
+   "in_standard_filter": 1,
+   "columns": 2
   },
   {
    "fieldname": "service_type",
@@ -102,14 +104,16 @@
    "label": "Mesa",
    "fieldtype": "Link",
    "options": "Restaurant Table",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "in_standard_filter": 1
   },
   {
    "fieldname": "table_label",
-   "label": "Número de mesa",
+   "label": "Mesa",
    "fieldtype": "Data",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 1
   },
   {
    "fieldname": "guests",
@@ -128,14 +132,16 @@
    "fieldtype": "Link",
    "options": "Customer",
    "reqd": 1,
-   "in_list_view": 1,
+   "in_list_view": 0,
    "in_standard_filter": 1
   },
   {
    "fieldname": "customer_name",
    "label": "Nombre del cliente",
    "fieldtype": "Data",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "tax_id",
@@ -147,14 +153,16 @@
    "label": "Atendido por (Mesero)",
    "fieldtype": "Link",
    "options": "Employee",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "in_standard_filter": 1
   },
   {
    "fieldname": "waiter_name",
    "label": "Nombre del mesero",
    "fieldtype": "Data",
-   "read_only": 1
+   "read_only": 1,
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "products_tab",
@@ -259,7 +267,8 @@
    "options": "currency",
    "default": "0",
    "read_only": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 1
   },
   {
    "fieldname": "payments_tab",
@@ -278,7 +287,8 @@
    "options": "Sales Invoice",
    "read_only": 1,
    "in_list_view": 1,
-   "in_standard_filter": 1
+   "in_standard_filter": 1,
+   "columns": 2
   },
   {
    "fieldname": "precuenta_printed",
@@ -318,7 +328,7 @@
    "label": "Punto de venta",
    "fieldtype": "Link",
    "options": "POS Profile",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "in_standard_filter": 1
   },
   {
@@ -326,7 +336,7 @@
    "label": "Sesión (Turno de caja)",
    "fieldtype": "Link",
    "options": "POS Opening Shift",
-   "in_list_view": 1,
+   "in_list_view": 0,
    "in_standard_filter": 1
   },
   {
@@ -433,6 +443,8 @@
    "write": 1,
    "create": 1,
    "delete": 0,
+   "print": 1,
+   "select": 1,
    "report": 1
   }
  ],

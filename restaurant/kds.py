@@ -5,6 +5,7 @@ import json
 
 import frappe
 from frappe import _
+from frappe.permissions import get_doc_permissions, get_role_permissions
 from frappe.utils import cint, cstr, get_datetime, now_datetime
 
 from restaurant.pos import _require_pos_user, _row_stations, _serialize_order
@@ -61,7 +62,7 @@ def _display_data(doc):
         "item_groups": [row.item_group for row in doc.get("item_groups", [])],
         "stages": stages,
         "modified": str(doc.modified) if doc.modified else "",
-        "can_write": bool(doc.has_permission("write")),
+        "can_write": bool(get_doc_permissions(doc).get("write")),
     }
 
 
@@ -101,13 +102,6 @@ def ticket_name(display_name, order_name):
     """Use a deterministic primary key to enforce one ticket per screen/order."""
     value = json.dumps([display_name, order_name], ensure_ascii=False)
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _get_ticket(display_name, order_name, for_update=False):
-    name = ticket_name(display_name, order_name)
-    if frappe.db.get_value(TICKET, name, "name", for_update=for_update):
-        return frappe.get_doc(TICKET, name, for_update=for_update)
-    return None
 
 
 def _ticket_contexts(doc, display, for_update=False):
@@ -154,7 +148,7 @@ def _ticket_projection(doc, display, ticket, eligible):
     old_names = set(_parse_list(ticket.get("included_item_names_json"))) if ticket else set()
     new_names = {
         row.name for row in eligible
-        if row.name not in old_names and row.kds_status not in ("Entregado", "Cerrado")
+        if row.name not in old_names and row.kds_status not in ("Entregado", "Cerrado", "Cancelado")
     }
     added_items = bool(ticket and old_names and new_names)
     active_names = set(_parse_list(ticket.get("active_item_names_json"))) if ticket else item_names
@@ -162,7 +156,7 @@ def _ticket_projection(doc, display, ticket, eligible):
     index = max(0, min(cint(ticket.stage_index), len(stages) - 1)) if ticket else _legacy_index(doc, stages)
     completed = set(_parse_list(ticket.completed_items_json)) if ticket else set()
     if not ticket and index == 0:
-        completed = {row.name for row in eligible if row.kds_status in ("Listo", "Entregado", "Cerrado")}
+        completed = {row.name for row in eligible if row.kds_status in ("Listo", "Entregado", "Cerrado", "Cancelado")}
     started_at = ticket.stage_started_at if ticket else doc.sent_to_kitchen_at or doc.creation
     completed_at = ticket.completed_at if ticket else (
         doc.modified if doc.kds_status in ("Entregado", "Cerrado") else None
@@ -287,8 +281,8 @@ def get_kds_state(display_name=None, station=None):
         "stages_catalog": [_stage_data(frappe.get_doc(STAGE, row.name)) for row in stage_rows],
         "server_now": str(now),
         "has_more": False,
-        "can_create_display": bool(frappe.has_permission(DISPLAY, "create")),
-        "can_create_stage": bool(frappe.has_permission(STAGE, "create")),
+        "can_create_display": bool(get_role_permissions(DISPLAY).get("create")),
+        "can_create_stage": bool(get_role_permissions(STAGE).get("create")),
     }
 
 
@@ -463,6 +457,8 @@ def _sync_legacy_status(doc):
         frappe.db.set_value(ORDER, doc.name, "kds_status", status, update_modified=False)
         doc.kds_status = status
     for row in doc.items:
+        if cint(getattr(row, "is_cancelled", 0)) or row.kds_status == "Cancelado":
+            continue
         row_phases = item_phases.get(row.name)
         if row_phases:
             row_status = ("En preparación", "Listo", "Entregado", "Entregado")[min(row_phases)]

@@ -2,9 +2,14 @@
 
 import frappe
 from frappe import _
+from frappe.permissions import get_doc_permissions, get_role_permissions
 from frappe.utils import cint, cstr
 
-from restaurant.location import _check_readable_link, _whole_number
+from restaurant.utils import (
+    check_readable_link as _check_readable_link,
+    parse_whole_number as _whole_number,
+    validate_bool_flag,
+)
 
 DOCTYPE = "Restaurant Command"
 
@@ -26,7 +31,19 @@ def get_commands(search="", start=0, page_length=20):
         frappe.throw(_("El tamaño de página no puede superar 50 comandas."))
     pattern = "%" + search.strip() + "%"
     rows = frappe.get_list(
-        DOCTYPE, fields=["name", "command_name", "branch", "enabled"],
+        DOCTYPE,
+        fields=[
+            "name",
+            "command_name",
+            "branch",
+            "enabled",
+            "print_mode",
+            "network_printer",
+            "printer_ip",
+            "printer_port",
+            "paper_width_mm",
+            "auto_print_on_send",
+        ],
         or_filters={field: ["like", pattern] for field in ("command_name", "branch")} if search.strip() else None,
         order_by="command_name asc, name asc", limit_start=offset, limit_page_length=size + 1,
     )
@@ -37,12 +54,12 @@ def get_commands(search="", start=0, page_length=20):
         doc.apply_fieldlevel_read_permissions()
         items.append({
             **row, "groups": [entry.item_group for entry in doc.get("groups", [])],
-            "can_write": bool(doc.has_permission("write")),
+            "can_write": bool(get_doc_permissions(doc).get("write")),
         })
     return {
         "items": items, "has_next": len(rows) > size, "start": offset,
-        "can_create": bool(frappe.has_permission(DOCTYPE, "create")),
-        "can_view_formats": bool(frappe.has_permission("Print Format", "read")),
+        "can_create": bool(get_role_permissions(DOCTYPE).get("create")),
+        "can_view_formats": bool(get_role_permissions("Print Format").get("read")),
     }
 
 
@@ -62,7 +79,7 @@ def get_editor_context(name=None):
     )
     return {
         "doc": doc.as_dict(), "groups": groups,
-        "can_write": bool(doc.has_permission("write")) if name else True,
+        "can_write": bool(get_doc_permissions(doc).get("write")) if name else True,
     }
 
 
@@ -83,7 +100,17 @@ def save_command(document):
     else:
         _require_permission("create")
         doc = frappe.new_doc(DOCTYPE)
-    for fieldname in ("command_name", "branch", "enabled"):
+    for fieldname in (
+        "command_name",
+        "branch",
+        "enabled",
+        "print_mode",
+        "network_printer",
+        "printer_ip",
+        "printer_port",
+        "paper_width_mm",
+        "auto_print_on_send",
+    ):
         if fieldname in document:
             doc.set(fieldname, document[fieldname])
     groups = document.get("groups")
@@ -105,9 +132,7 @@ def validate_command(doc):
     if not doc.branch:
         frappe.throw(_("Selecciona la sucursal de la comanda."))
     _check_readable_link("Branch", doc.branch)
-    if doc.enabled not in (0, 1, "0", "1", False, True):
-        frappe.throw(_("El estado de la comanda no es válido."))
-    doc.enabled = cint(doc.enabled)
+    doc.enabled = validate_bool_flag(doc.enabled, _("estado de la comanda"))
     if not doc.get("groups"):
         frappe.throw(_("Selecciona al menos un grupo para la comanda."))
     selected = set()

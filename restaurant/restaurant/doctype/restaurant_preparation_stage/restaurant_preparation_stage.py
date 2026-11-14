@@ -7,7 +7,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cstr
 
-from restaurant.location import _whole_number
+from restaurant.utils import parse_whole_number as _whole_number
 
 
 class RestaurantPreparationStage(Document):

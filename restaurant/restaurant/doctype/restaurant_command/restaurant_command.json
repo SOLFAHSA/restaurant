@@ -11,6 +11,15 @@
   "command_name",
   "branch",
   "enabled",
+  "printer_section",
+  "print_mode",
+  "network_printer",
+  "auto_print_on_send",
+  "col_break_printer",
+  "printer_ip",
+  "printer_port",
+  "paper_width_mm",
+  "groups_section",
   "groups"
  ],
  "fields": [
@@ -36,6 +45,59 @@
    "label": "Activa",
    "default": "1",
    "in_list_view": 1
+  },
+  {
+   "fieldname": "printer_section",
+   "fieldtype": "Section Break",
+   "label": "Configuración de Impresora de Estación"
+  },
+  {
+   "fieldname": "print_mode",
+   "fieldtype": "Select",
+   "label": "Modo de impresión",
+   "options": "Impresora del navegador (Ticket térmico)\nImpresora de red directa (ESC/POS IP:Puerto)\nNetwork Printer Settings (Frappe Nativo)\nSolo KDS (Sin impresión automática)",
+   "default": "Impresora del navegador (Ticket térmico)",
+   "in_list_view": 1
+  },
+  {
+   "fieldname": "network_printer",
+   "fieldtype": "Link",
+   "label": "Impresora de red Frappe (Network Printer Settings)",
+   "options": "Network Printer Settings"
+  },
+  {
+   "fieldname": "auto_print_on_send",
+   "fieldtype": "Check",
+   "label": "Imprimir automáticamente al pulsar Enviar en el POS",
+   "default": "1"
+  },
+  {
+   "fieldname": "col_break_printer",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "printer_ip",
+   "fieldtype": "Data",
+   "label": "IP de la impresora térmica (ESC/POS)",
+   "description": "Ej. 192.168.1.200 (para envío directo por socket TCP)."
+  },
+  {
+   "fieldname": "printer_port",
+   "fieldtype": "Int",
+   "label": "Puerto TCP de la impresora",
+   "default": "9100"
+  },
+  {
+   "fieldname": "paper_width_mm",
+   "fieldtype": "Select",
+   "label": "Ancho de papel térmico",
+   "options": "80mm\n58mm",
+   "default": "80mm"
+  },
+  {
+   "fieldname": "groups_section",
+   "fieldtype": "Section Break",
+   "label": "Categorías de Producto Asignadas"
   },
   {
    "fieldname": "groups",

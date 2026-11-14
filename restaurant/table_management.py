@@ -262,7 +262,7 @@ def get_area_tables(area_name):
     return get_area_tables_list(area_name)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_table(document):
     """Create or update a Restaurant Table using native Frappe permissions."""
     _require_authenticated_user()
@@ -301,7 +301,7 @@ def save_table(document):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def delete_table(name):
     """Delete a Restaurant Table and detach it from its area floor map if present."""
     _require_authenticated_user()
@@ -331,7 +331,7 @@ def delete_table(name):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def update_table_status(table_name, status):
     """Update operational status of a table from the floor map."""
     _require_authenticated_user()
@@ -420,7 +420,7 @@ def get_map_context(area_name=None):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def save_area_map(area_name, floor_background=None, elements=None, area_modified=None):
     """Validate and persist the visual floor map of a Restaurant Area."""
     _require_authenticated_user()

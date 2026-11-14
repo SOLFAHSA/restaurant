@@ -7,7 +7,7 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint, cstr, get_datetime, now_datetime
 
-from restaurant.location import _whole_number
+from restaurant.utils import parse_whole_number as _whole_number, validate_bool_flag
 
 
 class RestaurantPreparationDisplay(Document):
@@ -19,10 +19,7 @@ class RestaurantPreparationDisplay(Document):
         if len(self.description) > 2000:
             frappe.throw(_("La descripción de la pantalla no puede superar 2000 caracteres."))
         for fieldname, label in (("enabled", _("Activa")), ("auto_clear", _("Eliminación automática"))):
-            value = self.get(fieldname)
-            if value not in (0, 1, "0", "1", False, True):
-                frappe.throw(_("El valor de {0} no es válido.").format(label))
-            self.set(fieldname, int(value))
+            self.set(fieldname, validate_bool_flag(self.get(fieldname), label))
         self.auto_clear_minutes = _whole_number(
             self.auto_clear_minutes if self.auto_clear_minutes not in (None, "") else 0,
             _("Minutos para retirar pedidos"), 1 if self.auto_clear else 0,

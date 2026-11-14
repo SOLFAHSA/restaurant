@@ -12,7 +12,14 @@
   "color_bg",
   "color_border",
   "is_default",
-  "enabled"
+  "enabled",
+  "behavior_section",
+  "require_customer",
+  "enable_scheduling",
+  "col_break_sched",
+  "slot_interval_minutes",
+  "schedule_start_time",
+  "schedule_end_time"
  ],
  "fields": [
   {
@@ -52,6 +59,47 @@
    "label": "Habilitado",
    "default": "1",
    "in_list_view": 1
+  },
+  {
+   "fieldname": "behavior_section",
+   "fieldtype": "Section Break",
+   "label": "Reglas Operativas y Programación Horaria"
+  },
+  {
+   "fieldname": "require_customer",
+   "fieldtype": "Check",
+   "label": "Requerir selección de cliente en POS",
+   "default": "0",
+   "description": "Si está activo, al elegir esta modalidad en el POS se abrirá automáticamente el selector de cliente (ej. Entrega)."
+  },
+  {
+   "fieldname": "enable_scheduling",
+   "fieldtype": "Check",
+   "label": "Habilitar programación de fecha y hora",
+   "default": "0",
+   "description": "Permite programar bloques de retiro o entrega (ej. Para llevar / Entrega)."
+  },
+  {
+   "fieldname": "col_break_sched",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "slot_interval_minutes",
+   "fieldtype": "Int",
+   "label": "Intervalo entre horarios (minutos)",
+   "default": "20"
+  },
+  {
+   "fieldname": "schedule_start_time",
+   "fieldtype": "Data",
+   "label": "Hora de inicio de programación (HH:MM)",
+   "default": "12:00"
+  },
+  {
+   "fieldname": "schedule_end_time",
+   "fieldtype": "Data",
+   "label": "Hora de cierre de programación (HH:MM)",
+   "default": "22:00"
   }
  ],
  "permissions": [

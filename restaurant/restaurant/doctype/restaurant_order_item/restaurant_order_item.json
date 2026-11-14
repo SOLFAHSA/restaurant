@@ -22,7 +22,13 @@
   "selected_options_json",
   "note",
   "command_station",
-  "kds_status"
+  "kds_status",
+  "is_cancelled",
+  "cancelled_qty",
+  "cancellation_reason",
+  "cancelled_by",
+  "cancelled_by_supervisor",
+  "cancelled_at"
  ],
  "fields": [
   {
@@ -134,8 +140,47 @@
    "fieldname": "kds_status",
    "label": "Estado en cocina",
    "fieldtype": "Select",
-   "options": "Pendiente\nEn preparación\nListo\nEntregado\nCerrado",
+   "options": "Pendiente\nEn preparación\nListo\nEntregado\nCerrado\nCancelado",
    "default": "Pendiente"
+  },
+  {
+   "fieldname": "is_cancelled",
+   "label": "Cancelado",
+   "fieldtype": "Check",
+   "default": "0",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_qty",
+   "label": "Cantidad cancelada",
+   "fieldtype": "Float",
+   "default": "0",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancellation_reason",
+   "label": "Motivo de cancelación",
+   "fieldtype": "Small Text",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_by",
+   "label": "Solicitado por",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_by_supervisor",
+   "label": "Autorizado por supervisor",
+   "fieldtype": "Data",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cancelled_at",
+   "label": "Fecha de cancelación",
+   "fieldtype": "Datetime",
+   "read_only": 1
   }
  ],
  "permissions": [],

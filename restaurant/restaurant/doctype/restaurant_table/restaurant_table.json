@@ -26,7 +26,8 @@
    "options": "Restaurant Area",
    "reqd": 1,
    "in_list_view": 1,
-   "in_standard_filter": 1
+   "in_standard_filter": 1,
+   "columns": 3
   },
   {
    "fieldname": "branch",
@@ -35,7 +36,8 @@
    "options": "Branch",
    "read_only": 1,
    "in_list_view": 1,
-   "in_standard_filter": 1
+   "in_standard_filter": 1,
+   "columns": 2
   },
   {
    "fieldname": "table_number",
@@ -51,7 +53,8 @@
    "default": "4",
    "reqd": 1,
    "non_negative": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 1
   },
   {
    "fieldname": "shape",
@@ -60,7 +63,8 @@
    "options": "Cuadrada\nRectangular\nRedonda\nOvalada\nCancha azul\nCancha fútbol\nCancha básquetbol",
    "default": "Cuadrada",
    "reqd": 1,
-   "in_list_view": 1
+   "in_list_view": 1,
+   "columns": 2
   },
   {
    "fieldname": "status",
@@ -70,7 +74,8 @@
    "default": "Disponible",
    "reqd": 1,
    "in_list_view": 1,
-   "in_standard_filter": 1
+   "in_standard_filter": 1,
+   "columns": 2
   },
   {
    "fieldname": "display_order",
@@ -118,6 +123,6 @@
  "search_fields": "table_number,restaurant_area,branch",
  "sort_field": "display_order",
  "sort_order": "ASC",
- "quick_entry": 0
+ "quick_entry": 0,
+ "show_title_field_in_link": 1
 }
-

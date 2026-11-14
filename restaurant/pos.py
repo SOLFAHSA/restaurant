@@ -1,16 +1,27 @@
 """Backend services for the LEAF Restaurant POS, open accounts, pre-checks, SAR invoicing, and KDS."""
 
 import json
-from datetime import datetime
+import re
 
 import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, get_datetime, get_fullname, now_datetime, nowdate, nowtime
 
-ALLOWED_SERVICE_TYPES = ("Comer en el local", "Para llevar", "Entrega")
-ALLOWED_ORDER_STATUSES = ("En curso", "Facturada", "Cancelada")
-ALLOWED_KDS_STATUSES = ("Sin enviar", "En preparación", "Listo", "Entregado", "Cerrado")
-ALLOWED_ITEM_KDS_STATUSES = ("Pendiente", "En preparación", "Listo", "Entregado", "Cerrado")
+from restaurant.pos_auth import (
+    employee_has_pin,
+    get_linked_employee_for_user,
+    get_supervisors_for_pos,
+    is_cashier_only,
+    is_direct_cashier,
+    is_order_unlocked_for_session,
+    is_supervisor,
+    is_waiter_only,
+    log_restaurant_audit,
+    mark_order_unlocked_for_session,
+    user_can_invoice,
+    verify_employee_pin,
+    verify_supervisor_authorization,
+)
 
 DEFAULT_CATEGORY_COLORS = (
     "#D9468F",
@@ -40,11 +51,62 @@ def _require_pos_user():
             _("Debes iniciar sesión para acceder al Punto de Venta de Restaurante."),
             frappe.PermissionError,
         )
-    if not {"System Manager", "Restaurant Manager", "Restaurant User"}.intersection(frappe.get_roles()):
+    if not {"System Manager", "Restaurant Manager", "Restaurant Cashier", "Restaurant Direct Cashier", "Restaurant User"}.intersection(frappe.get_roles()):
         frappe.throw(
             _("No tienes permiso para acceder al Punto de Venta de Restaurante."),
             frappe.PermissionError,
         )
+
+
+def _require_manager_user():
+    """Ensure the current session user has manager-level administrative permissions."""
+    _require_pos_user()
+    if not {"System Manager", "Restaurant Manager"}.intersection(frappe.get_roles()):
+        frappe.throw(
+            _("Solo un Administrador o Gerente de Restaurante puede realizar esta operación."),
+            frappe.PermissionError,
+        )
+
+
+def _enforce_pin_rate_limit(scope_key, max_attempts=5, window_seconds=300):
+    """Block repeated failed PIN attempts for a user/target scope using Frappe cache."""
+    cache = frappe.cache()
+    cache_key = f"rpos_pin_fail:{frappe.session.user}:{scope_key}"
+    attempts = cint(cache.get_value(cache_key) or 0)
+    if attempts >= max_attempts:
+        frappe.throw(
+            _("Demasiados intentos fallidos de PIN. Espera unos minutos antes de intentar de nuevo."),
+            frappe.PermissionError,
+        )
+    return cache_key
+
+
+def _record_pin_failure(cache_key, window_seconds=300):
+    """Increment failed PIN attempt counter in Frappe cache."""
+    cache = frappe.cache()
+    attempts = cint(cache.get_value(cache_key) or 0) + 1
+    cache.set_value(cache_key, attempts, expires_in_sec=window_seconds)
+
+
+def _clear_pin_failures(cache_key):
+    """Clear failed PIN attempt counter after a successful verification."""
+    frappe.cache().delete_value(cache_key)
+
+
+def _get_active_user_branch(opening_shift=None, linked_waiter=None):
+    """Resolve the active Branch for the current session user, if configured."""
+    branch = frappe.defaults.get_user_default("Branch")
+    if branch and frappe.db.exists("Branch", branch):
+        return branch
+    if linked_waiter is None:
+        linked_waiter = get_linked_employee_for_user()
+    if linked_waiter and linked_waiter.get("branch"):
+        return linked_waiter["branch"]
+    if opening_shift and opening_shift.get("pos_profile") and frappe.get_meta("POS Profile").has_field("branch"):
+        prof_branch = frappe.db.get_value("POS Profile", opening_shift["pos_profile"], "branch")
+        if prof_branch:
+            return prof_branch
+    return None
 
 
 def _get_default_company():
@@ -68,11 +130,6 @@ def _get_default_pos_profile(company=None):
     if company:
         filters["company"] = company
     profiles = frappe.get_all(
-        "POS Profile",
-        filters=filters,
-        fields=["name", "company", "currency", "selling_price_list", "warehouse", " customer"],
-        limit=10,
-    ) if False else frappe.get_all(
         "POS Profile",
         filters=filters,
         fields=["name", "company", "currency", "selling_price_list", "warehouse", "customer"],
@@ -144,15 +201,9 @@ def _resolve_command_map():
     return mapping
 
 
-def _resolve_item_tax_rate(item_code):
-    """Return applicable Honduras ISV rate (15, 18, or 0) for an Item."""
-    taxes = frappe.get_all(
-        "Item Tax",
-        filters={"parent": item_code, "parenttype": "Item"},
-        fields=["item_tax_template"],
-    )
-    for row in taxes:
-        tpl_name = (row.item_tax_template or "").upper()
+def _tax_rate_from_templates(template_names):
+    for tpl in template_names:
+        tpl_name = (tpl or "").upper()
         if "EXENTO" in tpl_name or "0%" in tpl_name:
             return 0.0
         if "18%" in tpl_name or "18" in tpl_name:
@@ -160,6 +211,16 @@ def _resolve_item_tax_rate(item_code):
         if "15%" in tpl_name or "15" in tpl_name:
             return 15.0
     return 15.0
+
+
+def _resolve_item_tax_rate(item_code):
+    """Return applicable Honduras ISV rate (15, 18, or 0) for an Item."""
+    taxes = frappe.get_all(
+        "Item Tax",
+        filters={"parent": item_code, "parenttype": "Item"},
+        fields=["item_tax_template"],
+    )
+    return _tax_rate_from_templates([row.item_tax_template for row in taxes])
 
 
 def validate_order(doc):
@@ -174,20 +235,21 @@ def validate_order(doc):
     doc.customer_note = cstr(doc.customer_note).strip()[:500]
     doc.scheduled_time = cstr(doc.scheduled_time).strip()[:60]
 
+    meta = frappe.get_meta("Restaurant Order")
+    valid_statuses = [opt.strip() for opt in (meta.get_field("status").options or "").splitlines() if opt.strip()]
     doc.status = cstr(doc.status or "En curso").strip()
-    if doc.status not in ALLOWED_ORDER_STATUSES:
-        frappe.throw(_("El estado de la orden debe ser En curso, Facturada o Cancelada."))
+    if valid_statuses and doc.status not in valid_statuses:
+        frappe.throw(_("El estado de la orden debe ser {0}.").format(", ".join(valid_statuses)))
 
     doc.service_type = cstr(doc.service_type or "Comer en el local").strip()
     if frappe.db.table_exists("Restaurant Order Preset"):
         valid_presets = frappe.get_all("Restaurant Order Preset", filters={"enabled": 1}, pluck="preset_name")
         if valid_presets and doc.service_type not in valid_presets:
             frappe.throw(_("La modalidad seleccionada '{0}' no es válida según los ajustes preestablecidos.").format(doc.service_type))
-    elif doc.service_type not in ALLOWED_SERVICE_TYPES:
-        frappe.throw(_("La modalidad debe ser Comer en el local, Para llevar o Entrega."))
 
+    valid_kds_statuses = [opt.strip() for opt in (meta.get_field("kds_status").options or "").splitlines() if opt.strip()]
     doc.kds_status = cstr(doc.kds_status or "Sin enviar").strip()
-    if doc.kds_status not in ALLOWED_KDS_STATUSES:
+    if valid_kds_statuses and doc.kds_status not in valid_kds_statuses:
         doc.kds_status = "Sin enviar"
 
     doc.guests = max(1, cint(doc.guests or 1))
@@ -217,9 +279,11 @@ def validate_order(doc):
         table_info = frappe.db.get_value(
             "Restaurant Table",
             doc.restaurant_table,
-            ["table_number", "restaurant_area"],
+            ["table_number", "restaurant_area", "status"],
             as_dict=True,
         )
+        if table_info and table_info.status == "Inactiva":
+            frappe.throw(_("La mesa seleccionada está inactiva."))
         doc.table_label = table_info.table_number if table_info else doc.restaurant_table
         if table_info and table_info.restaurant_area:
             doc.restaurant_area = table_info.restaurant_area
@@ -238,6 +302,42 @@ def validate_order(doc):
             else "HNL"
         ) or "HNL"
 
+    if not doc.is_new() and not frappe.flags.get("in_restaurant_supervisor_cancel") and not frappe.flags.get("in_restaurant_order_operation"):
+        before = doc.get_doc_before_save()
+        if before:
+            if before.status == "Facturada":
+                frappe.throw(_("Una orden facturada no puede modificarse."), frappe.PermissionError)
+            if doc.status == "Cancelada" and before.status != "Cancelada" and not is_supervisor():
+                frappe.throw(
+                    _("Solo un supervisor autorizado puede cancelar una orden."),
+                    frappe.PermissionError,
+                )
+            new_by_name = {r.name: r for r in (doc.items or []) if getattr(r, "name", None)}
+            for old_row in (before.items or []):
+                old_kds = cstr(getattr(old_row, "kds_status", "") or "Pendiente")
+                old_cancelled = cint(getattr(old_row, "is_cancelled", 0)) or old_kds == "Cancelado"
+                if old_kds not in ("", "Pendiente") and not old_cancelled:
+                    new_row = new_by_name.get(old_row.name)
+                    if not new_row:
+                        frappe.throw(
+                            _("No puedes eliminar '{0}' porque ya fue enviado a cocina. Requiere autorización de supervisor.").format(
+                                old_row.item_name or old_row.item_code
+                            ),
+                            frappe.PermissionError,
+                        )
+                    if flt(new_row.qty) < flt(old_row.qty) - 0.001:
+                        frappe.throw(
+                            _("No puedes reducir la cantidad de '{0}' porque ya fue enviado a cocina. Requiere autorización de supervisor.").format(
+                                old_row.item_name or old_row.item_code
+                            ),
+                            frappe.PermissionError,
+                        )
+                    if cstr(new_row.kds_status or "Pendiente") == "Pendiente":
+                        frappe.throw(
+                            _("No puedes revertir el estado de cocina de un platillo ya enviado."),
+                            frappe.PermissionError,
+                        )
+
     command_map = _resolve_command_map()
 
     subtotal = 0.0
@@ -247,15 +347,70 @@ def validate_order(doc):
     isv_18 = 0.0
     exempt = 0.0
 
-    for row in (doc.items or []):
-        if not row.item_code or not frappe.db.exists("Item", row.item_code):
-            frappe.throw(_("Selecciona un producto o platillo válido en cada línea de la orden."))
-        item_info = frappe.db.get_value(
+    item_meta = frappe.get_meta("Restaurant Order Item")
+    valid_item_kds_statuses = [
+        opt.strip() for opt in (item_meta.get_field("kds_status").options or "").splitlines() if opt.strip()
+    ]
+
+    item_codes = list({row.item_code for row in (doc.items or []) if row.item_code})
+    items_by_code = {}
+    taxes_by_item = {}
+    catalog_price_by_item = {}
+    option_price_by_item = {}
+    if item_codes:
+        for item_row in frappe.get_all(
             "Item",
-            row.item_code,
-            ["item_name", "item_group", "stock_uom", "standard_rate"],
-            as_dict=True,
-        )
+            filters={"name": ["in", item_codes]},
+            fields=["name", "item_name", "item_group", "stock_uom", "standard_rate"],
+        ):
+            items_by_code[item_row.name] = item_row
+            if flt(item_row.standard_rate) > 0:
+                catalog_price_by_item[item_row.name] = flt(item_row.standard_rate, 2)
+        for tax_row in frappe.get_all(
+            "Item Tax",
+            filters={"parent": ["in", item_codes], "parenttype": "Item"},
+            fields=["parent", "item_tax_template"],
+        ):
+            taxes_by_item.setdefault(tax_row.parent, []).append(tax_row.item_tax_template)
+        selling_pl = cstr(getattr(doc, "selling_price_list", "") or "").strip()
+        for price_row in frappe.get_all(
+            "Item Price",
+            filters={"item_code": ["in", item_codes], "selling": 1},
+            fields=["item_code", "price_list", "price_list_rate"],
+            order_by="modified desc",
+        ):
+            if selling_pl and price_row.price_list == selling_pl:
+                catalog_price_by_item[price_row.item_code] = flt(price_row.price_list_rate, 2)
+            elif price_row.item_code not in catalog_price_by_item or not selling_pl:
+                catalog_price_by_item.setdefault(price_row.item_code, flt(price_row.price_list_rate, 2))
+        if frappe.db.exists("DocType", "Restaurant Option Group"):
+            opt_groups = frappe.get_all(
+                "Restaurant Option Group",
+                filters={"main_item": ["in", item_codes], "disabled": 0},
+                fields=["name", "main_item"],
+            )
+            group_to_item = {g.name: g.main_item for g in opt_groups}
+            if group_to_item:
+                for opt_row in frappe.get_all(
+                    "Restaurant Dish Option",
+                    filters={"parent": ["in", list(group_to_item.keys())], "parenttype": "Restaurant Option Group"},
+                    fields=["parent", "option_label", "additional_amount"],
+                ):
+                    main_item = group_to_item.get(opt_row.parent)
+                    if main_item and opt_row.option_label:
+                        option_price_by_item.setdefault(main_item, {})[cstr(opt_row.option_label).strip()] = flt(
+                            opt_row.additional_amount, 2
+                        )
+
+    allow_rate_change = 0
+    if getattr(doc, "pos_profile", None) and frappe.db.exists("POS Profile", doc.pos_profile):
+        allow_rate_change = cint(frappe.db.get_value("POS Profile", doc.pos_profile, "allow_rate_change") or 0)
+    can_override_rate = user_can_invoice() and bool(allow_rate_change)
+
+    for row in (doc.items or []):
+        if not row.item_code or row.item_code not in items_by_code:
+            frappe.throw(_("Selecciona un producto o platillo válido en cada línea de la orden."))
+        item_info = items_by_code[row.item_code]
         row.item_name = cstr(row.item_name or (item_info.item_name if item_info else row.item_code)).strip()
         row.item_group = (item_info.item_group if item_info and item_info.item_group else row.item_group)
         row.uom = row.uom or (item_info.stock_uom if item_info else None)
@@ -264,29 +419,67 @@ def validate_order(doc):
         if row.qty <= 0:
             frappe.throw(_("La cantidad de cada platillo debe ser mayor que cero."))
 
-        row.base_rate = max(0.0, flt(row.base_rate, 2))
-        row.options_rate = max(0.0, flt(row.options_rate, 2))
+        catalog_rate = flt(catalog_price_by_item.get(row.item_code, 0.0), 2)
+        if catalog_rate > 0 and not can_override_rate:
+            row.base_rate = catalog_rate
+        elif is_waiter_only() and catalog_rate <= 0:
+            row.base_rate = 0.0
+        else:
+            row.base_rate = max(0.0, flt(row.base_rate, 2))
+            if row.base_rate == 0 and catalog_rate > 0:
+                row.base_rate = catalog_rate
+
+        # Recompute options_rate from authoritative Restaurant Dish Option records when available
+        item_opt_map = option_price_by_item.get(row.item_code)
+        raw_opts_json = cstr(getattr(row, "selected_options_json", "") or "").strip()
+        if raw_opts_json:
+            try:
+                parsed_opts = json.loads(raw_opts_json)
+            except Exception:
+                parsed_opts = []
+            if isinstance(parsed_opts, list) and item_opt_map is not None:
+                row.options_rate = flt(
+                    sum(
+                        flt(item_opt_map.get(cstr(o.get("option_label") or "").strip(), 0.0), 2)
+                        for o in parsed_opts
+                        if isinstance(o, dict)
+                    ),
+                    2,
+                )
+            elif not parsed_opts:
+                row.options_rate = 0.0
+            else:
+                row.options_rate = max(0.0, flt(row.options_rate, 2))
+        else:
+            row.options_rate = 0.0 if item_opt_map is not None else max(0.0, flt(row.options_rate, 2))
+
         row.discount_percentage = min(100.0, max(0.0, flt(row.discount_percentage, 2)))
+        if is_waiter_only() and row.discount_percentage > 0:
+            frappe.throw(_("Tu rol de mesero no tiene permiso para aplicar descuentos."), frappe.PermissionError)
 
         gross_unit = flt(row.base_rate + row.options_rate, 2)
-        if gross_unit == 0 and flt(row.rate) > 0:
+        if gross_unit == 0 and flt(row.rate) > 0 and can_override_rate:
             row.base_rate = flt(row.rate, 2)
             gross_unit = row.base_rate
 
         row.rate = flt(gross_unit * (1.0 - (row.discount_percentage / 100.0)), 2)
         row.amount = flt(row.qty * row.rate, 2)
 
-        if row.tax_rate is None or row.tax_rate == "":
-            row.tax_rate = _resolve_item_tax_rate(row.item_code)
-        else:
-            row.tax_rate = flt(row.tax_rate, 2)
+        row.tax_rate = _tax_rate_from_templates(taxes_by_item.get(row.item_code, []))
 
         row.note = cstr(row.note).strip()[:300]
         row.options_summary = cstr(row.options_summary).strip()[:500]
         stations = (command_map.get(row.item_group) or []) if row.item_group else []
         row.command_station = ", ".join(stations) if stations else "Cocina General"
-        if row.kds_status not in ALLOWED_ITEM_KDS_STATUSES:
+        if valid_item_kds_statuses and row.kds_status not in valid_item_kds_statuses:
             row.kds_status = "Pendiente"
+
+        is_row_cancelled = cint(getattr(row, "is_cancelled", 0)) or row.kds_status == "Cancelado"
+        if is_row_cancelled:
+            row.is_cancelled = 1
+            row.kds_status = "Cancelado"
+            row.amount = 0.0
+            continue
 
         subtotal += row.amount
         if abs(row.tax_rate - 15.0) < 0.01:
@@ -372,9 +565,24 @@ def _serialize_order(doc):
             "note": row.note or "",
             "command_station": row.command_station or "Cocina General",
             "kds_status": row.kds_status or "Pendiente",
+            "is_cancelled": cint(getattr(row, "is_cancelled", 0)) or row.kds_status == "Cancelado",
+            "cancelled_qty": flt(getattr(row, "cancelled_qty", 0)),
+            "cancellation_reason": cstr(getattr(row, "cancellation_reason", "") or ""),
+            "cancelled_by": cstr(getattr(row, "cancelled_by", "") or ""),
+            "cancelled_by_supervisor": cstr(getattr(row, "cancelled_by_supervisor", "") or ""),
+            "cancelled_at": cstr(getattr(row, "cancelled_at", "") or ""),
         })
     created_dt = get_datetime(doc.creation) if doc.creation else now_datetime()
     elapsed_mins = max(0, int((now_datetime() - created_dt).total_seconds() // 60))
+    linked_emp = get_linked_employee_for_user()
+    requires_pin_unlock = bool(
+        doc.waiter
+        and is_waiter_only()
+        and not linked_emp
+        and doc.status not in ("Facturada", "Cancelada")
+        and employee_has_pin(doc.waiter)
+        and not is_order_unlocked_for_session(doc.name)
+    )
     return {
         "name": doc.name,
         "order_name": doc.order_name,
@@ -398,12 +606,6 @@ def _serialize_order(doc):
         "currency": doc.currency or "HNL",
         "selling_price_list": doc.selling_price_list or "",
         "kds_status": doc.kds_status or "Sin enviar",
-        "kds_stage": (
-            "Cerrado" if (doc.kds_status or "Sin enviar") == "Cerrado"
-            else "Para Entregar" if (doc.kds_status or "Sin enviar") == "Listo"
-            else "Completadas" if (doc.kds_status or "Sin enviar") == "Entregado"
-            else "Por Preparar"
-        ),
         "sent_to_kitchen_at": str(doc.sent_to_kitchen_at) if doc.sent_to_kitchen_at else "",
         "scheduled_time": doc.scheduled_time or "",
         "customer_note": doc.customer_note or "",
@@ -425,11 +627,125 @@ def _serialize_order(doc):
         "modified": str(doc.modified),
         "elapsed_minutes": elapsed_mins,
         "elapsed_label": f"{elapsed_mins // 60:02d}:{elapsed_mins % 60:02d}",
+        "requires_pin_unlock": requires_pin_unlock,
         "items": items,
     }
 
 
-def _get_catalog_for_pos(selling_price_list=None):
+def _expand_item_groups(group_names):
+    """Expand selected Item Groups to include their descendant sub-categories via lft/rgt."""
+    if not group_names:
+        return []
+    expanded = set()
+    rows = frappe.get_all(
+        "Item Group",
+        filters={"name": ["in", list(group_names)]},
+        fields=["name", "lft", "rgt"],
+    )
+    for row in rows:
+        expanded.add(row.name)
+        children = frappe.get_all(
+            "Item Group",
+            filters={"lft": [">=", row.lft], "rgt": ["<=", row.rgt]},
+            pluck="name",
+        )
+        for ch in children:
+            expanded.add(ch)
+    return list(expanded)
+
+
+def _get_effective_rpos_config(pos_profile=None):
+    """Merge Restaurant Settings single doc with per-profile defaults."""
+    cfg = {
+        "pos_profile": pos_profile or "",
+        "default_preset": "Comer en el local",
+        "enable_self_order": 0,
+        "self_order_channels": "Ambos canales",
+        "enable_mobile_self_order": 0,
+        "enable_kiosk_self_order": 0,
+        "enabled_payments": [],
+        "auto_validate_orders": 1,
+        "tips_enabled": 1,
+        "enable_rounded_total": 1,
+        "show_product_images": 1,
+        "show_category_images": 1,
+        "group_by_category": 0,
+        "large_scrollbars": 0,
+        "share_open_orders": 1,
+        "restrict_categories": 0,
+        "allowed_categories": [],
+        "allow_category_search": 1,
+        "allow_line_discount": 1,
+        "price_display_mode": "Precio con impuesto incluido",
+        "allow_global_discount": 1,
+        "enable_promotions_coupons": 0,
+        "enable_gift_cards": 0,
+        "enable_loyalty_program": 0,
+        "allow_whatsapp_invoice": 0,
+        "allow_email_invoice": 1,
+        "enable_self_invoicing": 0,
+        "idle_wallpaper_enabled": 1,
+        "idle_wallpaper_show_clock": 1,
+        "idle_wallpaper_timeout": 120,
+        "idle_wallpaper_background_url": "/assets/restaurant/images/background-light.svg",
+        "idle_wallpaper_logo_url": "",
+    }
+
+    if frappe.db.exists("DocType", "Restaurant Settings"):
+        try:
+            rs = frappe.get_single("Restaurant Settings")
+            for key in (
+                "default_preset", "enable_self_order", "self_order_channels",
+                "enable_mobile_self_order", "enable_kiosk_self_order",
+                "auto_validate_orders", "tips_enabled", "enable_rounded_total",
+                "show_product_images", "show_category_images", "group_by_category",
+                "large_scrollbars", "share_open_orders", "restrict_categories",
+                "allow_category_search", "allow_line_discount", "price_display_mode",
+                "allow_global_discount", "enable_promotions_coupons",
+                "enable_gift_cards", "enable_loyalty_program",
+                "allow_whatsapp_invoice", "allow_email_invoice", "enable_self_invoicing",
+                "idle_wallpaper_enabled", "idle_wallpaper_show_clock",
+            ):
+                if hasattr(rs, key) and rs.get(key) is not None:
+                    cfg[key] = rs.get(key)
+            if hasattr(rs, "idle_wallpaper_minutes") and rs.idle_wallpaper_minutes:
+                cfg["idle_wallpaper_timeout"] = int(round(max(0.1, flt(rs.idle_wallpaper_minutes)) * 60))
+            if getattr(rs, "idle_wallpaper_background", None):
+                cfg["idle_wallpaper_background_url"] = rs.idle_wallpaper_background
+            if getattr(rs, "idle_wallpaper_logo", None):
+                cfg["idle_wallpaper_logo_url"] = rs.idle_wallpaper_logo
+            if getattr(rs, "payment_methods", None):
+                cfg["enabled_payments"] = [
+                    r.mode_of_payment for r in rs.payment_methods if cint(r.enabled) and r.mode_of_payment
+                ]
+            if cint(cfg.get("restrict_categories")) and getattr(rs, "allowed_categories", None):
+                cfg["allowed_categories"] = [
+                    r.item_group for r in rs.allowed_categories if r.item_group
+                ]
+        except Exception:
+            pass
+
+    if pos_profile:
+        raw_pref = frappe.db.get_default(f"rpos_cfg_{pos_profile}")
+        if raw_pref:
+            try:
+                pref = json.loads(raw_pref) if isinstance(raw_pref, str) else dict(raw_pref)
+                for k, v in pref.items():
+                    if v is not None:
+                        cfg[k] = v
+            except Exception:
+                pass
+        if frappe.db.exists("POS Profile", pos_profile):
+            prof_doc = frappe.get_doc("POS Profile", pos_profile)
+            cfg["show_product_images"] = 0 if cint(prof_doc.hide_images) else cint(cfg.get("show_product_images", 1))
+            cfg["enable_rounded_total"] = 0 if cint(prof_doc.disable_rounded_total) else 1
+            if prof_doc.payments:
+                cfg["enabled_payments"] = [row.mode_of_payment for row in prof_doc.payments if row.mode_of_payment]
+
+    return cfg
+
+
+def _get_catalog_for_pos(selling_price_list=None, allowed_categories=None):
     """Return categories (Item Group) and products (Item) with photos, colors, prices, and options."""
     has_item_color = frappe.get_meta("Item").has_field("restaurant_color")
     has_group_color = frappe.get_meta("Item Group").has_field("restaurant_color")
@@ -449,15 +765,21 @@ def _get_catalog_for_pos(selling_price_list=None):
     if has_item_color:
         item_fields.append("restaurant_color")
 
+    item_filters = {
+        "disabled": 0,
+        "is_sales_item": 1,
+        "has_variants": 0,
+        "is_fixed_asset": 0,
+        "item_group": ["not in", ["Servicios", "Sub-ensambles", "Materia prima"]],
+    }
+    if allowed_categories:
+        expanded_groups = _expand_item_groups(allowed_categories)
+        if expanded_groups:
+            item_filters["item_group"] = ["in", expanded_groups]
+
     raw_items = frappe.get_all(
         "Item",
-        filters={
-            "disabled": 0,
-            "is_sales_item": 1,
-            "has_variants": 0,
-            "is_fixed_asset": 0,
-            "item_group": ["not in", ["Servicios", "Sub-ensambles", "Materia prima"]],
-        },
+        filters=item_filters,
         fields=item_fields,
         order_by="item_name asc",
         limit_page_length=300,
@@ -823,9 +1145,19 @@ def get_pos_bootstrap(area_name=None):
     default_profile = _get_default_pos_profile(company)
     opening_shift = _get_active_opening_shift(frappe.session.user)
 
+    prof_meta = frappe.get_meta("POS Profile")
     prof_fields = ["name", "company", "currency", "selling_price_list", "warehouse", "customer"]
-    if frappe.get_meta("POS Profile").has_field("prefix"):
-        prof_fields.append("prefix")
+    optional_prof_fields = (
+        "prefix",
+        "hide_expected_amount",
+        "close_pos_format",
+        "cash_movements_format",
+        "print_format_for_online",
+        "letter_head",
+    )
+    for opt_field in optional_prof_fields:
+        if prof_meta.has_field(opt_field):
+            prof_fields.append(opt_field)
     raw_profiles = frappe.get_all(
         "POS Profile",
         filters={"disabled": 0},
@@ -862,13 +1194,34 @@ def get_pos_bootstrap(area_name=None):
             "warehouse": prof.warehouse or "",
             "default_customer": prof.customer or default_customer_fallback,
             "prefix": prof.get("prefix") or "",
+            "hide_expected_amount": cint(prof.get("hide_expected_amount") or 0),
+            "close_pos_format": prof.get("close_pos_format") or "",
+            "cash_movements_format": prof.get("cash_movements_format") or "",
+            "print_format_for_online": prof.get("print_format_for_online") or "",
+            "letter_head": prof.get("letter_head") or "",
             "payments": payments,
         })
+
+    companies_list = sorted({prof["company"] for prof in pos_profiles if prof.get("company")})
+    if not companies_list and company:
+        companies_list = [company]
+
+    active_prof_name = (
+        opening_shift["pos_profile"]
+        if opening_shift and opening_shift.get("pos_profile")
+        else (default_profile.name if default_profile else None)
+    )
+    rpos_config = _get_effective_rpos_config(active_prof_name)
+    allowed_cats = (
+        rpos_config.get("allowed_categories")
+        if cint(rpos_config.get("restrict_categories")) and rpos_config.get("allowed_categories")
+        else None
+    )
 
     active_price_list = (
         default_profile.selling_price_list if default_profile else "Venta estándar"
     )
-    categories, items = _get_catalog_for_pos(active_price_list)
+    categories, items = _get_catalog_for_pos(active_price_list, allowed_categories=allowed_cats)
     areas = _get_areas_with_live_tables()
 
     waiters = frappe.get_all(
@@ -878,13 +1231,31 @@ def get_pos_bootstrap(area_name=None):
         order_by="employee_name asc",
     )
 
-    customers = frappe.get_all(
+    cust_meta = frappe.get_meta("Customer")
+    cust_fields = ["name", "customer_name", "tax_id", "default_price_list"]
+    for extra_cf in ("email_id", "mobile_no", "primary_address", "territory"):
+        if cust_meta.has_field(extra_cf):
+            cust_fields.append(extra_cf)
+
+    raw_customers = frappe.get_all(
         "Customer",
         filters={"disabled": 0},
-        fields=["name", "customer_name", "tax_id", "default_price_list"],
+        fields=cust_fields,
         order_by="customer_name asc",
         limit_page_length=200,
     )
+    customers = []
+    for c in raw_customers:
+        addr_clean = cstr(c.get("primary_address") or c.get("territory") or "").replace("<br>", ", ").replace("\n", ", ").strip(" ,")
+        customers.append({
+            "name": c.name,
+            "customer_name": c.customer_name,
+            "tax_id": c.tax_id or "",
+            "default_price_list": c.default_price_list or "",
+            "email_id": cstr(c.get("email_id") or ""),
+            "mobile_no": cstr(c.get("mobile_no") or ""),
+            "address": addr_clean,
+        })
 
     price_lists = frappe.get_all(
         "Price List",
@@ -893,39 +1264,85 @@ def get_pos_bootstrap(area_name=None):
         order_by="name asc",
     )
 
+    mop_filters = {"enabled": 1}
+    if rpos_config.get("enabled_payments"):
+        mop_filters["name"] = ["in", rpos_config["enabled_payments"]]
     modes_of_payment = frappe.get_all(
         "Mode of Payment",
-        filters={"enabled": 1},
+        filters=mop_filters,
         fields=["name", "type"],
         order_by="name asc",
     )
 
+
+    linked_waiter = get_linked_employee_for_user()
+    active_branch = _get_active_user_branch(opening_shift=opening_shift, linked_waiter=linked_waiter)
+    waiter_only = is_waiter_only()
+    can_invoice = user_can_invoice()
+    supervisor_flag = is_supervisor()
+
+    order_filters = {}
+    if company and frappe.get_meta("Restaurant Order").has_field("company"):
+        order_filters["company"] = company
+    if active_branch and frappe.get_meta("Restaurant Order").has_field("branch"):
+        order_filters["branch"] = active_branch
+    if not cint(rpos_config.get("share_open_orders", 1)):
+        order_filters["owner"] = frappe.session.user
+    if waiter_only and linked_waiter:
+        order_filters["waiter"] = linked_waiter["name"]
+
     order_docs = frappe.get_all(
         "Restaurant Order",
-        fields=["name"],
+        filters=order_filters,
+        fields=["name", "order_name"],
         order_by="modified desc",
         limit_page_length=100,
     )
+    for row in order_docs:
+        raw_oname = cstr(row.order_name or "").strip()
+        if re.match(r"^orden\s+\d+", raw_oname, flags=re.IGNORECASE):
+            m_seq = re.search(r"(\d+)$", cstr(row.name or ""))
+            if m_seq:
+                clean_seq = str(1000 + cint(m_seq.group(1)))
+                frappe.db.set_value("Restaurant Order", row.name, "order_name", clean_seq, update_modified=False)
     orders = [_serialize_order(row.name) for row in order_docs]
 
-    active_prof_name = (
-        opening_shift["pos_profile"]
-        if opening_shift and opening_shift.get("pos_profile")
-        else (default_profile.name if default_profile else None)
-    )
     fiscal_info = _resolve_sar_fiscal_info(pos_profile=active_prof_name, company=company)
+
+    if active_prof_name:
+        try:
+            profile_cfg = get_restaurant_pos_config(pos_profile=active_prof_name)
+            for k, v in profile_cfg.items():
+                if k not in rpos_config or rpos_config[k] is None:
+                    rpos_config[k] = v
+        except Exception:
+            frappe.log_error("Failed to load restaurant POS config in bootstrap", "Restaurant POS")
 
     return {
         "cashier": {
             "user": frappe.session.user,
             "full_name": get_fullname(frappe.session.user),
         },
+        "permissions": {
+            "can_invoice": can_invoice,
+            "is_waiter_only": waiter_only,
+            "is_cashier_only": is_cashier_only(),
+            "is_direct_cashier": is_direct_cashier(),
+            "can_manage_tables": not is_direct_cashier(),
+            "can_create_accounts": not is_direct_cashier(),
+            "can_access_backend": supervisor_flag,
+            "is_supervisor": supervisor_flag,
+            "requires_supervisor_auth": not supervisor_flag,
+            "linked_waiter": linked_waiter,
+        },
+        "supervisors": get_supervisors_for_pos(branch=active_branch),
         "company": {
             "name": company or "Empresa Demostrativa",
             "tax_id": fiscal_info["company_tax_id"],
             "currency": "HNL",
         },
         "opening_shift": opening_shift,
+        "companies": companies_list,
         "pos_profiles": pos_profiles,
         "areas": areas,
         "categories": categories,
@@ -936,7 +1353,10 @@ def get_pos_bootstrap(area_name=None):
         "modes_of_payment": modes_of_payment,
         "orders": orders,
         "command_stations": get_command_stations(),
+        "command_configs": get_command_configs(),
         "presets": get_order_presets(),
+        "idle_wallpaper": get_pos_idle_settings(),
+        "rpos_config": rpos_config,
         "fiscal_defaults": {
             "cai": fiscal_info["cai"],
             "due_date_cai": fiscal_info["due_date_cai"],
@@ -947,38 +1367,51 @@ def get_pos_bootstrap(area_name=None):
 
 
 @frappe.whitelist(methods=["POST"])
-def open_pos_shift(pos_profile=None, opening_amount=0, balance_details=None):
+def open_pos_shift(pos_profile=None, opening_amount=0, balance_details=None, company=None):
     """Open or reuse a native POS Opening Shift for the logged-in cashier."""
     _require_pos_user()
+    if not user_can_invoice():
+        frappe.throw(
+            _("Solo cajeros o supervisores pueden abrir turnos de caja."),
+            frappe.PermissionError,
+        )
     existing = _get_active_opening_shift(frappe.session.user)
     if existing:
         return existing
 
     if not pos_profile:
-        default_prof = _get_default_pos_profile()
+        default_prof = _get_default_pos_profile(company)
         pos_profile = default_prof.name if default_prof else None
     if not pos_profile or not frappe.db.exists("POS Profile", pos_profile):
         frappe.throw(_("Selecciona un perfil de Punto de Venta válido para abrir el turno."))
 
     prof_doc = frappe.get_doc("POS Profile", pos_profile)
+    if company and prof_doc.company != company:
+        frappe.throw(_("El perfil de Punto de Venta seleccionado no pertenece a la empresa indicada."))
+
     rows = []
     if balance_details:
         parsed = frappe.parse_json(balance_details) if isinstance(balance_details, str) else balance_details
         if isinstance(parsed, list):
             for entry in parsed:
                 if isinstance(entry, dict) and entry.get("mode_of_payment"):
+                    raw_amt = entry.get("amount") if entry.get("amount") is not None else entry.get("opening_amount")
                     rows.append({
                         "mode_of_payment": entry["mode_of_payment"],
-                        "amount": max(0.0, flt(entry.get("opening_amount"), 2)),
+                        "amount": max(0.0, flt(raw_amt, 2)),
                     })
     if not rows:
-        default_mop = "Efectivo"
         if prof_doc.payments:
-            default_mop = prof_doc.payments[0].mode_of_payment
-        rows.append({
-            "mode_of_payment": default_mop,
-            "amount": max(0.0, flt(opening_amount, 2)),
-        })
+            for idx, pay_row in enumerate(prof_doc.payments):
+                rows.append({
+                    "mode_of_payment": pay_row.mode_of_payment,
+                    "amount": max(0.0, flt(opening_amount, 2)) if idx == 0 else 0.0,
+                })
+        else:
+            rows.append({
+                "mode_of_payment": "Efectivo",
+                "amount": max(0.0, flt(opening_amount, 2)),
+            })
 
     shift_doc = frappe.get_doc({
         "doctype": "POS Opening Shift",
@@ -1049,6 +1482,11 @@ def get_shift_cash_movements(pos_opening_shift=None):
 def create_cash_movement(type_transaction, amount, note="", pos_opening_shift=None):
     """Create and submit a native POS Awesome 'Retiro de efectivo' (Ingreso or Retiro)."""
     _require_pos_user()
+    if not user_can_invoice():
+        frappe.throw(
+            _("Solo cajeros o supervisores pueden registrar entradas o salidas de efectivo."),
+            frappe.PermissionError,
+        )
     tx_type = cstr(type_transaction or "Retiro").strip()
     if tx_type not in ("Ingreso", "Retiro"):
         frappe.throw(_("El tipo de movimiento debe ser Ingreso o Retiro."))
@@ -1068,6 +1506,11 @@ def create_cash_movement(type_transaction, amount, note="", pos_opening_shift=No
         frappe.throw(_("Debes tener un turno de Punto de Venta abierto para registrar entradas o salidas de efectivo."))
 
     shift_doc = frappe.get_doc("POS Opening Shift", pos_opening_shift)
+    if shift_doc.user != frappe.session.user and not is_supervisor():
+        frappe.throw(
+            _("Solo el usuario del turno abierto o un supervisor pueden registrar movimientos en esta caja."),
+            frappe.PermissionError,
+        )
     doc = frappe.get_doc({
         "doctype": "Retiro de efectivo",
         "type_transaction": tx_type,
@@ -1103,6 +1546,61 @@ def get_closing_shift_preview(pos_opening_shift=None):
 
     opening_doc = frappe.get_doc("POS Opening Shift", pos_opening_shift)
     cash_movements = get_shift_cash_movements(opening_doc.name)
+    prof_doc = frappe.get_cached_doc("POS Profile", opening_doc.pos_profile)
+    hide_expected_amount = cint(getattr(prof_doc, "hide_expected_amount", 0))
+    currency = getattr(prof_doc, "currency", None) or frappe.get_cached_value("Company", opening_doc.company, "default_currency") or "HNL"
+
+    if frappe.db.exists("DocType", "POS Closing Shift"):
+        from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
+            make_closing_shift_from_opening,
+        )
+
+        closing_doc = make_closing_shift_from_opening(frappe.as_json(opening_doc.as_dict()))
+        configured_cash_mop = (
+            frappe.db.get_value("POS Profile", opening_doc.pos_profile, "posa_cash_mode_of_payment")
+            if frappe.get_meta("POS Profile").has_field("posa_cash_mode_of_payment")
+            else None
+        )
+        cash_net_total = flt(cash_movements.get("net_cash_movement"), 2)
+        cash_applied = False
+        payment_reconciliation = []
+        for row in (closing_doc.payment_reconciliation or []):
+            mop = row.mode_of_payment or ""
+            expected_amt = flt(row.expected_amount, 2)
+            opening_amt = flt(row.opening_amount, 2)
+            is_cash = (
+                (configured_cash_mop and mop == configured_cash_mop)
+                or "efectivo" in mop.lower()
+                or "cash" in mop.lower()
+            )
+            cash_net = cash_net_total if (is_cash and not cash_applied) else 0.0
+            if is_cash and not cash_applied:
+                cash_applied = True
+            payment_reconciliation.append({
+                "mode_of_payment": mop,
+                "is_cash": cint(is_cash),
+                "opening_amount": opening_amt,
+                "sales_amount": flt(expected_amt - opening_amt - cash_net, 2),
+                "cash_movement_net": cash_net,
+                "expected_amount": expected_amt,
+                "closing_amount": expected_amt,
+                "difference": 0.0,
+            })
+
+        return {
+            "pos_opening_shift": opening_doc.name,
+            "pos_profile": opening_doc.pos_profile,
+            "company": opening_doc.company,
+            "currency": currency,
+            "hide_expected_amount": hide_expected_amount,
+            "user": opening_doc.user,
+            "cashier_name": get_fullname(opening_doc.user),
+            "period_start_date": str(opening_doc.period_start_date),
+            "invoice_count": len(closing_doc.pos_transactions or []),
+            "total_sales": flt(closing_doc.grand_total, 2),
+            "cash_movements": cash_movements,
+            "payment_reconciliation": payment_reconciliation,
+        }
 
     invoices = frappe.get_all(
         "Sales Invoice",
@@ -1142,23 +1640,28 @@ def get_closing_shift_preview(pos_opening_shift=None):
         expected_amt = flt(opening_amt + sales_amt + cash_net, 2)
         payment_reconciliation.append({
             "mode_of_payment": mop,
+            "is_cash": cint(is_cash),
             "opening_amount": opening_amt,
             "sales_amount": sales_amt,
             "cash_movement_net": flt(cash_net, 2),
             "expected_amount": expected_amt,
             "closing_amount": expected_amt,
+            "difference": 0.0,
         })
 
     for mop, sales_amt in paid_by_mop.items():
         if mop in seen_mops:
             continue
+        is_cash = "efectivo" in mop.lower() or "cash" in mop.lower()
         payment_reconciliation.append({
             "mode_of_payment": mop,
+            "is_cash": cint(is_cash),
             "opening_amount": 0.0,
             "sales_amount": flt(sales_amt, 2),
             "cash_movement_net": 0.0,
             "expected_amount": flt(sales_amt, 2),
             "closing_amount": flt(sales_amt, 2),
+            "difference": 0.0,
         })
 
     total_sales = sum(flt(inv.grand_total, 2) for inv in invoices)
@@ -1166,6 +1669,8 @@ def get_closing_shift_preview(pos_opening_shift=None):
         "pos_opening_shift": opening_doc.name,
         "pos_profile": opening_doc.pos_profile,
         "company": opening_doc.company,
+        "currency": currency,
+        "hide_expected_amount": hide_expected_amount,
         "user": opening_doc.user,
         "cashier_name": get_fullname(opening_doc.user),
         "period_start_date": str(opening_doc.period_start_date),
@@ -1180,9 +1685,17 @@ def get_closing_shift_preview(pos_opening_shift=None):
 def close_pos_shift(pos_opening_shift, closing_amounts=None, note=None):
     """Close the active POS Opening Shift using POS Awesome's native POS Closing Shift process."""
     _require_pos_user()
+    if not user_can_invoice():
+        frappe.throw(
+            _("Solo cajeros o supervisores pueden cerrar turnos de caja."),
+            frappe.PermissionError,
+        )
     if not pos_opening_shift or not frappe.db.exists("POS Opening Shift", pos_opening_shift):
         frappe.throw(_("No se encontró el turno de caja activo."))
+    frappe.db.get_value("POS Opening Shift", pos_opening_shift, "name", for_update=True)
     doc = frappe.get_doc("POS Opening Shift", pos_opening_shift)
+    if doc.docstatus != 1 or doc.status == "Closed":
+        frappe.throw(_("Este turno de caja ya se encuentra cerrado."))
     if doc.user != frappe.session.user and "System Manager" not in frappe.get_roles():
         frappe.throw(_("Solo el cajero titular o un administrador puede cerrar este turno."), frappe.PermissionError)
 
@@ -1199,26 +1712,23 @@ def close_pos_shift(pos_opening_shift, closing_amounts=None, note=None):
 
     closing_shift_name = ""
     if frappe.db.exists("DocType", "POS Closing Shift"):
-        try:
-            from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
-                make_closing_shift_from_opening,
-            )
+        from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
+            make_closing_shift_from_opening,
+        )
 
-            closing_doc = make_closing_shift_from_opening(doc)
-            for row in (closing_doc.payment_reconciliation or []):
-                if row.mode_of_payment in parsed_amounts:
-                    row.closing_amount = flt(parsed_amounts[row.mode_of_payment], 2)
-                else:
-                    row.closing_amount = flt(row.expected_amount, 2)
-                row.difference = flt(row.closing_amount - flt(row.expected_amount, 2), 2)
-            closing_doc.insert(ignore_permissions=True)
-            closing_doc.submit()
-            closing_shift_name = closing_doc.name
-        except Exception:
-            frappe.db.set_value("POS Opening Shift", doc.name, {
-                "status": "Closed",
-                "period_end_date": nowdate(),
-            })
+        closing_doc = make_closing_shift_from_opening(frappe.as_json(doc.as_dict()))
+        for row in (closing_doc.payment_reconciliation or []):
+            if row.mode_of_payment in parsed_amounts:
+                row.closing_amount = flt(parsed_amounts[row.mode_of_payment], 2)
+            else:
+                row.closing_amount = flt(row.expected_amount, 2)
+            row.difference = flt(row.closing_amount - flt(row.expected_amount, 2), 2)
+        closing_doc.insert(ignore_permissions=True)
+        closing_doc.submit()
+        closing_shift_name = closing_doc.name
+        clean_note = cstr(note or "").strip()
+        if clean_note:
+            closing_doc.add_comment("Comment", text=_("Nota de cierre: {0}").format(clean_note))
     else:
         frappe.db.set_value("POS Opening Shift", doc.name, {
             "status": "Closed",
@@ -1237,6 +1747,27 @@ def close_pos_shift(pos_opening_shift, closing_amounts=None, note=None):
     }
 
 
+def _get_next_order_sequence_number():
+    """Compute the next strict +1 sequential account number from the database."""
+    rows = frappe.db.sql(
+        "SELECT name, order_name FROM `tabRestaurant Order` ORDER BY creation DESC LIMIT 200 FOR UPDATE",
+        as_dict=True,
+    )
+    max_seq = 1000
+    for r in rows:
+        m_id = re.search(r"(\d+)$", cstr(r.name or ""))
+        if m_id:
+            seq_from_id = 1000 + cint(m_id.group(1))
+            if seq_from_id > max_seq:
+                max_seq = seq_from_id
+        raw_oname = cstr(r.order_name or "").strip()
+        if re.match(r"^\d{4}$", raw_oname):
+            num_val = cint(raw_oname)
+            if 1000 <= num_val < 3000 and num_val > max_seq:
+                max_seq = num_val
+    return str(max_seq + 1)
+
+
 @frappe.whitelist(methods=["POST"])
 def save_pos_order(order):
     """Create or update a Restaurant Order and return its updated state."""
@@ -1244,6 +1775,11 @@ def save_pos_order(order):
     payload = frappe.parse_json(order) if isinstance(order, str) else order
     if not isinstance(payload, dict):
         frappe.throw(_("Los datos de la orden no tienen un formato válido."))
+    if is_direct_cashier() and payload.get("restaurant_table"):
+        frappe.throw(
+            _("Tu perfil de facturación directa no permite asignar mesas."),
+            frappe.PermissionError,
+        )
 
     order_id = cstr(payload.get("name") or "").strip()
     if order_id:
@@ -1253,10 +1789,68 @@ def save_pos_order(order):
         doc.check_permission("write")
         if doc.status == "Facturada":
             frappe.throw(_("Esta orden ya fue facturada y no puede modificarse."))
+        expected_modified = cstr(payload.get("expected_modified") or "").strip()
+        if expected_modified and cstr(doc.modified) != expected_modified:
+            frappe.throw(
+                _("Esta orden fue modificada recientemente por otro usuario. Recarga la cuenta antes de guardar cambios.")
+            )
     else:
         if not frappe.has_permission("Restaurant Order", "create"):
             frappe.throw(_("No tienes permisos para abrir cuentas u órdenes."), frappe.PermissionError)
         doc = frappe.new_doc("Restaurant Order")
+
+    active_shift = _get_active_opening_shift(frappe.session.user)
+    effective_profile = (
+        payload.get("pos_profile")
+        or doc.pos_profile
+        or (active_shift["pos_profile"] if active_shift else None)
+    )
+    rpos_cfg = _get_effective_rpos_config(effective_profile)
+
+    if order_id and not cint(rpos_cfg.get("share_open_orders", 1)) and doc.owner != frappe.session.user:
+        user_roles = set(frappe.get_roles(frappe.session.user))
+        if not (user_roles & {"System Manager", "Restaurant Manager", "Administrator"}):
+            frappe.throw(_("No tienes autorización para modificar órdenes abiertas de otro usuario."), frappe.PermissionError)
+
+
+    linked_waiter = get_linked_employee_for_user()
+    if is_waiter_only():
+        if linked_waiter:
+            if order_id and doc.waiter and doc.waiter != linked_waiter["name"]:
+                frappe.throw(
+                    _("Esta cuenta pertenece a otro mesero y no puedes modificarla."),
+                    frappe.PermissionError,
+                )
+        elif order_id and doc.waiter and employee_has_pin(doc.waiter):
+            if not is_order_unlocked_for_session(doc.name):
+                waiter_pin = payload.get("waiter_pin")
+                pin_cache_key = _enforce_pin_rate_limit(f"waiter:{doc.waiter}")
+                if waiter_pin and verify_employee_pin(doc.waiter, waiter_pin):
+                    _clear_pin_failures(pin_cache_key)
+                    mark_order_unlocked_for_session(doc.name)
+                else:
+                    _record_pin_failure(pin_cache_key)
+                    frappe.throw(
+                        _("Código incorrecto. Solo el mesero asignado ({0}) o un supervisor puede abrir esta cuenta.").format(
+                            doc.waiter_name or doc.waiter
+                        ),
+                        frappe.PermissionError,
+                    )
+
+    if not cint(rpos_cfg.get("tips_enabled", 1)):
+        if flt(payload.get("tip_amount")) > 0 or flt(payload.get("tip_percentage")) > 0:
+            frappe.throw(_("Las propinas están deshabilitadas en la configuración del POS."))
+
+    if not cint(rpos_cfg.get("allow_line_discount", 1)):
+        for row in (payload.get("items") or []):
+            if isinstance(row, dict) and flt(row.get("discount_percentage")) > 0:
+                frappe.throw(_("Los descuentos por línea están deshabilitados en la configuración del POS."), frappe.PermissionError)
+
+    if is_waiter_only() and "selling_price_list" in payload:
+        incoming_pl = cstr(payload.get("selling_price_list") or "").strip()
+        current_pl = cstr(doc.selling_price_list or "").strip()
+        if order_id and incoming_pl and current_pl and incoming_pl != current_pl:
+            frappe.throw(_("Tu rol de mesero no tiene permiso para cambiar la lista de precios."), frappe.PermissionError)
 
     editable_fields = (
         "order_name",
@@ -1280,6 +1874,17 @@ def save_pos_order(order):
         if field in payload:
             doc.set(field, payload.get(field))
 
+    if is_waiter_only() and linked_waiter and not order_id:
+        doc.waiter = linked_waiter["name"]
+
+    raw_order_name = cstr(doc.order_name or "").strip()
+    if not raw_order_name or re.match(r"^orden\s+\d{4}$", raw_order_name, flags=re.IGNORECASE):
+        if doc.restaurant_table:
+            tbl_num = frappe.db.get_value("Restaurant Table", doc.restaurant_table, "table_number") or doc.restaurant_table
+            doc.order_name = f"Mesa {tbl_num}"
+        else:
+            doc.order_name = _get_next_order_sequence_number()
+
     if not doc.pos_opening_shift:
         active_shift = _get_active_opening_shift(frappe.session.user)
         if active_shift:
@@ -1289,12 +1894,42 @@ def save_pos_order(order):
 
     if "items" in payload and isinstance(payload.get("items"), list):
         existing_rows = {r.name: r for r in (doc.items or []) if getattr(r, "name", None)}
+        incoming_names = {
+            cstr(r.get("name") or "").strip()
+            for r in payload["items"]
+            if isinstance(r, dict) and r.get("item_code") and cstr(r.get("name") or "").strip()
+        }
+        for old_name, old_row in existing_rows.items():
+            old_kds = cstr(getattr(old_row, "kds_status", "") or "Pendiente")
+            old_cancelled = cint(getattr(old_row, "is_cancelled", 0)) or old_kds == "Cancelado"
+            if old_kds not in ("", "Pendiente") and not old_cancelled and old_name not in incoming_names:
+                log_restaurant_audit(
+                    "Intento de eliminar producto enviado a cocina",
+                    f"Usuario {frappe.session.user} intentó eliminar {old_row.item_name or old_row.item_code} sin autorización.",
+                    order_name=doc.name,
+                    result="Bloqueado",
+                    item_code=old_row.item_code,
+                    item_name=old_row.item_name,
+                    affected_qty=old_row.qty,
+                    previous_state=old_kds,
+                    resulting_state=old_kds,
+                )
+                frappe.throw(
+                    _("No puedes eliminar '{0}' porque ya fue enviado a cocina. Solicita autorización de un supervisor.").format(
+                        old_row.item_name or old_row.item_code
+                    ),
+                    frappe.PermissionError,
+                )
+
         item_rows = []
         for raw_row in payload["items"]:
             if not isinstance(raw_row, dict) or not raw_row.get("item_code"):
                 continue
             row_name = cstr(raw_row.get("name") or "").strip()
             old_row = existing_rows.get(row_name)
+            if old_row and (cint(getattr(old_row, "is_cancelled", 0)) or old_row.kds_status == "Cancelado"):
+                item_rows.append(old_row)
+                continue
 
             selected_options = raw_row.get("selected_options") or []
             if isinstance(selected_options, str):
@@ -1343,10 +1978,17 @@ def save_pos_order(order):
             if old_row:
                 row_data["name"] = old_row.name
             item_rows.append(row_data)
+
+        for old_name, old_row in existing_rows.items():
+            if (cint(getattr(old_row, "is_cancelled", 0)) or old_row.kds_status == "Cancelado") and old_name not in incoming_names:
+                item_rows.append(old_row)
+
         doc.set("items", item_rows)
 
     if doc.is_new():
         doc.insert()
+        if doc.waiter:
+            mark_order_unlocked_for_session(doc.name)
     else:
         doc.save()
 
@@ -1377,40 +2019,200 @@ def get_command_stations():
     return names
 
 
+def get_command_configs():
+    """Return enabled Restaurant Command documents with their category mappings and printer configuration."""
+    if not frappe.db.exists("DocType", "Restaurant Command"):
+        return []
+    cmd_meta = frappe.get_meta("Restaurant Command")
+    cmd_fields = ["name", "command_name", "branch", "enabled"]
+    for extra_f in ("print_mode", "network_printer", "printer_ip", "printer_port", "paper_width_mm", "auto_print_on_send"):
+        if cmd_meta.has_field(extra_f):
+            cmd_fields.append(extra_f)
+    rows = frappe.get_all(
+        "Restaurant Command",
+        filters={"enabled": 1},
+        fields=cmd_fields,
+        order_by="command_name asc",
+    )
+    configs = []
+    for row in rows:
+        groups = frappe.get_all(
+            "Restaurant Command Group",
+            filters={"parent": row.name, "parenttype": "Restaurant Command"},
+            pluck="item_group",
+        )
+        configs.append({
+            "name": row.name,
+            "command_name": row.command_name,
+            "branch": row.branch or "",
+            "print_mode": row.get("print_mode") or "Impresora del navegador (Ticket térmico)",
+            "network_printer": row.get("network_printer") or "",
+            "printer_ip": row.get("printer_ip") or "",
+            "printer_port": cint(row.get("printer_port") or 9100),
+            "paper_width_mm": row.get("paper_width_mm") or "80mm",
+            "auto_print_on_send": cint(row.get("auto_print_on_send") if row.get("auto_print_on_send") is not None else 1),
+            "groups": groups,
+        })
+    return configs
+
+
 def get_order_presets():
-    """Return active order presets (Comer en el local, Para llevar, Entrega)."""
+    """Return active order presets (Comer en el local, Para llevar, Entrega) with scheduling and customer rules."""
     default_presets = [
-        {"preset_name": "Comer en el local", "color_bg": "#cce3fd", "color_border": "#3b82f6", "is_default": 1},
-        {"preset_name": "Para llevar", "color_bg": "#fef0a6", "color_border": "#eab308", "is_default": 0},
-        {"preset_name": "Entrega", "color_bg": "#fcd5b5", "color_border": "#f97316", "is_default": 0},
+        {
+            "preset_name": "Comer en el local",
+            "color_bg": "#cce3fd",
+            "color_border": "#3b82f6",
+            "is_default": 1,
+            "require_customer": 0,
+            "enable_scheduling": 0,
+            "slot_interval_minutes": 20,
+            "schedule_start_time": "12:00",
+            "schedule_end_time": "22:00",
+        },
+        {
+            "preset_name": "Para llevar",
+            "color_bg": "#fef0a6",
+            "color_border": "#eab308",
+            "is_default": 0,
+            "require_customer": 0,
+            "enable_scheduling": 1,
+            "slot_interval_minutes": 20,
+            "schedule_start_time": "12:00",
+            "schedule_end_time": "22:00",
+        },
+        {
+            "preset_name": "Entrega",
+            "color_bg": "#fcd5b5",
+            "color_border": "#f97316",
+            "is_default": 0,
+            "require_customer": 1,
+            "enable_scheduling": 1,
+            "slot_interval_minutes": 20,
+            "schedule_start_time": "12:00",
+            "schedule_end_time": "22:00",
+        },
     ]
     if frappe.db.table_exists("Restaurant Order Preset"):
+        preset_meta = frappe.get_meta("Restaurant Order Preset")
+        preset_fields = ["name", "preset_name", "color_bg", "color_border", "is_default"]
+        for extra_pf in ("require_customer", "enable_scheduling", "slot_interval_minutes", "schedule_start_time", "schedule_end_time"):
+            if preset_meta.has_field(extra_pf):
+                preset_fields.append(extra_pf)
         records = frappe.get_all(
             "Restaurant Order Preset",
             filters={"enabled": 1},
-            fields=["name", "preset_name", "color_bg", "color_border", "is_default"],
+            fields=preset_fields,
             order_by="idx asc, creation asc",
         )
         if records:
+            for rec in records:
+                if rec.preset_name in ("Para llevar", "Entrega") and not rec.get("enable_scheduling"):
+                    rec["enable_scheduling"] = 1
+                if rec.preset_name == "Entrega" and not rec.get("require_customer"):
+                    rec["require_customer"] = 1
+                rec["slot_interval_minutes"] = cint(rec.get("slot_interval_minutes") or 20)
+                rec["schedule_start_time"] = cstr(rec.get("schedule_start_time") or "12:00")
+                rec["schedule_end_time"] = cstr(rec.get("schedule_end_time") or "22:00")
             return records
         for p in default_presets:
             if not frappe.db.exists("Restaurant Order Preset", p["preset_name"]):
-                doc = frappe.get_doc({
+                doc_data = {
                     "doctype": "Restaurant Order Preset",
                     "preset_name": p["preset_name"],
                     "color_bg": p["color_bg"],
                     "color_border": p["color_border"],
                     "is_default": p["is_default"],
                     "enabled": 1,
-                })
+                }
+                if preset_meta.has_field("require_customer"):
+                    doc_data["require_customer"] = p["require_customer"]
+                    doc_data["enable_scheduling"] = p["enable_scheduling"]
+                    doc_data["slot_interval_minutes"] = p["slot_interval_minutes"]
+                    doc_data["schedule_start_time"] = p["schedule_start_time"]
+                    doc_data["schedule_end_time"] = p["schedule_end_time"]
+                doc = frappe.get_doc(doc_data)
                 doc.insert(ignore_permissions=True)
         return frappe.get_all(
             "Restaurant Order Preset",
             filters={"enabled": 1},
-            fields=["name", "preset_name", "color_bg", "color_border", "is_default"],
+            fields=preset_fields,
             order_by="idx asc, creation asc",
         )
     return default_presets
+
+
+def _dispatch_station_print_jobs(doc, stations, sent_at):
+    """Non-blocking dispatch of station tickets to configured network/ESC-POS printers."""
+    import socket
+
+    configs = {cfg["command_name"]: cfg for cfg in get_command_configs()}
+    results = {}
+    for station_name, lines in (stations or {}).items():
+        cfg = configs.get(station_name) or {
+            "command_name": station_name,
+            "print_mode": "Impresora del navegador (Ticket térmico)",
+            "auto_print_on_send": 1,
+            "paper_width_mm": "80mm",
+        }
+        mode = cfg.get("print_mode") or "Impresora del navegador (Ticket térmico)"
+        auto_print = cint(cfg.get("auto_print_on_send", 1))
+        entry = {
+            "station": station_name,
+            "print_mode": mode,
+            "auto_print_on_send": auto_print,
+            "paper_width_mm": cfg.get("paper_width_mm") or "80mm",
+            "dispatched_to_hardware": False,
+            "browser_print": bool(auto_print and mode == "Impresora del navegador (Ticket térmico)"),
+            "warning": "",
+        }
+        if not auto_print or mode == "Solo KDS (Sin impresión automática)":
+            results[station_name] = entry
+            continue
+
+        ip_addr = cstr(cfg.get("printer_ip") or "").strip()
+        port_num = cint(cfg.get("printer_port") or 9100)
+        if mode == "Network Printer Settings (Frappe Nativo)" and cfg.get("network_printer"):
+            if frappe.db.exists("Network Printer Settings", cfg["network_printer"]):
+                np_doc = frappe.db.get_value(
+                    "Network Printer Settings",
+                    cfg["network_printer"],
+                    ["server_ip", "port"],
+                    as_dict=True,
+                )
+                if np_doc and np_doc.server_ip:
+                    ip_addr = cstr(np_doc.server_ip).strip()
+                    port_num = cint(np_doc.port or 9100)
+
+        if ip_addr and mode in (
+            "Impresora de red directa (ESC/POS IP:Puerto)",
+            "Network Printer Settings (Frappe Nativo)",
+        ):
+            try:
+                header = (
+                    f"\x1b@\x1ba\x01COMANDA - {station_name.upper()}\n"
+                    f"\x1ba\x00Cuenta: {doc.order_name}\n"
+                    f"Mesa/Servicio: {doc.table_label or doc.service_type}\n"
+                    f"Hora: {sent_at}\n"
+                    + ("-" * 32) + "\n"
+                )
+                body = ""
+                for l in lines:
+                    body += f"{l['qty']:g} x {l['item_name']}\n"
+                    if l.get("options_summary"):
+                        body += f"  - {l['options_summary']}\n"
+                    if l.get("note"):
+                        body += f"  ** {l['note']} **\n"
+                footer = ("-" * 32) + "\n\n\n\x1dV\x00"
+                raw_bytes = (header + body + footer).encode("cp850", errors="replace")
+                with socket.create_connection((ip_addr, port_num), timeout=1.5) as sock:
+                    sock.sendall(raw_bytes)
+                entry["dispatched_to_hardware"] = True
+            except Exception as exc:
+                entry["warning"] = cstr(exc)[:140]
+                entry["browser_print"] = True
+        results[station_name] = entry
+    return results
 
 
 @frappe.whitelist(methods=["POST"])
@@ -1462,14 +2264,18 @@ def send_order_to_kitchen(order_name, station=None, include_sent=0):
     if doc.kds_status == "Sin enviar":
         doc.kds_status = "En preparación"
     doc.save()
+    sent_at_str = f"{nowdate()} {nowtime()[:8]}"
+    print_jobs = _dispatch_station_print_jobs(doc, stations, sent_at_str)
     return {
         "order": _serialize_order(doc),
+        "areas": _get_areas_with_live_tables(),
         "stations": stations,
-        "sent_at": f"{nowdate()} {nowtime()[:8]}",
+        "print_jobs": print_jobs,
+        "sent_at": sent_at_str,
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def get_precuenta_data(order_name, tip_percentage=None, tip_amount=None):
     """Return formatted non-fiscal Pre-cuenta data for customer review before invoicing."""
     _require_pos_user()
@@ -1580,18 +2386,62 @@ def pay_and_invoice_order(
     authorized_range=None,
     tip_percentage=None,
     tip_amount=None,
+    global_discount_percentage=None,
+    global_discount_amount=None,
+    coupon_code=None,
+    gift_card_code=None,
+    gift_card_amount=None,
+    loyalty_points=None,
 ):
     """Emit and submit a native SAR Sales Invoice for a Restaurant Order and free its table."""
     _require_pos_user()
+    if not user_can_invoice():
+        frappe.throw(
+            _("No tienes permiso para cobrar ni emitir facturas SAR. Solicita al cajero o supervisor."),
+            frappe.PermissionError,
+        )
     if not order_name or not frappe.db.exists("Restaurant Order", order_name):
         frappe.throw(_("La cuenta u orden seleccionada no existe."), frappe.DoesNotExistError)
 
+    frappe.db.get_value("Restaurant Order", order_name, "name", for_update=True)
     doc = frappe.get_doc("Restaurant Order", order_name)
     doc.check_permission("write")
-    if doc.status == "Facturada" and doc.sales_invoice:
-        frappe.throw(_("Esta cuenta ya fue facturada en el documento {0}.").format(doc.sales_invoice))
+    if doc.status == "Facturada" or doc.sales_invoice:
+        frappe.throw(_("Esta cuenta ya fue facturada en el documento {0}.").format(doc.sales_invoice or doc.name))
+    if doc.status == "Cancelada" or doc.docstatus == 2:
+        frappe.throw(_("No se puede facturar una orden cancelada."))
     if not doc.items:
         frappe.throw(_("No puedes facturar una orden sin platillos ni productos."))
+
+    company = doc.company or _get_default_company()
+    pos_profile = doc.pos_profile
+    if not pos_profile:
+        default_prof = _get_default_pos_profile(company)
+        pos_profile = default_prof.name if default_prof else None
+    rpos_cfg = _get_effective_rpos_config(pos_profile)
+
+    if not cint(rpos_cfg.get("tips_enabled", 1)):
+        if flt(tip_amount) > 0 or flt(tip_percentage) > 0 or flt(doc.tip_amount) > 0:
+            frappe.throw(_("Las propinas están deshabilitadas en la configuración del POS."))
+
+    if not cint(rpos_cfg.get("allow_line_discount", 1)):
+        for row in doc.items:
+            if cint(getattr(row, "is_cancelled", 0)) or row.kds_status == "Cancelado":
+                continue
+            if flt(row.discount_percentage) > 0:
+                frappe.throw(_("Los descuentos por línea están deshabilitados en la configuración del POS."), frappe.PermissionError)
+
+    if (flt(global_discount_percentage) > 0 or flt(global_discount_amount) > 0) and not cint(rpos_cfg.get("allow_global_discount", 1)):
+        frappe.throw(_("Los descuentos globales están deshabilitados en la configuración del POS."), frappe.PermissionError)
+
+    if coupon_code and not cint(rpos_cfg.get("enable_promotions_coupons", 0)):
+        frappe.throw(_("Las promociones y cupones están deshabilitados en la configuración del POS."))
+
+    if gift_card_code and not cint(rpos_cfg.get("enable_gift_cards", 0)):
+        frappe.throw(_("Las tarjetas de regalo están deshabilitadas en la configuración del POS."))
+
+    if flt(loyalty_points) > 0 and not cint(rpos_cfg.get("enable_loyalty_program", 0)):
+        frappe.throw(_("El programa de lealtad está deshabilitado en la configuración del POS."))
 
     if customer and frappe.db.exists("Customer", customer):
         doc.customer = customer
@@ -1610,11 +2460,6 @@ def pay_and_invoice_order(
 
     validate_order(doc)
 
-    company = doc.company or _get_default_company()
-    pos_profile = doc.pos_profile
-    if not pos_profile:
-        default_prof = _get_default_pos_profile(company)
-        pos_profile = default_prof.name if default_prof else None
     prof_doc = frappe.get_doc("POS Profile", pos_profile) if pos_profile else None
     warehouse = prof_doc.warehouse if prof_doc else None
     income_account = (
@@ -1630,6 +2475,8 @@ def pay_and_invoice_order(
 
     invoice_items = []
     for row in doc.items:
+        if cint(getattr(row, "is_cancelled", 0)) or row.kds_status == "Cancelado":
+            continue
         desc_parts = [row.item_name or row.item_code]
         if row.options_summary:
             desc_parts.append(f"Opciones: {row.options_summary}")
@@ -1658,6 +2505,9 @@ def pay_and_invoice_order(
         if cost_center:
             item_entry["cost_center"] = cost_center
         invoice_items.append(item_entry)
+
+    if not invoice_items:
+        frappe.throw(_("No hay productos activos por facturar en esta cuenta."))
 
     taxes = []
     tax_acc_15 = _resolve_tax_account(company, 15.0)
@@ -1689,12 +2539,18 @@ def pay_and_invoice_order(
                 "cost_center": cost_center,
             })
 
+    enabled_mops = set(rpos_cfg.get("enabled_payments") or [])
     parsed_payments = frappe.parse_json(payments) if isinstance(payments, str) else payments
     payment_rows = []
     if isinstance(parsed_payments, list):
         for p in parsed_payments:
             if isinstance(p, dict) and p.get("mode_of_payment") and flt(p.get("amount")) > 0:
                 mop = p["mode_of_payment"]
+                if enabled_mops and mop not in enabled_mops:
+                    frappe.throw(
+                        _("El método de pago '{0}' no está habilitado para este Punto de Venta.").format(mop),
+                        frappe.PermissionError,
+                    )
                 acc = _resolve_payment_account(mop, company)
                 payment_rows.append({
                     "mode_of_payment": mop,
@@ -1712,10 +2568,33 @@ def pay_and_invoice_order(
             "account": acc,
         })
 
+    gift_card_doc = None
+    redeemed_gift_amount = 0.0
+    if gift_card_code and flt(gift_card_amount) > 0:
+        clean_gc_code = cstr(gift_card_code).strip().upper()
+        if not frappe.db.exists("Restaurant Gift Card", clean_gc_code):
+            frappe.throw(_("La tarjeta de regalo '{0}' no existe.").format(clean_gc_code))
+        frappe.db.sql(
+            "SELECT name FROM `tabRestaurant Gift Card` WHERE name = %s FOR UPDATE",
+            (clean_gc_code,),
+        )
+        gift_card_doc = frappe.get_doc("Restaurant Gift Card", clean_gc_code)
+        if not cint(gift_card_doc.enabled):
+            frappe.throw(_("La tarjeta de regalo '{0}' está inactiva o vencida.").format(clean_gc_code))
+        if flt(gift_card_amount) > flt(gift_card_doc.balance):
+            frappe.throw(_("Saldo insuficiente en la tarjeta de regalo (disponible: {0}).").format(flt(gift_card_doc.balance, 2)))
+        redeemed_gift_amount = flt(gift_card_amount, 2)
+
     fiscal_info = _resolve_sar_fiscal_info(pos_profile=pos_profile, company=company)
-    cai_value = cstr(cai or doc.cai or fiscal_info["cai"]).strip()
-    due_cai_value = cstr(due_date_cai or doc.due_date_cai or fiscal_info["due_date_cai"]).strip()
-    auth_range_value = cstr(authorized_range or fiscal_info["authorized_range"]).strip()
+    cai_value = cstr(fiscal_info["cai"] or doc.cai).strip()
+    due_cai_value = cstr(fiscal_info["due_date_cai"] or doc.due_date_cai).strip()
+    auth_range_value = cstr(fiscal_info["authorized_range"]).strip()
+
+    active_opening_shift = doc.pos_opening_shift
+    if not active_opening_shift:
+        active_shift_info = _get_active_opening_shift(frappe.session.user)
+        if active_shift_info:
+            active_opening_shift = active_shift_info.get("name") or ""
 
     si_payload = {
         "doctype": "Sales Invoice",
@@ -1726,7 +2605,7 @@ def pay_and_invoice_order(
         "due_date": nowdate(),
         "is_pos": 1,
         "pos_profile": pos_profile,
-        "posa_pos_opening_shift": doc.pos_opening_shift or "",
+        "posa_pos_opening_shift": active_opening_shift or "",
         "currency": doc.currency or "HNL",
         "selling_price_list": doc.selling_price_list or (prof_doc.selling_price_list if prof_doc else "Venta estándar"),
         "update_stock": 0,
@@ -1737,23 +2616,50 @@ def pay_and_invoice_order(
         "taxes": taxes,
         "payments": payment_rows,
     }
+    if flt(global_discount_percentage) > 0:
+        si_payload["apply_discount_on"] = "Grand Total"
+        si_payload["additional_discount_percentage"] = min(100.0, flt(global_discount_percentage, 2))
+    elif flt(global_discount_amount) > 0:
+        si_payload["apply_discount_on"] = "Grand Total"
+        si_payload["discount_amount"] = flt(global_discount_amount, 2)
+
+    if coupon_code and frappe.db.exists("Coupon Code", coupon_code):
+        si_payload["coupon_code"] = coupon_code
+
     si_meta = frappe.get_meta("Sales Invoice")
     if si_meta.has_field("authorized_range"):
         si_payload["authorized_range"] = auth_range_value
     if si_meta.has_field("cashier"):
         si_payload["cashier"] = frappe.session.user
+    if si_meta.has_field("redeem_loyalty_points") and flt(loyalty_points) > 0:
+        si_payload["redeem_loyalty_points"] = 1
+        si_payload["loyalty_points"] = cint(loyalty_points)
 
     si = frappe.get_doc(si_payload)
     si.set_missing_values()
     si.calculate_taxes_and_totals()
 
     total_paid = sum(flt(p.amount) for p in si.payments)
-    if total_paid < flt(si.grand_total, 2):
-        si.payments[0].amount = flt(si.payments[0].amount + (flt(si.grand_total, 2) - total_paid), 2)
+    grand_total = flt(si.grand_total, 2)
+    if flt(total_paid, 2) + 0.01 < grand_total:
+        frappe.throw(
+            _("El monto total pagado ({0}) es menor al total de la factura ({1}).").format(
+                flt(total_paid, 2), grand_total
+            )
+        )
+    if total_paid < grand_total and si.payments:
+        si.payments[0].amount = flt(si.payments[0].amount + (grand_total - total_paid), 2)
 
     si.insert(ignore_permissions=True)
-    si.submit()
+    if cint(rpos_cfg.get("auto_validate_orders", 1)):
+        si.submit()
 
+    if gift_card_doc and redeemed_gift_amount > 0:
+        gift_card_doc.balance = flt(gift_card_doc.balance - redeemed_gift_amount, 2)
+        gift_card_doc.save(ignore_permissions=True)
+
+    if not doc.pos_opening_shift and active_opening_shift:
+        doc.pos_opening_shift = active_opening_shift
     doc.sales_invoice = si.name
     doc.cai = si.cai or cai_value
     doc.due_date_cai = si.due_date_cai or due_cai_value
@@ -1832,18 +2738,154 @@ def preview_split_order(order_name, split_items, expected_modified=None):
     return preview_split(order_name, split_items, expected_modified=expected_modified)
 
 
+def _sync_kds_after_order_change(doc):
+    """Synchronize KDS tickets and publish a realtime update after item or order cancellation."""
+    try:
+        from restaurant.kds import _sync_legacy_status
+        _sync_legacy_status(doc)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "KDS Sync After Cancellation")
+    try:
+        frappe.publish_realtime(
+            "restaurant_kds_update",
+            {"order_name": doc.name, "status": doc.status, "kds_status": doc.kds_status},
+            after_commit=True,
+        )
+    except Exception:
+        pass
+
+
+def _authorize_sensitive_operation(action, order_name, supervisor_user=None, supervisor_pin=None, reason="", require_reason=True):
+    """Authorize a sensitive POS operation via active supervisor session or supervisor PIN."""
+    clean_reason = cstr(reason or "").strip()
+    if is_supervisor():
+        if require_reason and not clean_reason:
+            frappe.throw(_("Debes ingresar el motivo obligatorio de la cancelación."), frappe.ValidationError)
+        return {"authorized": True, "supervisor": frappe.session.user, "reason": clean_reason}
+
+    auth = verify_supervisor_authorization(
+        supervisor_user,
+        supervisor_pin,
+        action,
+        order_name=order_name,
+        reason=clean_reason,
+        require_reason=require_reason,
+        log_success=False,
+    )
+    if require_reason and not clean_reason:
+        frappe.throw(_("Debes ingresar el motivo obligatorio de la cancelación."), frappe.ValidationError)
+    return {"authorized": True, "supervisor": auth["supervisor"], "reason": clean_reason}
+
+
 @frappe.whitelist(methods=["POST"])
-def cancel_pos_order(order_name):
-    """Cancel an unbilled Restaurant Order and release its table."""
+def cancel_sent_order_item(
+    order_name,
+    item_row_name,
+    cancel_qty=None,
+    supervisor_user=None,
+    supervisor_pin=None,
+    reason="",
+    expected_modified=None,
+):
+    """Cancel a full or partial quantity of a sent-to-kitchen item with supervisor authorization."""
     _require_pos_user()
     if not order_name or not frappe.db.exists("Restaurant Order", order_name):
-        frappe.throw(_("La cuenta u orden no existe."))
+        frappe.throw(_("La cuenta u orden no existe."), frappe.DoesNotExistError)
+
+    frappe.db.sql("SELECT name FROM `tabRestaurant Order` WHERE name=%s FOR UPDATE", order_name)
     doc = frappe.get_doc("Restaurant Order", order_name)
     doc.check_permission("write")
+
     if doc.status == "Facturada":
-        frappe.throw(_("No puedes cancelar desde el POS una cuenta que ya tiene factura emitida."))
-    doc.status = "Cancelada"
-    doc.save()
+        frappe.throw(_("Esta cuenta ya fue facturada y no puede modificarse. Realiza una nota de crédito o devolución formal."))
+    if doc.status == "Cancelada":
+        frappe.throw(_("Esta cuenta ya se encuentra cancelada."))
+    if expected_modified and cstr(doc.modified) != cstr(expected_modified).strip():
+        frappe.throw(_("Esta orden fue modificada recientemente por otro usuario. Recarga la cuenta antes de cancelar."))
+
+    target_row = next((r for r in (doc.items or []) if r.name == item_row_name), None)
+    if not target_row:
+        frappe.throw(_("El producto seleccionado no pertenece a esta orden."), frappe.DoesNotExistError)
+
+    prev_kds = cstr(getattr(target_row, "kds_status", "") or "Pendiente")
+    if cint(getattr(target_row, "is_cancelled", 0)) or prev_kds == "Cancelado":
+        frappe.throw(_("Este producto ya fue cancelado anteriormente."))
+    if prev_kds == "Pendiente":
+        frappe.throw(_("Este producto aún está en borrador y puede retirarse directamente sin autorización."))
+
+    req_qty = flt(target_row.qty)
+    qty_to_cancel = req_qty if cancel_qty in (None, "") else flt(cancel_qty)
+    if qty_to_cancel <= 0 or qty_to_cancel > req_qty + 0.001:
+        frappe.throw(_("La cantidad a cancelar debe ser mayor que 0 y no mayor a {0}.").format(req_qty))
+
+    auth = _authorize_sensitive_operation(
+        "Cancelar producto enviado a cocina",
+        doc.name,
+        supervisor_user=supervisor_user,
+        supervisor_pin=supervisor_pin,
+        reason=reason,
+        require_reason=True,
+    )
+    sup_user = auth["supervisor"]
+    clean_reason = auth["reason"]
+    cancel_ts = now_datetime()
+
+    frappe.flags.in_restaurant_supervisor_cancel = True
+    try:
+        if qty_to_cancel < req_qty - 0.001:
+            target_row.qty = flt(req_qty - qty_to_cancel, 3)
+            doc.append("items", {
+                "item_code": target_row.item_code,
+                "item_name": target_row.item_name,
+                "item_group": target_row.item_group,
+                "qty": qty_to_cancel,
+                "uom": target_row.uom,
+                "base_rate": 0.0,
+                "options_rate": 0.0,
+                "discount_percentage": 0.0,
+                "rate": 0.0,
+                "amount": 0.0,
+                "tax_rate": target_row.tax_rate,
+                "options_summary": target_row.options_summary,
+                "selected_options_json": target_row.selected_options_json,
+                "note": target_row.note,
+                "command_station": target_row.command_station,
+                "kds_status": "Cancelado",
+                "is_cancelled": 1,
+                "cancelled_qty": qty_to_cancel,
+                "cancellation_reason": clean_reason,
+                "cancelled_by": frappe.session.user,
+                "cancelled_by_supervisor": sup_user,
+                "cancelled_at": cancel_ts,
+            })
+        else:
+            target_row.is_cancelled = 1
+            target_row.cancelled_qty = req_qty
+            target_row.kds_status = "Cancelado"
+            target_row.cancellation_reason = clean_reason
+            target_row.cancelled_by = frappe.session.user
+            target_row.cancelled_by_supervisor = sup_user
+            target_row.cancelled_at = cancel_ts
+            target_row.amount = 0.0
+
+        doc.save()
+    finally:
+        frappe.flags.in_restaurant_supervisor_cancel = False
+
+    _sync_kds_after_order_change(doc)
+    log_restaurant_audit(
+        "Cancelar producto enviado a cocina",
+        f"Producto: {target_row.item_name or target_row.item_code} (Cant: {qty_to_cancel}) | Motivo: {clean_reason}",
+        order_name=doc.name,
+        supervisor_user=sup_user,
+        result="Autorizado",
+        item_code=target_row.item_code,
+        item_name=target_row.item_name,
+        affected_qty=qty_to_cancel,
+        reason=clean_reason,
+        previous_state=prev_kds,
+        resulting_state="Cancelado",
+    )
     return {
         "order": _serialize_order(doc),
         "areas": _get_areas_with_live_tables(),
@@ -1851,18 +2893,281 @@ def cancel_pos_order(order_name):
 
 
 @frappe.whitelist(methods=["POST"])
-def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None):
-    """Create or update a Customer with their fiscal RTN directly from the Restaurant POS."""
+def clear_pos_order(
+    order_name=None,
+    supervisor_user=None,
+    supervisor_pin=None,
+    reason="",
+    expected_modified=None,
+):
+    """Clear draft items freely or cancel all sent-to-kitchen items with supervisor authorization."""
+    _require_pos_user()
+    if not order_name:
+        return {"cleared": True}
+    if not frappe.db.exists("Restaurant Order", order_name):
+        frappe.throw(_("La cuenta u orden no existe."), frappe.DoesNotExistError)
+
+    frappe.db.sql("SELECT name FROM `tabRestaurant Order` WHERE name=%s FOR UPDATE", order_name)
+    doc = frappe.get_doc("Restaurant Order", order_name)
+    doc.check_permission("write")
+    if doc.status == "Facturada":
+        frappe.throw(_("No puedes vaciar una cuenta que ya fue facturada."))
+    if doc.status == "Cancelada":
+        frappe.throw(_("Esta cuenta ya está cancelada."))
+    if expected_modified and cstr(doc.modified) != cstr(expected_modified).strip():
+        frappe.throw(_("Esta orden fue modificada recientemente por otro usuario. Recarga la cuenta antes de vaciarla."))
+
+    sent_active = [
+        r for r in (doc.items or [])
+        if cstr(getattr(r, "kds_status", "") or "Pendiente") not in ("", "Pendiente", "Cancelado")
+        and not cint(getattr(r, "is_cancelled", 0))
+    ]
+    if sent_active:
+        auth = _authorize_sensitive_operation(
+            "Vaciar orden confirmada",
+            doc.name,
+            supervisor_user=supervisor_user,
+            supervisor_pin=supervisor_pin,
+            reason=reason,
+            require_reason=True,
+        )
+        sup_user = auth["supervisor"]
+        clean_reason = auth["reason"]
+        cancel_ts = now_datetime()
+
+        frappe.flags.in_restaurant_supervisor_cancel = True
+        try:
+            kept_rows = []
+            for r in (doc.items or []):
+                kds = cstr(getattr(r, "kds_status", "") or "Pendiente")
+                if cint(getattr(r, "is_cancelled", 0)) or kds == "Cancelado":
+                    kept_rows.append(r)
+                elif kds not in ("", "Pendiente"):
+                    r.is_cancelled = 1
+                    r.cancelled_qty = flt(r.qty)
+                    r.kds_status = "Cancelado"
+                    r.cancellation_reason = clean_reason
+                    r.cancelled_by = frappe.session.user
+                    r.cancelled_by_supervisor = sup_user
+                    r.cancelled_at = cancel_ts
+                    r.amount = 0.0
+                    kept_rows.append(r)
+            doc.set("items", kept_rows)
+            doc.tip_percentage = 0
+            doc.tip_amount = 0
+            doc.save()
+        finally:
+            frappe.flags.in_restaurant_supervisor_cancel = False
+
+        _sync_kds_after_order_change(doc)
+        log_restaurant_audit(
+            "Vaciar orden confirmada",
+            f"Se cancelaron {len(sent_active)} línea(s) enviadas a cocina | Motivo: {clean_reason}",
+            order_name=doc.name,
+            supervisor_user=sup_user,
+            result="Autorizado",
+            affected_qty=sum(flt(r.qty) for r in sent_active),
+            reason=clean_reason,
+            previous_state=doc.kds_status,
+            resulting_state="Vaciada / Cancelado",
+        )
+    else:
+        kept_rows = [
+            r for r in (doc.items or [])
+            if cint(getattr(r, "is_cancelled", 0)) or cstr(getattr(r, "kds_status", "") or "Pendiente") == "Cancelado"
+        ]
+        doc.set("items", kept_rows)
+        doc.tip_percentage = 0
+        doc.tip_amount = 0
+        doc.save()
+
+    return {
+        "order": _serialize_order(doc),
+        "areas": _get_areas_with_live_tables(),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def cancel_pos_order(order_name, supervisor_user=None, supervisor_pin=None, reason=""):
+    """Cancel an unbilled Restaurant Order with supervisor authorization and release its table."""
+    _require_pos_user()
+    if not order_name or not frappe.db.exists("Restaurant Order", order_name):
+        frappe.throw(_("La cuenta u orden no existe."))
+    frappe.db.sql("SELECT name FROM `tabRestaurant Order` WHERE name=%s FOR UPDATE", order_name)
+    doc = frappe.get_doc("Restaurant Order", order_name)
+    doc.check_permission("write")
+    if doc.status == "Facturada":
+        frappe.throw(_("No puedes cancelar desde el POS una cuenta que ya tiene factura emitida."))
+    if doc.status == "Cancelada":
+        frappe.throw(_("Esta cuenta ya se encuentra cancelada."))
+
+    prev_status = doc.status
+    auth = _authorize_sensitive_operation(
+        "Cancelar orden completa",
+        doc.name,
+        supervisor_user=supervisor_user,
+        supervisor_pin=supervisor_pin,
+        reason=reason,
+        require_reason=True,
+    )
+    sup_user = auth["supervisor"]
+    clean_reason = auth["reason"]
+    cancel_ts = now_datetime()
+
+    frappe.flags.in_restaurant_supervisor_cancel = True
+    try:
+        for r in (doc.items or []):
+            kds = cstr(getattr(r, "kds_status", "") or "Pendiente")
+            if kds not in ("", "Pendiente", "Cancelado") and not cint(getattr(r, "is_cancelled", 0)):
+                r.is_cancelled = 1
+                r.cancelled_qty = flt(r.qty)
+                r.kds_status = "Cancelado"
+                r.cancellation_reason = clean_reason
+                r.cancelled_by = frappe.session.user
+                r.cancelled_by_supervisor = sup_user
+                r.cancelled_at = cancel_ts
+                r.amount = 0.0
+        doc.status = "Cancelada"
+        doc.save()
+    finally:
+        frappe.flags.in_restaurant_supervisor_cancel = False
+
+    _sync_kds_after_order_change(doc)
+    log_restaurant_audit(
+        "Cancelar orden completa",
+        f"Orden cancelada | Motivo: {clean_reason}",
+        order_name=doc.name,
+        supervisor_user=sup_user,
+        result="Autorizado",
+        reason=clean_reason,
+        previous_state=prev_status,
+        resulting_state="Cancelada",
+    )
+    return {
+        "order": _serialize_order(doc),
+        "areas": _get_areas_with_live_tables(),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def unlock_waiter_order(order_name, pin):
+    """Verify the assigned waiter's PIN and unlock the order for the current session."""
+    _require_pos_user()
+    if not order_name or not frappe.db.exists("Restaurant Order", order_name):
+        frappe.throw(_("La cuenta u orden solicitada no existe."), frappe.DoesNotExistError)
+    doc = frappe.get_doc("Restaurant Order", order_name)
+    doc.check_permission("read")
+    if not doc.waiter:
+        mark_order_unlocked_for_session(doc.name)
+        return {"unlocked": True, "order": _serialize_order(doc)}
+
+    if is_supervisor():
+        mark_order_unlocked_for_session(doc.name)
+        return {"unlocked": True, "order": _serialize_order(doc)}
+
+    linked_emp = get_linked_employee_for_user()
+    if linked_emp:
+        if doc.waiter != linked_emp["name"]:
+            log_restaurant_audit(
+                "Acceso denegado a cuenta de otro mesero",
+                f"Usuario {frappe.session.user} ({linked_emp['name']}) intentó abrir la orden de {doc.waiter}",
+                order_name=doc.name,
+            )
+            frappe.throw(_("Esta cuenta pertenece a otro mesero y no puedes abrirla."), frappe.PermissionError)
+        mark_order_unlocked_for_session(doc.name)
+        return {"unlocked": True, "order": _serialize_order(doc)}
+
+    if not employee_has_pin(doc.waiter):
+        mark_order_unlocked_for_session(doc.name)
+        return {"unlocked": True, "order": _serialize_order(doc)}
+
+    pin_cache_key = _enforce_pin_rate_limit(f"waiter:{doc.waiter}")
+    if not verify_employee_pin(doc.waiter, pin):
+        _record_pin_failure(pin_cache_key)
+        log_restaurant_audit(
+            "PIN de mesero incorrecto",
+            f"Intento fallido de desbloquear cuenta asignada a {doc.waiter_name or doc.waiter}",
+            order_name=doc.name,
+        )
+        frappe.throw(
+            _("Código incorrecto. Solo el mesero asignado ({0}) o un supervisor puede abrir esta cuenta.").format(
+                doc.waiter_name or doc.waiter
+            ),
+            frappe.PermissionError,
+        )
+
+    _clear_pin_failures(pin_cache_key)
+    mark_order_unlocked_for_session(doc.name)
+    return {"unlocked": True, "order": _serialize_order(doc)}
+
+
+@frappe.whitelist(methods=["POST"])
+def authorize_clear_order(order_name=None, supervisor_user=None, supervisor_pin=None, reason=""):
+    """Verify supervisor authorization to empty/clear an active order in the POS."""
+    _require_pos_user()
+    if is_supervisor():
+        log_restaurant_audit(
+            "Vaciar orden",
+            f"Supervisor {frappe.session.user} vació la orden directamente.",
+            order_name=order_name,
+            supervisor_user=frappe.session.user,
+        )
+        return {"authorized": True, "supervisor": frappe.session.user}
+    return verify_supervisor_authorization(
+        supervisor_user,
+        supervisor_pin,
+        "Vaciar orden",
+        order_name=order_name,
+        reason=reason,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def authorize_reprint_command(order_name, supervisor_user=None, supervisor_pin=None, reason=""):
+    """Verify supervisor authorization to reprint kitchen commands for an order."""
+    _require_pos_user()
+    if not order_name or not frappe.db.exists("Restaurant Order", order_name):
+        frappe.throw(_("La cuenta u orden no existe."), frappe.DoesNotExistError)
+    if is_supervisor():
+        log_restaurant_audit(
+            "Reimprimir comandas",
+            f"Supervisor {frappe.session.user} autorizó reimpresión de comandas.",
+            order_name=order_name,
+            supervisor_user=frappe.session.user,
+        )
+        return {"authorized": True, "supervisor": frappe.session.user}
+    return verify_supervisor_authorization(
+        supervisor_user,
+        supervisor_pin,
+        "Reimprimir comandas",
+        order_name=order_name,
+        reason=reason,
+    )
+
+
+@frappe.whitelist(methods=["POST"])
+def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None, email_id=None, mobile_no=None, address=None):
+    """Create or update a Customer with their fiscal RTN, email, phone, and address directly from the Restaurant POS."""
     _require_pos_user()
     clean_name = cstr(customer_name).strip()
     clean_rtn = cstr(tax_id).strip()[:60]
+    clean_email = cstr(email_id).strip()[:140]
+    clean_phone = cstr(mobile_no).strip()[:60]
+    clean_addr = cstr(address).strip()[:200]
     if not clean_name:
         frappe.throw(_("El nombre o razón social del cliente es obligatorio."))
 
+    cust_meta = frappe.get_meta("Customer")
     if customer_id and frappe.db.exists("Customer", customer_id):
         doc = frappe.get_doc("Customer", customer_id)
         doc.customer_name = clean_name
         doc.tax_id = clean_rtn
+        if email_id is not None and cust_meta.has_field("email_id"):
+            doc.email_id = clean_email
+        if mobile_no is not None and cust_meta.has_field("mobile_no"):
+            doc.mobile_no = clean_phone
+        if address is not None and cust_meta.has_field("primary_address"):
+            doc.primary_address = clean_addr
         doc.save(ignore_permissions=True)
     else:
         group = (
@@ -1875,227 +3180,44 @@ def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None):
             or frappe.db.get_value("Territory", {"is_group": 0}, "name")
             or "All Territories"
         )
-        doc = frappe.get_doc({
+        payload = {
             "doctype": "Customer",
             "customer_name": clean_name,
             "customer_type": "Individual",
             "customer_group": group,
             "territory": territory,
             "tax_id": clean_rtn,
-        })
+        }
+        if clean_email and cust_meta.has_field("email_id"):
+            payload["email_id"] = clean_email
+        if clean_phone and cust_meta.has_field("mobile_no"):
+            payload["mobile_no"] = clean_phone
+        if clean_addr and cust_meta.has_field("primary_address"):
+            payload["primary_address"] = clean_addr
+        doc = frappe.get_doc(payload)
         doc.insert(ignore_permissions=True)
 
     return {
         "name": doc.name,
         "customer_name": doc.customer_name,
         "tax_id": doc.tax_id or "",
+        "email_id": cstr(getattr(doc, "email_id", "") or clean_email),
+        "mobile_no": cstr(getattr(doc, "mobile_no", "") or clean_phone),
+        "address": cstr(getattr(doc, "primary_address", "") or clean_addr),
     }
-
-
-@frappe.whitelist()
-def get_kds_orders(station=None, status_filter=None):
-    """Return active kitchen orders and station filters for the Kitchen Display System (KDS)."""
-    _require_pos_user()
-    filters = {
-        "status": ["in", ["En curso", "Facturada"]],
-        "kds_status": ["in", ["Sin enviar", "En preparación", "Listo", "Entregado"]],
-    }
-    if status_filter and status_filter in ALLOWED_KDS_STATUSES:
-        filters["kds_status"] = status_filter
-
-    rows = frappe.get_all(
-        "Restaurant Order",
-        filters=filters,
-        fields=["name"],
-        order_by="sent_to_kitchen_at asc, creation asc",
-        limit_page_length=150,
-    )
-    orders = []
-    stations_set = {"Todas las estaciones", "Cocina General"}
-    command_displays = []
-    if frappe.db.exists("DocType", "Restaurant Command"):
-        for cmd_name in frappe.get_all("Restaurant Command", filters={"enabled": 1}, pluck="command_name"):
-            stations_set.add(cmd_name)
-        cmd_docs = frappe.get_all(
-            "Restaurant Command",
-            filters={"enabled": 1},
-            fields=["name", "command_name", "branch", "enabled"],
-            order_by="command_name asc",
-        )
-        for cmd in cmd_docs:
-            stations_set.add(cmd.command_name)
-            groups = frappe.get_all(
-                "Restaurant Command Group",
-                filters={"parent": cmd.name, "parenttype": "Restaurant Command"},
-                pluck="item_group",
-            )
-            command_displays.append({
-                "name": cmd.name,
-                "command_name": cmd.command_name,
-                "branch": cmd.branch or "Restaurante",
-                "enabled": cint(cmd.enabled),
-                "groups": groups,
-            })
-
-    counts = {
-        "Todas": 0,
-        "Por Preparar": 0,
-        "Para Entregar": 0,
-        "Completadas": 0,
-    }
-    now_dt = now_datetime()
-
-    for r in rows:
-        serialized = _serialize_order(r.name)
-        if not serialized["items"]:
-            continue
-        for item in serialized["items"]:
-            if item.get("command_station"):
-                for st in item["command_station"].split(","):
-                    if st.strip():
-                        stations_set.add(st.strip())
-        if station and station not in ("Todas las estaciones", "ALL", "Todas"):
-            filtered_items = [
-                it for it in serialized["items"]
-                if station.lower() in (it.get("command_station") or "").lower()
-            ]
-            if not filtered_items:
-                continue
-            serialized["items"] = filtered_items
-
-        raw_kds = serialized.get("kds_status") or "Sin enviar"
-        if raw_kds == "Cerrado":
-            continue
-        if raw_kds == "Listo":
-            stage = "Para Entregar"
-        elif raw_kds == "Entregado":
-            stage = "Completadas"
-        else:
-            stage = "Por Preparar"
-
-        timer_ref = serialized.get("sent_to_kitchen_at") or serialized.get("creation")
-        ref_dt = get_datetime(timer_ref) if timer_ref else now_dt
-        wait_mins = max(0, int((now_dt - ref_dt).total_seconds() // 60))
-
-        serialized["kds_stage"] = stage
-        serialized["kds_timer_start"] = str(timer_ref or now_dt)
-        serialized["kds_wait_minutes"] = wait_mins
-
-        counts["Todas"] += 1
-        counts[stage] = counts.get(stage, 0) + 1
-        orders.append(serialized)
-
-    in_progress_orders = [o for o in orders if o.get("kds_stage") == "Por Preparar"]
-    in_progress_count = len(in_progress_orders)
-    avg_wait_minutes = (
-        int(round(sum(int(o.get("kds_wait_minutes") or 0) for o in in_progress_orders) / in_progress_count))
-        if in_progress_count
-        else 0
-    )
-
-    return {
-        "stations": sorted(stations_set),
-        "command_displays": command_displays,
-        "orders": orders,
-        "counts": counts,
-        "in_progress_count": in_progress_count,
-        "avg_wait_minutes": avg_wait_minutes,
-        "server_now": str(now_dt),
-    }
-
-
-@frappe.whitelist()
-def update_kds_status(order_name, kds_status, item_idx=None):
-    """Advance or update the Kitchen KDS status of an order or individual dish line."""
-    _require_pos_user()
-    if not order_name or not frappe.db.exists("Restaurant Order", order_name):
-        frappe.throw(_("La comanda seleccionada no existe."))
-    doc = frappe.get_doc("Restaurant Order", order_name)
-    doc.check_permission("write")
-
-    stage_aliases = {
-        "Por Preparar": "En preparación",
-        "Para Entregar": "Listo",
-        "Completadas": "Entregado",
-    }
-    target_status = stage_aliases.get(cstr(kds_status).strip(), cstr(kds_status).strip())
-
-    if item_idx is not None and item_idx != "":
-        target_idx = cint(item_idx)
-        for row in doc.items:
-            if cint(row.idx) == target_idx and target_status in ALLOWED_ITEM_KDS_STATUSES:
-                row.kds_status = target_status
-        statuses = {row.kds_status for row in doc.items}
-        if statuses == {"Cerrado"}:
-            doc.kds_status = "Cerrado"
-        elif statuses == {"Entregado"}:
-            doc.kds_status = "Entregado"
-        elif statuses <= {"Listo", "Entregado"}:
-            doc.kds_status = "Listo"
-        else:
-            doc.kds_status = "En preparación"
-    else:
-        if target_status not in ALLOWED_KDS_STATUSES:
-            frappe.throw(_("El estado de cocina no es válido."))
-        doc.kds_status = target_status
-        if target_status == "En preparación" and not doc.sent_to_kitchen_at:
-            doc.sent_to_kitchen_at = now_datetime()
-        mapped_item_status = (
-            "Pendiente" if target_status == "Sin enviar" else target_status
-        )
-        for row in doc.items:
-            row.kds_status = mapped_item_status
-
-    doc.save()
-    serialized = _serialize_order(doc)
-    return {
-        "order": serialized,
-        "kds_status": serialized["kds_status"],
-        "kds_stage": serialized["kds_stage"],
-    }
-
-
-@frappe.whitelist()
-def clear_completed_kds_orders(order_names=None):
-    """Close completed ('Entregado') KDS tickets so they disappear from the active KDS monitor."""
-    _require_pos_user()
-    names = []
-    if order_names:
-        parsed = frappe.parse_json(order_names) if isinstance(order_names, str) else order_names
-        if isinstance(parsed, list):
-            names = [cstr(n).strip() for n in parsed if cstr(n).strip()]
-    if not names:
-        names = frappe.get_all(
-            "Restaurant Order",
-            filters={
-                "status": ["in", ["En curso", "Facturada"]],
-                "kds_status": "Entregado",
-            },
-            pluck="name",
-            limit_page_length=200,
-        )
-    closed = []
-    for name in names:
-        if not frappe.db.exists("Restaurant Order", name):
-            continue
-        doc = frappe.get_doc("Restaurant Order", name)
-        if not doc.has_permission("write"):
-            continue
-        doc.kds_status = "Cerrado"
-        for row in doc.items:
-            row.kds_status = "Cerrado"
-        doc.save()
-        closed.append(doc.name)
-    return {"closed": closed, "closed_orders": closed}
 
 
 @frappe.whitelist()
 def get_emitted_commands(limit=40):
     """Return orders that already have emitted kitchen commands for reprinting."""
     _require_pos_user()
+    cmd_filters = {"status": ["in", ["En curso", "Facturada"]]}
+    active_branch = _get_active_user_branch()
+    if active_branch and frappe.get_meta("Restaurant Order").has_field("branch"):
+        cmd_filters["branch"] = active_branch
     rows = frappe.get_all(
         "Restaurant Order",
-        filters={"status": ["in", ["En curso", "Facturada"]]},
+        filters=cmd_filters,
         fields=["name"],
         order_by="sent_to_kitchen_at desc, modified desc",
         limit_page_length=max(10, min(100, cint(limit or 40))),
@@ -2136,7 +3258,7 @@ def get_emitted_commands(limit=40):
 @frappe.whitelist(methods=["POST"])
 def create_pos_product(product):
     """Create a product/dish using native Item, Item Price, and Restaurant Item Configuration."""
-    _require_pos_user()
+    _require_manager_user()
     payload = frappe.parse_json(product) if isinstance(product, str) else product
     if not isinstance(payload, dict):
         frappe.throw(_("Los datos del producto no tienen un formato válido."))
@@ -2234,3 +3356,675 @@ def create_pos_product(product):
         "categories": categories,
         "items": items,
     }
+
+
+@frappe.whitelist()
+def get_pos_idle_settings():
+    """Return configured POS inactivity wallpaper settings."""
+    _require_pos_user()
+    if frappe.db.exists("DocType", "Restaurant Settings"):
+        try:
+            settings = frappe.get_single("Restaurant Settings")
+            return {
+                "enabled": cint(bool(settings.idle_wallpaper_enabled)),
+                "timeout_seconds": max(5, int(round(flt(settings.idle_wallpaper_minutes or 2) * 60))),
+                "background_url": settings.idle_wallpaper_background or "/assets/restaurant/images/background-light.svg",
+                "logo_url": settings.idle_wallpaper_logo or "",
+                "show_clock": cint(bool(settings.idle_wallpaper_show_clock)),
+            }
+        except Exception:
+            pass
+
+    raw_enabled = frappe.db.get_default("rpos_idle_wallpaper_enabled")
+    raw_timeout = frappe.db.get_default("rpos_idle_wallpaper_timeout_seconds")
+    raw_show_clock = frappe.db.get_default("rpos_idle_wallpaper_show_clock")
+    bg_url = frappe.db.get_default("rpos_idle_wallpaper_background_url") or "/assets/restaurant/images/background-light.svg"
+    logo_url = frappe.db.get_default("rpos_idle_wallpaper_logo_url") or ""
+    enabled = 1 if raw_enabled is None else cint(raw_enabled)
+    show_clock = 1 if raw_show_clock is None else cint(raw_show_clock)
+    timeout_seconds = cint(raw_timeout) if raw_timeout is not None else 120
+    if timeout_seconds < 5:
+        timeout_seconds = 120
+    return {
+        "enabled": cint(bool(enabled)),
+        "timeout_seconds": timeout_seconds,
+        "background_url": bg_url,
+        "logo_url": logo_url,
+        "show_clock": cint(bool(show_clock)),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def save_pos_idle_settings(enabled=1, timeout_seconds=120, background_url=None, logo_url=None, show_clock=1):
+    """Persist POS inactivity wallpaper settings in global defaults."""
+    _require_manager_user()
+    clean_enabled = 1 if cint(enabled) else 0
+    clean_show_clock = 1 if cint(show_clock) else 0
+    clean_timeout = max(5, min(7200, cint(timeout_seconds or 120)))
+    frappe.db.set_default("rpos_idle_wallpaper_enabled", str(clean_enabled))
+    frappe.db.set_default("rpos_idle_wallpaper_timeout_seconds", str(clean_timeout))
+    frappe.db.set_default("rpos_idle_wallpaper_show_clock", str(clean_show_clock))
+    if background_url is not None:
+        frappe.db.set_default("rpos_idle_wallpaper_background_url", str(background_url or ""))
+    if logo_url is not None:
+        frappe.db.set_default("rpos_idle_wallpaper_logo_url", str(logo_url or ""))
+    frappe.clear_cache()
+    return {
+        "enabled": clean_enabled,
+        "timeout_seconds": clean_timeout,
+        "background_url": background_url or "",
+        "logo_url": logo_url or "",
+        "show_clock": clean_show_clock,
+    }
+
+
+@frappe.whitelist()
+def get_restaurant_pos_config(pos_profile=None):
+    """Retrieve full configuration matching the Odoo-style restaurant POS settings screen."""
+    _require_pos_user()
+    try:
+        from restaurant.setup import sync_restaurant_dashboard_block
+        sync_restaurant_dashboard_block()
+    except Exception:
+        pass
+    company = _get_default_company()
+    all_profiles = frappe.get_all(
+        "POS Profile",
+        filters={"disabled": 0},
+        fields=["name", "company", "currency", "customer"],
+        order_by="name asc",
+    )
+    if not pos_profile or not frappe.db.exists("POS Profile", pos_profile):
+        default_p = _get_default_pos_profile(company)
+        pos_profile = default_p.name if default_p else (all_profiles[0].name if all_profiles else None)
+
+    if not pos_profile:
+        return {
+            "pos_profiles": [],
+            "selected_profile": "",
+            "company": company,
+            "currency": "HNL",
+            "has_active_shift": False,
+            "active_shift": None,
+            "is_bar_restaurant": 1,
+            "areas": [],
+            "enabled_areas": [],
+            "presets": [],
+            "enabled_presets": [],
+            "default_preset": "Comer en el local",
+            "payments": [],
+            "all_payment_methods": [],
+            "enable_rounded_total": 0,
+            "max_difference_enabled": 0,
+            "write_off_limit": 0.0,
+            "auto_validate_orders": 1,
+            "one_click_pay": 0,
+            "tips_enabled": 1,
+            "tip_after_payment": 0,
+            "employee_login_required": 0,
+            "show_product_images": 1,
+            "show_category_images": 1,
+            "group_by_category": 0,
+            "large_scrollbars": 0,
+            "online_reservation": 0,
+            "default_screen": "Caja",
+            "idle_wallpaper_enabled": 1,
+            "idle_wallpaper_timeout": 60,
+        }
+
+    prof_doc = frappe.get_doc("POS Profile", pos_profile)
+
+    shifts = frappe.get_all(
+        "POS Opening Shift",
+        filters={"pos_profile": pos_profile, "docstatus": 1, "status": "Open"},
+        fields=["name", "user", "period_start_date"],
+        limit=1,
+    )
+    active_shift = shifts[0] if shifts else None
+
+    payments = [
+        {"mode_of_payment": row.mode_of_payment, "default": cint(row.default)}
+        for row in (prof_doc.payments or [])
+    ]
+    all_payment_methods = frappe.get_all(
+        "Mode of Payment", filters={"enabled": 1}, pluck="name", order_by="name asc"
+    )
+
+    area_fields = ["name", "area_name"]
+    if frappe.db.table_exists("Restaurant Area"):
+        area_meta = frappe.get_meta("Restaurant Area")
+        if area_meta.has_field("status"):
+            area_fields.append("status")
+        areas = frappe.get_all("Restaurant Area", fields=area_fields, order_by="area_name asc")
+    else:
+        areas = []
+    for a in areas:
+        a["disabled"] = 1 if a.get("status") == "Inactiva" else 0
+
+    preset_fields = ["name", "preset_name", "color_bg", "color_border"]
+    if frappe.db.table_exists("Restaurant Order Preset"):
+        preset_meta = frappe.get_meta("Restaurant Order Preset")
+        if preset_meta.has_field("enabled"):
+            preset_fields.append("enabled")
+        if preset_meta.has_field("enable_scheduling"):
+            preset_fields.append("enable_scheduling")
+        presets = frappe.get_all(
+            "Restaurant Order Preset",
+            fields=preset_fields,
+            order_by="idx asc, creation asc" if preset_meta.has_field("idx") else "creation asc",
+        )
+    else:
+        presets = []
+    for p in presets:
+        p["disabled"] = 0 if cint(p.get("enabled", 1)) else 1
+
+    pref_key = f"rpos_cfg_{pos_profile}"
+    raw_pref = frappe.db.get_default(pref_key)
+    pref = {}
+    if raw_pref:
+        try:
+            pref = json.loads(raw_pref) if isinstance(raw_pref, str) else raw_pref
+        except Exception:
+            pref = {}
+
+    idle_settings = get_pos_idle_settings()
+
+    return {
+        "pos_profiles": [p.name for p in all_profiles],
+        "selected_profile": pos_profile,
+        "company": prof_doc.company,
+        "currency": prof_doc.currency or "HNL",
+        "has_active_shift": bool(active_shift),
+        "active_shift": active_shift,
+        "is_bar_restaurant": cint(pref.get("is_bar_restaurant", 1)),
+        "areas": areas,
+        "enabled_areas": pref.get("enabled_areas", [a.name for a in areas if not a.get("disabled")]),
+        "presets": presets,
+        "enabled_presets": pref.get("enabled_presets", [p.preset_name for p in presets if not p.get("disabled")]),
+        "default_preset": pref.get("default_preset", "Comer en el local"),
+        "payments": payments,
+        "all_payment_methods": all_payment_methods,
+        "enable_rounded_total": 0 if cint(prof_doc.disable_rounded_total) else 1,
+        "max_difference_enabled": 1 if flt(prof_doc.write_off_limit) > 0 else cint(pref.get("max_difference_enabled", 0)),
+        "write_off_limit": flt(prof_doc.write_off_limit or 0),
+        "auto_validate_orders": cint(pref.get("auto_validate_orders", 1)),
+        "one_click_pay": cint(pref.get("one_click_pay", 0)),
+        "tips_enabled": cint(pref.get("tips_enabled", 1)),
+        "tip_after_payment": cint(pref.get("tip_after_payment", 0)),
+        "employee_login_required": cint(pref.get("employee_login_required", 0)),
+        "show_product_images": 0 if cint(prof_doc.hide_images) else cint(pref.get("show_product_images", 1)),
+        "show_category_images": cint(pref.get("show_category_images", 1)),
+        "group_by_category": cint(pref.get("group_by_category", 0)),
+        "large_scrollbars": cint(pref.get("large_scrollbars", 0)),
+        "online_reservation": cint(pref.get("online_reservation", 0)),
+        "default_screen": pref.get("default_screen", "Caja"),
+        "idle_wallpaper_enabled": cint(pref.get("idle_wallpaper_enabled", idle_settings["enabled"])),
+        "idle_wallpaper_timeout": cint(pref.get("idle_wallpaper_timeout", idle_settings["timeout_seconds"])),
+        "idle_wallpaper_background_url": pref.get("idle_wallpaper_background_url", idle_settings.get("background_url", "/assets/restaurant/images/background-light.svg")),
+        "idle_wallpaper_logo_url": pref.get("idle_wallpaper_logo_url", idle_settings.get("logo_url", "")),
+        "idle_wallpaper_show_clock": cint(pref.get("idle_wallpaper_show_clock", idle_settings.get("show_clock", 1))),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def save_restaurant_pos_config(pos_profile, config):
+    """Save full configuration matching the Odoo-style restaurant POS settings screen."""
+    _require_manager_user()
+    if isinstance(config, str):
+        config = json.loads(config)
+
+    if not pos_profile or not frappe.db.exists("POS Profile", pos_profile):
+        frappe.throw(_("El Perfil de Punto de Venta especificado no existe."))
+
+    prof_doc = frappe.get_doc("POS Profile", pos_profile)
+
+    # 1. Update native POS Profile fields
+    show_prod_imgs = cint(config.get("show_product_images", 1))
+    prof_doc.hide_images = 0 if show_prod_imgs else 1
+    prof_doc.disable_rounded_total = 0 if cint(config.get("enable_rounded_total", 0)) else 1
+
+    if cint(config.get("max_difference_enabled", 0)):
+        prof_doc.write_off_limit = max(0.0, flt(config.get("write_off_limit") or 0))
+    else:
+        prof_doc.write_off_limit = 0.0
+
+    # Payments table
+    incoming_payments = config.get("payments") or []
+    if incoming_payments:
+        clean_methods = []
+        for p in incoming_payments:
+            m = p if isinstance(p, str) else p.get("mode_of_payment")
+            if m and frappe.db.exists("Mode of Payment", m) and m not in clean_methods:
+                clean_methods.append(m)
+
+        if clean_methods:
+            prof_doc.set("payments", [])
+            for idx, m in enumerate(clean_methods):
+                prof_doc.append("payments", {
+                    "mode_of_payment": m,
+                    "default": 1 if idx == 0 else 0,
+                })
+
+    prof_doc.save(ignore_permissions=True)
+
+    # 2. Persist extended profile configuration
+    pref_key = f"rpos_cfg_{pos_profile}"
+    frappe.db.set_default(pref_key, json.dumps(config))
+
+    # 3. Synchronize global wallpaper settings if provided
+    if "idle_wallpaper_enabled" in config and "idle_wallpaper_timeout" in config:
+        save_pos_idle_settings(
+            enabled=config.get("idle_wallpaper_enabled"),
+            timeout_seconds=config.get("idle_wallpaper_timeout"),
+            background_url=config.get("idle_wallpaper_background_url"),
+            logo_url=config.get("idle_wallpaper_logo_url"),
+            show_clock=config.get("idle_wallpaper_show_clock", 1),
+        )
+
+    frappe.clear_cache()
+    return get_restaurant_pos_config(pos_profile)
+
+
+def _get_default_warehouse(company=None):
+    """Resolve default active warehouse for restaurant operations."""
+    if not company:
+        company = _get_default_company()
+    pos_p = _get_default_pos_profile(company)
+    if pos_p and getattr(pos_p, "warehouse", None):
+        return pos_p.warehouse
+    wh = frappe.db.get_value("Warehouse", {"company": company, "is_group": 0, "disabled": 0}, "name")
+    if not wh:
+        wh = frappe.db.get_value("Warehouse", {"is_group": 0, "disabled": 0}, "name")
+    return wh
+
+
+@frappe.whitelist(methods=["GET", "POST"])
+def get_restaurant_stock_status(warehouse=None):
+    """Analyze stock status for all restaurant sales items.
+
+    Returns the item list, whether each item is a stock item, its bin quantity in the warehouse,
+    and whether restaurant billing can proceed without stock (which is always true in LEAF because
+    Sales Invoices are issued with update_stock=0).
+    """
+    _require_pos_user()
+    company = _get_default_company()
+    target_wh = warehouse or _get_default_warehouse(company)
+
+    items = frappe.get_all(
+        "Item",
+        filters={
+            "disabled": 0,
+            "is_sales_item": 1,
+            "has_variants": 0,
+            "is_fixed_asset": 0,
+            "item_group": ["not in", ["Servicios", "Sub-ensambles", "Materia prima"]],
+        },
+        fields=["name", "item_name", "item_group", "stock_uom", "is_stock_item", "standard_rate"],
+        order_by="item_name asc",
+        limit_page_length=500,
+    )
+
+    bin_map = {}
+    if target_wh and frappe.db.table_exists("Bin"):
+        bins = frappe.get_all(
+            "Bin",
+            filters={"warehouse": target_wh},
+            fields=["item_code", "actual_qty"],
+        )
+        for b in bins:
+            bin_map[b.item_code] = flt(b.actual_qty)
+
+    report = []
+    stock_items_count = 0
+    non_stock_items_count = 0
+    total_stock_units = 0.0
+
+    for it in items:
+        is_stock = cint(it.is_stock_item)
+        qty = bin_map.get(it.name, 0.0) if is_stock else 0.0
+        if is_stock:
+            stock_items_count += 1
+            total_stock_units += qty
+        else:
+            non_stock_items_count += 1
+
+        report.append({
+            "item_code": it.name,
+            "item_name": it.item_name,
+            "item_group": it.item_group,
+            "stock_uom": it.stock_uom,
+            "is_stock_item": is_stock,
+            "actual_qty": qty,
+            "billing_allowed": True,
+            "note": "Inventariable en almacén" if is_stock else "Platillo / No inventariable (Facturación libre)",
+        })
+
+    return {
+        "company": company,
+        "warehouse": target_wh,
+        "total_items": len(items),
+        "stock_items_count": stock_items_count,
+        "non_stock_items_count": non_stock_items_count,
+        "total_stock_units": total_stock_units,
+        "billing_requires_stock": False,
+        "items": report,
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def ensure_restaurant_stock(target_qty=100, make_inventoriable=0, warehouse=None):
+    """Seed or replenish stock to target_qty (default 100) via a native Stock Entry.
+
+    If make_inventoriable=1, items without recipes will be updated to is_stock_item=1.
+    For all is_stock_item=1 items having less than target_qty, creates and submits a native
+    Stock Entry (Material Receipt).
+    """
+    _require_manager_user()
+    company = _get_default_company()
+    target_wh = warehouse or _get_default_warehouse(company)
+    target_qty = max(1.0, flt(target_qty or 100))
+    make_inv = cint(make_inventoriable)
+
+    if not target_wh or not frappe.db.exists("Warehouse", target_wh):
+        frappe.throw(_("No se encontró un almacén válido para registrar la entrada de stock."))
+
+    items = frappe.get_all(
+        "Item",
+        filters={
+            "disabled": 0,
+            "is_sales_item": 1,
+            "has_variants": 0,
+            "is_fixed_asset": 0,
+            "item_group": ["not in", ["Servicios", "Sub-ensambles", "Materia prima"]],
+        },
+        fields=["name", "item_name", "stock_uom", "is_stock_item", "standard_rate", "restaurant_recipe_enabled"],
+        limit_page_length=500,
+    )
+
+    items_to_receipt = []
+
+    for it in items:
+        if make_inv and not cint(it.is_stock_item) and not cint(it.get("restaurant_recipe_enabled")):
+            frappe.db.set_value("Item", it.name, "is_stock_item", 1, update_modified=False)
+            it.is_stock_item = 1
+
+        if not cint(it.is_stock_item):
+            continue
+
+        curr_qty = flt(frappe.db.get_value("Bin", {"item_code": it.name, "warehouse": target_wh}, "actual_qty") or 0)
+        needed = target_qty - curr_qty
+        if needed > 0:
+            rate = flt(it.standard_rate or 10.0)
+            if rate <= 0:
+                rate = 10.0
+            items_to_receipt.append({
+                "item_code": it.name,
+                "item_name": it.item_name,
+                "qty": needed,
+                "t_warehouse": target_wh,
+                "uom": it.stock_uom or "Nos",
+                "stock_uom": it.stock_uom or "Nos",
+                "conversion_factor": 1.0,
+                "basic_rate": rate,
+            })
+
+    if not items_to_receipt:
+        return {
+            "status": "up_to_date",
+            "message": _("Todos los productos inventariables ya cuentan con {0} o más unidades.").format(target_qty),
+            "warehouse": target_wh,
+            "stock_entry": None,
+        }
+
+    se = frappe.get_doc({
+        "doctype": "Stock Entry",
+        "stock_entry_type": "Material Receipt",
+        "purpose": "Material Receipt",
+        "company": company,
+        "posting_date": nowdate(),
+        "posting_time": nowtime(),
+        "to_warehouse": target_wh,
+        "items": items_to_receipt,
+    })
+    se.insert(ignore_permissions=True)
+    se.submit()
+
+    frappe.clear_cache(doctype="Item")
+    frappe.clear_cache(doctype="Bin")
+
+    return {
+        "status": "success",
+        "message": _("Se generó la Entrada de Stock {0} con {1} productos actualizados a {2} unidades.").format(
+            se.name, len(items_to_receipt), target_qty
+        ),
+        "stock_entry": se.name,
+        "warehouse": target_wh,
+        "items_updated": len(items_to_receipt),
+    }
+
+
+@frappe.whitelist()
+def get_self_order_config(pos_profile=None):
+    """Return active self-order channels and status for mobile/kiosk clients."""
+    cfg = _get_effective_rpos_config(pos_profile)
+    enabled = bool(cint(cfg.get("enable_self_order")))
+    mobile_ok = enabled and bool(cint(cfg.get("enable_mobile_self_order")))
+    kiosk_ok = enabled and bool(cint(cfg.get("enable_kiosk_self_order")))
+    return {
+        "enabled": enabled,
+        "channels": cfg.get("self_order_channels") or "Ambos canales",
+        "mobile_enabled": mobile_ok,
+        "kiosk_enabled": kiosk_ok,
+        "default_preset": cfg.get("default_preset") or "Comer en el local",
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def submit_self_order(order, channel="mobile", table=None):
+    """Create a Restaurant Order from an authorized self-order channel (mobile or kiosk)."""
+    _require_pos_user()
+    payload = frappe.parse_json(order) if isinstance(order, str) else dict(order or {})
+    pos_profile = payload.get("pos_profile")
+    cfg = _get_effective_rpos_config(pos_profile)
+
+    if not cint(cfg.get("enable_self_order")):
+        frappe.throw(_("El autopedido está deshabilitado en la configuración del restaurante."), frappe.PermissionError)
+
+    ch = cstr(channel or "mobile").strip().lower()
+    if ch == "mobile" and not cint(cfg.get("enable_mobile_self_order")):
+        frappe.throw(_("El canal de autopedido por celular no está habilitado."), frappe.PermissionError)
+    if ch == "kiosk" and not cint(cfg.get("enable_kiosk_self_order")):
+        frappe.throw(_("El canal de autopedido mediante kiosco no está habilitado."), frappe.PermissionError)
+    if ch not in ("mobile", "kiosk"):
+        frappe.throw(_("Canal de autopedido no válido."))
+
+    if table and not payload.get("restaurant_table"):
+        payload["restaurant_table"] = table
+    if not payload.get("reference_note"):
+        payload["reference_note"] = "Autopedido Celular" if ch == "mobile" else "Autopedido Kiosco"
+
+    return save_pos_order(payload)
+
+
+@frappe.whitelist()
+def validate_coupon_code(coupon_code, order_total=0, customer=None):
+    """Validate an ERPNext Coupon Code / Pricing Rule for POS discount application."""
+    _require_pos_user()
+    active_shift = _get_active_opening_shift(frappe.session.user)
+    cfg = _get_effective_rpos_config(active_shift["pos_profile"] if active_shift else None)
+    if not cint(cfg.get("enable_promotions_coupons")):
+        frappe.throw(_("Las promociones y cupones están deshabilitados en la configuración del POS."))
+
+    code = cstr(coupon_code or "").strip()
+    if not code or not frappe.db.exists("Coupon Code", code):
+        frappe.throw(_("El código de cupón '{0}' no es válido.").format(code))
+
+    coupon = frappe.get_doc("Coupon Code", code)
+    if coupon.valid_upto and frappe.utils.getdate(coupon.valid_upto) < frappe.utils.getdate(nowdate()):
+        frappe.throw(_("El cupón '{0}' ha expirado.").format(code))
+    if coupon.maximum_use and cint(coupon.used) >= cint(coupon.maximum_use):
+        frappe.throw(_("El cupón '{0}' alcanzó su límite máximo de usos.").format(code))
+
+    discount_pct = 0.0
+    discount_amt = 0.0
+    if coupon.pricing_rule and frappe.db.exists("Pricing Rule", coupon.pricing_rule):
+        pr = frappe.get_doc("Pricing Rule", coupon.pricing_rule)
+        if pr.rate_or_discount == "Discount Percentage":
+            discount_pct = flt(pr.discount_percentage, 2)
+        elif pr.rate_or_discount == "Discount Amount":
+            discount_amt = flt(pr.discount_amount, 2)
+
+    return {
+        "coupon_code": coupon.name,
+        "coupon_name": coupon.coupon_name,
+        "discount_percentage": discount_pct,
+        "discount_amount": discount_amt,
+    }
+
+
+@frappe.whitelist()
+def validate_gift_card(card_code):
+    """Validate a Restaurant Gift Card and return its available balance."""
+    _require_pos_user()
+    active_shift = _get_active_opening_shift(frappe.session.user)
+    cfg = _get_effective_rpos_config(active_shift["pos_profile"] if active_shift else None)
+    if not cint(cfg.get("enable_gift_cards")):
+        frappe.throw(_("Las tarjetas de regalo están deshabilitadas en la configuración del POS."))
+
+    code = cstr(card_code or "").strip().upper()
+    if not code or not frappe.db.exists("Restaurant Gift Card", code):
+        frappe.throw(_("La tarjeta de regalo '{0}' no existe.").format(code))
+
+    gc = frappe.get_doc("Restaurant Gift Card", code)
+    if not cint(gc.enabled):
+        frappe.throw(_("La tarjeta de regalo '{0}' se encuentra inactiva.").format(code))
+    if gc.expiry_date and frappe.utils.getdate(gc.expiry_date) < frappe.utils.getdate(nowdate()):
+        frappe.throw(_("La tarjeta de regalo '{0}' está vencida.").format(code))
+    if flt(gc.balance) <= 0:
+        frappe.throw(_("La tarjeta de regalo '{0}' no tiene saldo disponible.").format(code))
+
+    return {
+        "card_code": gc.card_code,
+        "balance": flt(gc.balance, 2),
+        "customer": gc.customer or "",
+    }
+
+
+@frappe.whitelist()
+def get_customer_loyalty_points(customer, company=None):
+    """Return available ERPNext Loyalty Points for a customer when loyalty is enabled."""
+    _require_pos_user()
+    active_shift = _get_active_opening_shift(frappe.session.user)
+    cfg = _get_effective_rpos_config(active_shift["pos_profile"] if active_shift else None)
+    if not cint(cfg.get("enable_loyalty_program")):
+        frappe.throw(_("El programa de lealtad está deshabilitado en la configuración del POS."))
+
+    if not customer or not frappe.db.exists("Customer", customer):
+        return {"loyalty_points": 0, "conversion_factor": 0.0, "loyalty_program": ""}
+
+    loyalty_program = frappe.db.get_value("Customer", customer, "loyalty_program") or ""
+    if not loyalty_program:
+        return {"loyalty_points": 0, "conversion_factor": 0.0, "loyalty_program": ""}
+
+    from erpnext.accounts.doctype.loyalty_program.loyalty_program import get_loyalty_program_details_with_points
+
+    details = get_loyalty_program_details_with_points(
+        customer,
+        loyalty_program=loyalty_program,
+        company=company or _get_default_company(),
+        silent=True,
+    ) or {}
+    return {
+        "loyalty_program": loyalty_program,
+        "loyalty_points": cint(details.get("loyalty_points", 0)),
+        "conversion_factor": flt(details.get("conversion_factor", 0.0)),
+    }
+
+
+@frappe.whitelist(methods=["POST"])
+def send_invoice_email(invoice_name, recipient_email=None):
+    """Send Sales Invoice PDF via Frappe native email configuration."""
+    _require_pos_user()
+    active_shift = _get_active_opening_shift(frappe.session.user)
+    cfg = _get_effective_rpos_config(active_shift["pos_profile"] if active_shift else None)
+    if not cint(cfg.get("allow_email_invoice", 1)):
+        frappe.throw(_("El envío de facturas por correo electrónico está deshabilitado en la configuración del POS."))
+
+    if not invoice_name or not frappe.db.exists("Sales Invoice", invoice_name):
+        frappe.throw(_("La factura solicitada no existe."))
+
+    si = frappe.get_doc("Sales Invoice", invoice_name)
+    si.check_permission("read")
+    target_email = cstr(recipient_email or frappe.db.get_value("Customer", si.customer, "email_id") or "").strip()
+    if not target_email:
+        frappe.throw(_("El cliente no tiene un correo electrónico configurado."))
+
+    attachment = frappe.attach_print("Sales Invoice", si.name, file_name=f"{si.name}.pdf")
+    frappe.sendmail(
+        recipients=[target_email],
+        subject=_("Factura {0} - {1}").format(si.name, si.company),
+        message=_("Adjunto enviamos su comprobante fiscal {0} por un total de {1} {2}.").format(
+            si.name, si.currency, flt(si.grand_total, 2)
+        ),
+        attachments=[attachment],
+        now=True,
+    )
+    return {"status": "sent", "recipient": target_email, "invoice": si.name}
+
+
+@frappe.whitelist()
+def get_whatsapp_invoice_share_link(invoice_name, phone=None):
+    """Generate a safe WhatsApp share URL for a Sales Invoice without sending automatically."""
+    _require_pos_user()
+    active_shift = _get_active_opening_shift(frappe.session.user)
+    cfg = _get_effective_rpos_config(active_shift["pos_profile"] if active_shift else None)
+    if not cint(cfg.get("allow_whatsapp_invoice")):
+        frappe.throw(_("El envío de facturas por WhatsApp está deshabilitado en la configuración del POS."))
+
+    if not invoice_name or not frappe.db.exists("Sales Invoice", invoice_name):
+        frappe.throw(_("La factura solicitada no existe."))
+
+    si = frappe.get_doc("Sales Invoice", invoice_name)
+    si.check_permission("read")
+    clean_phone = re.sub(r"[^\d]", "", cstr(phone or frappe.db.get_value("Customer", si.customer, "mobile_no") or ""))
+    text = (
+        f"Comprobante {si.name} - {si.company}\n"
+        f"Cliente: {si.customer_name}\n"
+        f"Total: {si.currency} {flt(si.grand_total, 2):,.2f}\n"
+        f"CAI: {si.get('cai') or 'N/A'}"
+    )
+    from urllib.parse import quote
+
+    base_url = f"https://wa.me/{clean_phone}" if clean_phone else "https://wa.me/"
+    return {"url": f"{base_url}?text={quote(text)}", "invoice": si.name}
+
+
+@frappe.whitelist()
+def get_self_invoicing_receipt_data(invoice_name):
+    """Return SAR Honduras fiscal receipt metadata and self-invoicing URL when enabled."""
+    _require_pos_user()
+    active_shift = _get_active_opening_shift(frappe.session.user)
+    cfg = _get_effective_rpos_config(active_shift["pos_profile"] if active_shift else None)
+    if not cint(cfg.get("enable_self_invoicing")):
+        frappe.throw(_("La autofacturación está deshabilitada en la configuración del POS."))
+
+    if not invoice_name or not frappe.db.exists("Sales Invoice", invoice_name):
+        frappe.throw(_("La factura solicitada no existe."))
+
+    si = frappe.get_doc("Sales Invoice", invoice_name)
+    si.check_permission("read")
+    return {
+        "invoice": si.name,
+        "company": si.company,
+        "customer": si.customer_name,
+        "tax_id": si.tax_id or "",
+        "cai": si.get("cai") or "",
+        "due_date_cai": cstr(si.get("due_date_cai") or ""),
+        "grand_total": flt(si.grand_total, 2),
+        "currency": si.currency,
+        "portal_url": frappe.utils.get_url(f"/app/sales-invoice/{si.name}"),
+    }
+
+
+
+

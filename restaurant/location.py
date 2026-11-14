@@ -1,6 +1,5 @@
 """Restaurant area editor using native Frappe document persistence."""
 
-from decimal import Decimal, InvalidOperation
 from pathlib import PurePosixPath
 import re
 from urllib.parse import unquote, urlsplit
@@ -8,6 +7,12 @@ from urllib.parse import unquote, urlsplit
 import frappe
 from frappe import _
 from frappe.utils import cstr
+
+from restaurant.utils import (
+    check_readable_link as _check_readable_link,
+    parse_whole_number as _whole_number,
+    validate_bool_flag as _check_value,
+)
 
 from restaurant.table_management import (
     ALLOWED_BACKGROUNDS,
@@ -168,34 +173,6 @@ def validate_area(doc, method=None):
 def _require_create_permission():
     if not frappe.has_permission(DOCTYPE, "create"):
         frappe.throw(_("No tienes permiso para crear áreas del restaurante."), frappe.PermissionError)
-
-
-def _whole_number(value, label, minimum):
-    try:
-        number = Decimal(str(value))
-        if isinstance(value, bool) or not number.is_finite() or number != number.to_integral_value():
-            raise InvalidOperation
-        if number < minimum or number > 2147483647:
-            raise InvalidOperation
-    except (InvalidOperation, TypeError, ValueError):
-        frappe.throw(_("{0} debe ser un número entero mayor o igual a {1}.").format(label, minimum))
-    return int(number)
-
-
-def _check_value(value, label):
-    if value not in (0, 1, "0", "1", False, True):
-        frappe.throw(_("El valor de {0} no es válido.").format(label))
-    return int(value)
-
-
-def _check_readable_link(doctype, name):
-    doc = frappe.get_doc(doctype, name)
-    allowed = frappe.has_permission(doctype, "read", doc=doc)
-    if doctype in ("Branch", "Employee"):
-        allowed = allowed or frappe.has_permission(doctype, "select", doc=doc)
-    if not allowed or not frappe.permissions.has_user_permission(doc):
-        frappe.throw(_("No tienes permiso para seleccionar ese registro."), frappe.PermissionError)
-    return doc
 
 
 def _validate_image(file_url):

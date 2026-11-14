@@ -182,7 +182,7 @@ def validate_managed_bundle(doc, method=None):
         frappe.throw(_("La receta debe contener entre 1 y 100 componentes."))
     components = set()
     for row in doc.items:
-        ingredient, quantity, factor = _component(item.name, row.item_code, row.qty, row.uom)
+        ingredient, _qty, _uom = _component(item.name, row.item_code, row.qty, row.uom)
         if row.uom and row.uom != ingredient.stock_uom:
             frappe.throw(_("Los componentes de la receta nativa deben guardarse en su unidad de inventario."))
         if ingredient.name in components:
@@ -248,7 +248,7 @@ def validate_option_group(doc):
         if not cint(item.get("restaurant_recipe_enabled")) or not bundle or not base_items:
             frappe.throw(_("Las opciones que afectan componentes requieren una receta configurada y habilitada."))
         bundle.check_permission("read")
-        ingredient, input_quantity, input_factor = _component(item.name, row.item_code, row.qty, row.uom)
+        ingredient, _qty, _uom = _component(item.name, row.item_code, row.qty, row.uom)
         row.uom = row.uom or ingredient.stock_uom
         if row.effect == "Sustituir componente":
             if not row.replaces_item or row.replaces_item not in base_items:

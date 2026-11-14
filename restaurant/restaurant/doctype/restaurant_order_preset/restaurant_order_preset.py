@@ -5,11 +5,11 @@ import frappe
 from frappe.model.document import Document
 
 class RestaurantOrderPreset(Document):
-    def validate(self):
+    def on_update(self):
         if self.is_default:
             # Only one default preset allowed
             frappe.db.sql(
                 "UPDATE `tabRestaurant Order Preset` SET is_default = 0 WHERE name != %s",
-                self.name or ""
+                self.name or "",
             )
 
