@@ -1,0 +1,128 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "autoname": "field:denomination_label",
+ "creation": "2026-11-12 23:45:00.000000",
+ "custom": 0,
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "denomination_label",
+  "currency",
+  "denomination_type",
+  "column_break_1",
+  "unit_value",
+  "sort_order",
+  "enabled"
+ ],
+ "fields": [
+  {
+   "fieldname": "denomination_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Etiqueta",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "HNL",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Moneda",
+   "options": "Currency",
+   "reqd": 1
+  },
+  {
+   "default": "Billete",
+   "fieldname": "denomination_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Tipo",
+   "options": "Billete\nMoneda",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "unit_value",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Valor unitario",
+   "non_negative": 1,
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "default": "10",
+   "fieldname": "sort_order",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Orden de visualización"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Habilitado"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-11-12 23:45:00.000000",
+ "modified_by": "Administrator",
+ "module": "Restaurant",
+ "name": "Restaurant Cash Denomination",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "import": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "import": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Restaurant Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "read": 1,
+   "role": "Restaurant Cashier",
+   "select": 1
+  },
+  {
+   "read": 1,
+   "role": "Restaurant Direct Cashier",
+   "select": 1
+  }
+ ],
+ "sort_field": "sort_order",
+ "sort_order": "ASC",
+ "states": []
+}
+

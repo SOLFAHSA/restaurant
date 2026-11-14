@@ -1,0 +1,105 @@
+{
+ "actions": [],
+ "creation": "2026-11-11 21:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "mode_of_payment",
+  "opening_amount",
+  "sales_amount",
+  "income_amount",
+  "expense_amount",
+  "expected_amount",
+  "counted_amount",
+  "difference",
+  "reference_note"
+ ],
+ "fields": [
+  {
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Método de pago",
+   "options": "Mode of Payment",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "opening_amount",
+   "fieldtype": "Currency",
+   "label": "Apertura",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "sales_amount",
+   "fieldtype": "Currency",
+   "label": "Ventas",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "income_amount",
+   "fieldtype": "Currency",
+   "label": "Ingresos",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "expense_amount",
+   "fieldtype": "Currency",
+   "label": "Egresos",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "expected_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Monto esperado",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "counted_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Monto contado",
+   "non_negative": 1,
+   "options": "currency"
+  },
+  {
+   "default": "0",
+   "fieldname": "difference",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Diferencia",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_note",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Referencia / Lote"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-11 22:35:00.000000",
+ "modified_by": "Administrator",
+ "module": "Restaurant",
+ "name": "Restaurant Cash Count Method",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
+

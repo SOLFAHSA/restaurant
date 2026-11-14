@@ -1,0 +1,68 @@
+{
+ "actions": [],
+ "creation": "2026-11-11 21:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "cash_movement_ref",
+  "movement_type",
+  "amount",
+  "note",
+  "posting_time"
+ ],
+ "fields": [
+  {
+   "fieldname": "cash_movement_ref",
+   "fieldtype": "Link",
+   "label": "Movimiento de caja",
+   "options": "Retiro de efectivo",
+   "read_only": 1
+  },
+  {
+   "default": "Retiro",
+   "fieldname": "movement_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Tipo",
+   "options": "Ingreso\nRetiro",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Monto",
+   "non_negative": 1,
+   "options": "currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "note",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Motivo / Descripción",
+   "reqd": 1
+  },
+  {
+   "fieldname": "posting_time",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Fecha y hora",
+   "read_only": 1
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-11 21:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Restaurant",
+ "name": "Restaurant Cash Count Movement",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
+

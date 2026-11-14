@@ -1,0 +1,72 @@
+{
+ "actions": [],
+ "creation": "2026-11-11 22:30:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "mode_of_payment",
+  "detail_kind",
+  "pos_terminal",
+  "bank_name",
+  "reference",
+  "amount"
+ ],
+ "fields": [
+  {
+   "fieldname": "mode_of_payment",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Método de pago",
+   "options": "Mode of Payment",
+   "reqd": 1
+  },
+  {
+   "default": "Tarjeta",
+   "fieldname": "detail_kind",
+   "fieldtype": "Select",
+   "label": "Tipo de detalle",
+   "options": "Tarjeta\nTransferencia\nOtro",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pos_terminal",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "POS"
+  },
+  {
+   "fieldname": "bank_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Nombre del Banco"
+  },
+  {
+   "fieldname": "reference",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Referencia"
+  },
+  {
+   "default": "0",
+   "fieldname": "amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Monto",
+   "non_negative": 1,
+   "options": "currency"
+  }
+ ],
+ "istable": 1,
+ "links": [],
+ "modified": "2026-11-11 22:30:00.000000",
+ "modified_by": "Administrator",
+ "module": "Restaurant",
+ "name": "Restaurant Cash Count Payment Detail",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
+

@@ -1,0 +1,387 @@
+{
+ "actions": [],
+ "allow_import": 1,
+ "autoname": "ARQ-.YYYY.-.#####",
+ "creation": "2026-11-11 21:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "section_shift",
+  "count_type",
+  "status",
+  "posting_date",
+  "pos_opening_shift",
+  "column_break_shift",
+  "pos_profile",
+  "company",
+  "currency",
+  "cashier",
+  "cashier_name",
+  "pos_closing_shift",
+  "section_denominations",
+  "denominations",
+  "column_break_cash_totals",
+  "cash_bills_total",
+  "cash_coins_total",
+  "cash_counted_total",
+  "section_methods",
+  "payment_methods",
+  "section_payment_details",
+  "payment_details",
+  "section_movements",
+  "cash_movements",
+  "column_break_movements",
+  "total_income",
+  "total_expense",
+  "net_cash_movement",
+  "section_summary",
+  "invoice_count",
+  "total_sales",
+  "column_break_summary",
+  "total_expected",
+  "total_counted",
+  "total_difference",
+  "section_notes",
+  "notes",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_shift",
+   "fieldtype": "Section Break",
+   "label": "Datos del Turno"
+  },
+  {
+   "default": "Arqueo de Cierre",
+   "fieldname": "count_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Tipo de Arqueo",
+   "options": "Arqueo Parcial\nArqueo de Cierre",
+   "reqd": 1
+  },
+  {
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Resultado del Arqueo",
+   "options": "Cuadrado\nSobrante\nFaltante",
+   "read_only": 1
+  },
+  {
+   "default": "Now",
+   "fieldname": "posting_date",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Fecha y Hora de Arqueo",
+   "reqd": 1
+  },
+  {
+   "fieldname": "pos_opening_shift",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Turno de Apertura POS",
+   "options": "POS Opening Shift",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_shift",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "pos_profile",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Perfil POS",
+   "options": "POS Profile",
+   "read_only": 1
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "label": "Empresa",
+   "options": "Company",
+   "read_only": 1
+  },
+  {
+   "default": "HNL",
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "label": "Moneda",
+   "options": "Currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cashier",
+   "fieldtype": "Link",
+   "label": "Usuario Cajero",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cashier_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Nombre del Cajero",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "pos_closing_shift",
+   "fieldtype": "Link",
+   "label": "Cierre de Turno POS Generado",
+   "options": "POS Closing Shift",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_denominations",
+   "fieldtype": "Section Break",
+   "label": "Conteo Físico de Efectivo por Denominación (HNL)"
+  },
+  {
+   "fieldname": "denominations",
+   "fieldtype": "Table",
+   "label": "Denominaciones de Efectivo",
+   "options": "Restaurant Cash Count Denomination"
+  },
+  {
+   "fieldname": "column_break_cash_totals",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "cash_bills_total",
+   "fieldtype": "Currency",
+   "label": "Total en Billetes",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cash_coins_total",
+   "fieldtype": "Currency",
+   "hidden": 1,
+   "label": "Total en Monedas",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "cash_counted_total",
+   "fieldtype": "Currency",
+   "label": "Total Efectivo Físico Contado",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_methods",
+   "fieldtype": "Section Break",
+   "label": "Conciliación por Método de Pago"
+  },
+  {
+   "fieldname": "payment_methods",
+   "fieldtype": "Table",
+   "label": "Métodos de Pago",
+   "options": "Restaurant Cash Count Method"
+  },
+  {
+   "fieldname": "section_payment_details",
+   "fieldtype": "Section Break",
+   "label": "Detalle por Método de Pago (POS / Bancos)"
+  },
+  {
+   "fieldname": "payment_details",
+   "fieldtype": "Table",
+   "label": "Detalle de Tarjetas, Transferencias y Otros",
+   "options": "Restaurant Cash Count Payment Detail"
+  },
+  {
+   "fieldname": "section_movements",
+   "fieldtype": "Section Break",
+   "label": "Movimientos de Efectivo del Turno (Ingresos / Egresos)"
+  },
+  {
+   "fieldname": "cash_movements",
+   "fieldtype": "Table",
+   "label": "Ingresos y Retiros Importados",
+   "options": "Restaurant Cash Count Movement",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_movements",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "total_income",
+   "fieldtype": "Currency",
+   "label": "Total Ingresos Extra",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_expense",
+   "fieldtype": "Currency",
+   "label": "Total Egresos / Retiros",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "net_cash_movement",
+   "fieldtype": "Currency",
+   "label": "Movimiento Neto de Efectivo",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_summary",
+   "fieldtype": "Section Break",
+   "label": "Resumen Comparativo del Arqueo"
+  },
+  {
+   "fieldname": "invoice_count",
+   "fieldtype": "Int",
+   "label": "Cantidad de Facturas",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_sales",
+   "fieldtype": "Currency",
+   "label": "Total Ventas Facturadas",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_summary",
+   "fieldtype": "Column Break"
+  },
+  {
+   "bold": 1,
+   "fieldname": "total_expected",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Esperado en Sistema",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "total_counted",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Total Contado en Arqueo",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "bold": 1,
+   "fieldname": "total_difference",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Diferencia (Sobrante / Faltante)",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_notes",
+   "fieldtype": "Section Break",
+   "label": "Observaciones"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notas del Arqueo"
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Restaurant Cash Count",
+   "print_hide": 1,
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-11-11 22:35:00.000000",
+ "modified_by": "Administrator",
+ "module": "Restaurant",
+ "name": "Restaurant Cash Count",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "import": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "import": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Restaurant Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "import": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Restaurant Cashier",
+   "share": 0,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 0,
+   "cancel": 0,
+   "create": 1,
+   "delete": 0,
+   "email": 1,
+   "export": 1,
+   "import": 0,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Restaurant Direct Cashier",
+   "share": 0,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "cashier_name",
+ "track_changes": 1
+}
+
