@@ -27,7 +27,8 @@
    "options": "Restaurant Preparation Display",
    "reqd": 1,
    "in_list_view": 1,
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "restaurant_order",
@@ -36,7 +37,8 @@
    "options": "Restaurant Order",
    "reqd": 1,
    "in_list_view": 1,
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "stage_index",

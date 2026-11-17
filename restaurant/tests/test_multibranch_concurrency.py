@@ -97,7 +97,6 @@ class TestQAMultiBranchConcurrency(FrappeTestCase):
         with self.assertRaises(frappe.TimestampMismatchError):
             kds._check_expected_stage({"stages": [{"name": "Listo"}], "stage_index": 0}, "En preparación")
 
-    @unittest.expectedFailure
     def test_save_pos_order_requires_fresh_modified_when_updating(self):
         """DEF-MB-003: save_pos_order ignores stale 'modified' if 'expected_modified' is omitted."""
         item = self._make_item()
@@ -118,7 +117,6 @@ class TestQAMultiBranchConcurrency(FrappeTestCase):
                 "items": [{"item_code": item, "qty": 2, "base_rate": 120.0}],
             })
 
-    @unittest.expectedFailure
     def test_transfer_account_blocks_cross_branch_table(self):
         """DEF-MB-008: transfer_account currently allows moving an order to a table in another Branch."""
         branch_a = self._make_branch("SucursalA")

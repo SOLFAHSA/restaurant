@@ -72,7 +72,7 @@ def _enforce_pin_rate_limit(scope_key, max_attempts=5, window_seconds=300):
     """Block repeated failed PIN attempts for a user/target scope using Frappe cache."""
     cache = frappe.cache()
     cache_key = f"rpos_pin_fail:{frappe.session.user}:{scope_key}"
-    attempts = cint(cache.get_value(cache_key) or 0)
+    attempts = cint(cache.get_value(cache_key, expires=True) or 0)
     if attempts >= max_attempts:
         frappe.throw(
             _("Demasiados intentos fallidos de PIN. Espera unos minutos antes de intentar de nuevo."),
@@ -84,7 +84,7 @@ def _enforce_pin_rate_limit(scope_key, max_attempts=5, window_seconds=300):
 def _record_pin_failure(cache_key, window_seconds=300):
     """Increment failed PIN attempt counter in Frappe cache."""
     cache = frappe.cache()
-    attempts = cint(cache.get_value(cache_key) or 0) + 1
+    attempts = cint(cache.get_value(cache_key, expires=True) or 0) + 1
     cache.set_value(cache_key, attempts, expires_in_sec=window_seconds)
 
 
@@ -180,7 +180,10 @@ def _get_active_opening_shift(user=None):
 
 
 def _resolve_command_map():
-    """Map Item Group names to configured Restaurant Command station names."""
+    """Map Item Group names to configured Restaurant Command station names in 2 batch queries."""
+    cached = getattr(frappe.local, "_restaurant_command_map_cache", None)
+    if cached is not None:
+        return {k: list(v) for k, v in cached.items()}
     mapping = {}
     if not frappe.db.exists("DocType", "Restaurant Command"):
         return mapping
@@ -190,15 +193,20 @@ def _resolve_command_map():
         fields=["name", "command_name", "branch"],
         order_by="command_name asc",
     )
-    for cmd in commands:
+    if commands:
+        cmd_by_name = {cmd.name: cmd.command_name for cmd in commands}
         rows = frappe.get_all(
             "Restaurant Command Group",
-            filters={"parent": cmd.name, "parenttype": "Restaurant Command"},
-            fields=["item_group"],
+            filters={"parent": ["in", list(cmd_by_name.keys())], "parenttype": "Restaurant Command"},
+            fields=["parent", "item_group"],
+            limit_page_length=1000,
         )
         for row in rows:
-            mapping.setdefault(row.item_group, []).append(cmd.command_name)
-    return mapping
+            station_name = cmd_by_name.get(row.parent)
+            if station_name and row.item_group:
+                mapping.setdefault(row.item_group, []).append(station_name)
+    frappe.local._restaurant_command_map_cache = mapping
+    return {k: list(v) for k, v in mapping.items()}
 
 
 def _tax_rate_from_templates(template_names):
@@ -301,6 +309,41 @@ def validate_order(doc):
             if doc.company
             else "HNL"
         ) or "HNL"
+
+    # Resolve and validate multi-branch ownership (Table -> Area -> POS Profile -> Shift -> User).
+    table_branch = (
+        frappe.db.get_value("Restaurant Table", doc.restaurant_table, "branch")
+        if doc.restaurant_table and frappe.db.has_column("Restaurant Table", "branch")
+        else ""
+    ) or ""
+    area_branch = (
+        frappe.db.get_value("Restaurant Area", doc.restaurant_area, "branch")
+        if doc.restaurant_area and frappe.db.has_column("Restaurant Area", "branch")
+        else ""
+    ) or ""
+    prof_branch = (
+        frappe.db.get_value("POS Profile", doc.pos_profile, "branch")
+        if doc.pos_profile and frappe.db.has_column("POS Profile", "branch")
+        else ""
+    ) or ""
+    if not prof_branch and doc.pos_opening_shift:
+        shift_prof = frappe.db.get_value("POS Opening Shift", doc.pos_opening_shift, "pos_profile")
+        if shift_prof and frappe.db.has_column("POS Profile", "branch"):
+            prof_branch = frappe.db.get_value("POS Profile", shift_prof, "branch") or ""
+    loc_branch = table_branch or area_branch
+    if loc_branch and prof_branch and loc_branch != prof_branch:
+        frappe.throw(
+            _("La mesa o área seleccionada pertenece a la sucursal '{0}', distinta a la caja ({1}).").format(
+                loc_branch, prof_branch
+            ),
+            frappe.ValidationError,
+        )
+    resolved_branch = loc_branch or prof_branch or _get_active_user_branch() or ""
+    if meta.has_field("branch"):
+        if resolved_branch:
+            doc.branch = resolved_branch
+        elif doc.get("branch"):
+            doc.branch = cstr(doc.get("branch")).strip()
 
     if not doc.is_new() and not frappe.flags.get("in_restaurant_supervisor_cancel") and not frappe.flags.get("in_restaurant_order_operation"):
         before = doc.get_doc_before_save()
@@ -535,11 +578,114 @@ def sync_table_status_for_order(doc, deleted=False):
             frappe.db.set_value("Restaurant Table", table_name, "status", target_status)
 
 
-def _serialize_order(doc):
+def build_order_serialization_context(docs):
+    """Prefetch waiter/pin/cashier lookup maps once for a batch of Restaurant Orders."""
+    doc_list = [d for d in (docs or []) if d]
+    linked_emp = get_linked_employee_for_user()
+    waiter_only = is_waiter_only()
+
+    waiter_has_pin = set()
+    if waiter_only and not linked_emp:
+        waiter_ids = sorted({
+            d.waiter for d in doc_list
+            if getattr(d, "waiter", None) and getattr(d, "status", None) not in ("Facturada", "Cancelada")
+        })
+        if waiter_ids:
+            try:
+                auth_rows = frappe.db.sql(
+                    """
+                    SELECT DISTINCT name FROM `__Auth`
+                    WHERE doctype = 'Employee' AND fieldname = 'restaurant_pos_pin'
+                      AND name IN %s
+                    """,
+                    (tuple(waiter_ids),),
+                )
+                waiter_has_pin = {r[0] for r in (auth_rows or []) if r and r[0]}
+            except Exception:
+                waiter_has_pin = {wid for wid in waiter_ids if employee_has_pin(wid)}
+
+    cashier_ids = sorted({d.cashier for d in doc_list if getattr(d, "cashier", None)})
+    cashier_names = {}
+    if cashier_ids:
+        for urow in frappe.get_all("User", filters={"name": ["in", cashier_ids]}, fields=["name", "full_name"]):
+            cashier_names[urow.name] = urow.full_name or urow.name
+
+    return {
+        "linked_emp": linked_emp,
+        "waiter_only": waiter_only,
+        "waiter_has_pin": waiter_has_pin,
+        "cashier_names": cashier_names,
+    }
+
+
+class _BatchOrderObj:
+    """Attribute-safe batch container for Restaurant Order without dict.items() collision."""
+
+    def __init__(self, row, items):
+        self.__dict__.update(row)
+        self.items = list(items or [])
+
+    def get(self, key, default=None):
+        return self.__dict__.get(key, default)
+
+
+def _load_orders_batch(filters=None, order_by="modified desc", limit_page_length=100, use_list_perms=True):
+    """Fetch Restaurant Orders and their child items in exactly 2 batched SQL queries."""
+    meta = frappe.get_meta("Restaurant Order")
+    candidate_fields = [
+        "name", "order_name", "reference_note", "status", "service_type",
+        "restaurant_area", "restaurant_table", "table_label", "branch", "guests",
+        "waiter", "waiter_name", "customer", "customer_name", "tax_id",
+        "pos_profile", "pos_opening_shift", "cashier", "company", "currency",
+        "selling_price_list", "kds_status", "sent_to_kitchen_at", "scheduled_time",
+        "customer_note", "precuenta_printed", "subtotal", "taxed_amount_15",
+        "isv_15", "taxed_amount_18", "isv_18", "exempt_amount", "tax_amount",
+        "tip_percentage", "tip_amount", "grand_total", "sales_invoice", "cai",
+        "due_date_cai", "creation", "modified", "docstatus",
+    ]
+    fields = [f for f in candidate_fields if f in ("name", "creation", "modified", "docstatus") or meta.has_field(f)]
+    getter = frappe.get_list if use_list_perms else frappe.get_all
+    rows = getter(
+        "Restaurant Order",
+        filters=filters or {},
+        fields=fields,
+        order_by=order_by,
+        limit_page_length=limit_page_length,
+    )
+    if not rows:
+        return []
+
+    order_names = [r.name for r in rows]
+    item_meta = frappe.get_meta("Restaurant Order Item")
+    item_candidate_fields = [
+        "name", "parent", "idx", "item_code", "item_name", "item_group", "qty", "uom",
+        "base_rate", "options_rate", "discount_percentage", "rate", "amount", "tax_rate",
+        "options_summary", "selected_options_json", "note", "command_station", "kds_status",
+        "is_cancelled", "cancelled_qty", "cancellation_reason", "cancelled_by",
+        "cancelled_by_supervisor", "cancelled_at",
+    ]
+    item_fields = [
+        f for f in item_candidate_fields
+        if f in ("name", "parent", "idx") or item_meta.has_field(f)
+    ]
+    item_rows = frappe.get_all(
+        "Restaurant Order Item",
+        filters={"parent": ["in", order_names], "parenttype": "Restaurant Order"},
+        fields=item_fields,
+        order_by="idx asc",
+        limit_page_length=5000,
+    )
+    items_by_parent = {}
+    for irow in item_rows:
+        items_by_parent.setdefault(irow.parent, []).append(irow)
+    return [_BatchOrderObj(row, items_by_parent.get(row.name, [])) for row in rows]
+
+
+def _serialize_order(doc, serial_ctx=None):
     if isinstance(doc, str):
         doc = frappe.get_doc("Restaurant Order", doc)
     items = []
-    for row in (doc.items or []):
+    for row in (doc.get("items") if hasattr(doc, "get") else getattr(doc, "items", [])) or []:
         selected_options = []
         if row.selected_options_json:
             try:
@@ -572,15 +718,32 @@ def _serialize_order(doc):
             "cancelled_by_supervisor": cstr(getattr(row, "cancelled_by_supervisor", "") or ""),
             "cancelled_at": cstr(getattr(row, "cancelled_at", "") or ""),
         })
-    created_dt = get_datetime(doc.creation) if doc.creation else now_datetime()
-    elapsed_mins = max(0, int((now_datetime() - created_dt).total_seconds() // 60))
-    linked_emp = get_linked_employee_for_user()
+    now_dt = now_datetime()
+    created_dt = get_datetime(doc.creation) if doc.creation else now_dt
+    elapsed_mins = max(0, int((now_dt - created_dt).total_seconds() // 60))
+    if serial_ctx is not None:
+        linked_emp = serial_ctx["linked_emp"]
+        waiter_only = serial_ctx["waiter_only"]
+        waiter_pin_ok = bool(doc.waiter and doc.waiter in serial_ctx["waiter_has_pin"])
+        cashier_name = serial_ctx["cashier_names"].get(doc.cashier, "") if doc.cashier else ""
+    else:
+        linked_emp = get_linked_employee_for_user()
+        waiter_only = is_waiter_only()
+        waiter_pin_ok = bool(
+            doc.waiter
+            and waiter_only
+            and not linked_emp
+            and doc.status not in ("Facturada", "Cancelada")
+            and employee_has_pin(doc.waiter)
+        )
+        cashier_name = get_fullname(doc.cashier) if doc.cashier else ""
+
     requires_pin_unlock = bool(
         doc.waiter
-        and is_waiter_only()
+        and waiter_only
         and not linked_emp
         and doc.status not in ("Facturada", "Cancelada")
-        and employee_has_pin(doc.waiter)
+        and waiter_pin_ok
         and not is_order_unlocked_for_session(doc.name)
     )
     return {
@@ -592,6 +755,7 @@ def _serialize_order(doc):
         "restaurant_area": doc.restaurant_area or "",
         "restaurant_table": doc.restaurant_table or "",
         "table_label": doc.table_label or "",
+        "branch": getattr(doc, "branch", "") or "",
         "guests": cint(doc.guests or 1),
         "waiter": doc.waiter or "",
         "waiter_name": doc.waiter_name or "",
@@ -601,7 +765,7 @@ def _serialize_order(doc):
         "pos_profile": doc.pos_profile or "",
         "pos_opening_shift": doc.pos_opening_shift or "",
         "cashier": doc.cashier or "",
-        "cashier_name": get_fullname(doc.cashier) if doc.cashier else "",
+        "cashier_name": cashier_name,
         "company": doc.company or "",
         "currency": doc.currency or "HNL",
         "selling_price_list": doc.selling_price_list or "",
@@ -666,7 +830,7 @@ def _get_effective_rpos_config(pos_profile=None):
         "enabled_payments": [],
         "auto_validate_orders": 1,
         "tips_enabled": 1,
-        "enable_rounded_total": 1,
+        "enable_rounded_total": 0,
         "show_product_images": 1,
         "show_category_images": 1,
         "group_by_category": 0,
@@ -738,7 +902,11 @@ def _get_effective_rpos_config(pos_profile=None):
         if frappe.db.exists("POS Profile", pos_profile):
             prof_doc = frappe.get_doc("POS Profile", pos_profile)
             cfg["show_product_images"] = 0 if cint(prof_doc.hide_images) else cint(cfg.get("show_product_images", 1))
-            cfg["enable_rounded_total"] = 0 if cint(prof_doc.disable_rounded_total) else 1
+            cfg["enable_rounded_total"] = (
+                0
+                if (cint(prof_doc.disable_rounded_total) or not cint(cfg.get("enable_rounded_total", 0)))
+                else 1
+            )
             if prof_doc.payments:
                 cfg["enabled_payments"] = [row.mode_of_payment for row in prof_doc.payments if row.mode_of_payment]
 
@@ -946,16 +1114,21 @@ def _get_catalog_for_pos(selling_price_list=None, allowed_categories=None):
     return categories, items
 
 
-def _get_areas_with_live_tables():
+def _get_areas_with_live_tables(branch=None):
     """Return active Restaurant Areas with floor map elements and live table order status."""
     from restaurant.table_management import parse_area_layout
 
     if not frappe.has_permission("Restaurant Area", "read"):
         return []
 
+    effective_branch = _get_active_user_branch() if branch is None else branch
+    area_filters = {"status": "Activa"}
+    if effective_branch:
+        area_filters["branch"] = effective_branch
+
     areas = frappe.get_list(
         "Restaurant Area",
-        filters={"status": "Activa"},
+        filters=area_filters,
         fields=[
             "name",
             "area_name",
@@ -973,9 +1146,13 @@ def _get_areas_with_live_tables():
     if not areas:
         return []
 
+    open_order_filters = {"status": "En curso"}
+    if effective_branch and frappe.get_meta("Restaurant Order").has_field("branch"):
+        open_order_filters["branch"] = effective_branch
+
     open_orders = frappe.get_all(
         "Restaurant Order",
-        filters={"status": "En curso"},
+        filters=open_order_filters,
         fields=[
             "name",
             "order_name",
@@ -1077,7 +1254,10 @@ def _resolve_sar_fiscal_info(pos_profile=None, company=None):
     final_num = ""
 
     if frappe.db.exists("DocType", "CAI"):
+        cai_meta = frappe.get_meta("CAI")
         cai_filters = {"status": "Active"}
+        if company and cai_meta.has_field("company"):
+            cai_filters["company"] = company
         if prefix:
             cai_filters["prefix"] = prefix
         cai_rows = frappe.get_all(
@@ -1088,9 +1268,12 @@ def _resolve_sar_fiscal_info(pos_profile=None, company=None):
             limit=1,
         )
         if not cai_rows and prefix:
+            fallback_filters = {"status": "Active"}
+            if company and cai_meta.has_field("company"):
+                fallback_filters["company"] = company
             cai_rows = frappe.get_all(
                 "CAI",
-                filters={"status": "Active"},
+                filters=fallback_filters,
                 fields=["cai", "issue_deadline", "initial_number", "final_number", "prefix"],
                 order_by="creation desc",
                 limit=1,
@@ -1148,7 +1331,11 @@ def get_pos_bootstrap(area_name=None):
     prof_meta = frappe.get_meta("POS Profile")
     prof_fields = ["name", "company", "currency", "selling_price_list", "warehouse", "customer"]
     optional_prof_fields = (
+        "branch",
         "prefix",
+        "company_address",
+        "print_format",
+        "disable_rounded_total",
         "hide_expected_amount",
         "close_pos_format",
         "cash_movements_format",
@@ -1189,11 +1376,15 @@ def get_pos_bootstrap(area_name=None):
         pos_profiles.append({
             "name": prof.name,
             "company": prof.company,
+            "branch": prof.get("branch") or "",
             "currency": prof.currency or "HNL",
             "selling_price_list": prof.selling_price_list or "Venta estándar",
             "warehouse": prof.warehouse or "",
             "default_customer": prof.customer or default_customer_fallback,
             "prefix": prof.get("prefix") or "",
+            "company_address": prof.get("company_address") or "",
+            "print_format": prof.get("print_format") or "Ticket",
+            "disable_rounded_total": cint(prof.get("disable_rounded_total") if prof.get("disable_rounded_total") is not None else 1),
             "hide_expected_amount": cint(prof.get("hide_expected_amount") or 0),
             "close_pos_format": prof.get("close_pos_format") or "",
             "cash_movements_format": prof.get("cash_movements_format") or "",
@@ -1205,6 +1396,9 @@ def get_pos_bootstrap(area_name=None):
     companies_list = sorted({prof["company"] for prof in pos_profiles if prof.get("company")})
     if not companies_list and company:
         companies_list = [company]
+
+    linked_waiter = get_linked_employee_for_user()
+    active_branch = _get_active_user_branch(opening_shift=opening_shift, linked_waiter=linked_waiter)
 
     active_prof_name = (
         opening_shift["pos_profile"]
@@ -1222,18 +1416,31 @@ def get_pos_bootstrap(area_name=None):
         default_profile.selling_price_list if default_profile else "Venta estándar"
     )
     categories, items = _get_catalog_for_pos(active_price_list, allowed_categories=allowed_cats)
-    areas = _get_areas_with_live_tables()
+    areas = _get_areas_with_live_tables(branch=active_branch)
 
+    waiter_filters = {"designation": "Mesero", "status": "Active"}
+    if active_branch:
+        waiter_filters["branch"] = ["in", [active_branch, "", None]]
     waiters = frappe.get_all(
         "Employee",
-        filters={"designation": "Mesero", "status": "Active"},
+        filters=waiter_filters,
         fields=["name", "employee_name", "branch"],
         order_by="employee_name asc",
     )
 
     cust_meta = frappe.get_meta("Customer")
     cust_fields = ["name", "customer_name", "tax_id", "default_price_list"]
-    for extra_cf in ("email_id", "mobile_no", "primary_address", "territory"):
+    for extra_cf in (
+        "email_id",
+        "mobile_no",
+        "primary_address",
+        "territory",
+        "tax_category",
+        "custom_subtipo_exonerado",
+        "custom_constancia_exonerado",
+        "custom_carnet_diplomatico",
+        "custom_registro_sag",
+    ):
         if cust_meta.has_field(extra_cf):
             cust_fields.append(extra_cf)
 
@@ -1251,6 +1458,11 @@ def get_pos_bootstrap(area_name=None):
             "name": c.name,
             "customer_name": c.customer_name,
             "tax_id": c.tax_id or "",
+            "tax_category": cstr(c.get("tax_category") or "Contribuyente"),
+            "custom_subtipo_exonerado": cstr(c.get("custom_subtipo_exonerado") or ""),
+            "custom_constancia_exonerado": cstr(c.get("custom_constancia_exonerado") or ""),
+            "custom_carnet_diplomatico": cstr(c.get("custom_carnet_diplomatico") or ""),
+            "custom_registro_sag": cstr(c.get("custom_registro_sag") or ""),
             "default_price_list": c.default_price_list or "",
             "email_id": cstr(c.get("email_id") or ""),
             "mobile_no": cstr(c.get("mobile_no") or ""),
@@ -1275,8 +1487,6 @@ def get_pos_bootstrap(area_name=None):
     )
 
 
-    linked_waiter = get_linked_employee_for_user()
-    active_branch = _get_active_user_branch(opening_shift=opening_shift, linked_waiter=linked_waiter)
     waiter_only = is_waiter_only()
     can_invoice = user_can_invoice()
     supervisor_flag = is_supervisor()
@@ -1291,21 +1501,14 @@ def get_pos_bootstrap(area_name=None):
     if waiter_only and linked_waiter:
         order_filters["waiter"] = linked_waiter["name"]
 
-    order_docs = frappe.get_all(
-        "Restaurant Order",
+    order_docs = _load_orders_batch(
         filters=order_filters,
-        fields=["name", "order_name"],
         order_by="modified desc",
         limit_page_length=100,
+        use_list_perms=True,
     )
-    for row in order_docs:
-        raw_oname = cstr(row.order_name or "").strip()
-        if re.match(r"^orden\s+\d+", raw_oname, flags=re.IGNORECASE):
-            m_seq = re.search(r"(\d+)$", cstr(row.name or ""))
-            if m_seq:
-                clean_seq = str(1000 + cint(m_seq.group(1)))
-                frappe.db.set_value("Restaurant Order", row.name, "order_name", clean_seq, update_modified=False)
-    orders = [_serialize_order(row.name) for row in order_docs]
+    serial_ctx = build_order_serialization_context(order_docs)
+    orders = [_serialize_order(row, serial_ctx=serial_ctx) for row in order_docs]
 
     fiscal_info = _resolve_sar_fiscal_info(pos_profile=active_prof_name, company=company)
 
@@ -1323,6 +1526,7 @@ def get_pos_bootstrap(area_name=None):
             "user": frappe.session.user,
             "full_name": get_fullname(frappe.session.user),
         },
+        "active_branch": active_branch or "",
         "permissions": {
             "can_invoice": can_invoice,
             "is_waiter_only": waiter_only,
@@ -1375,6 +1579,10 @@ def open_pos_shift(pos_profile=None, opening_amount=0, balance_details=None, com
             _("Solo cajeros o supervisores pueden abrir turnos de caja."),
             frappe.PermissionError,
         )
+    frappe.db.sql(
+        "SELECT name FROM `tabPOS Opening Shift` WHERE user = %s AND docstatus = 1 AND status = 'Open' FOR UPDATE",
+        (frappe.session.user,),
+    )
     existing = _get_active_opening_shift(frappe.session.user)
     if existing:
         return existing
@@ -1696,8 +1904,17 @@ def close_pos_shift(pos_opening_shift, closing_amounts=None, note=None):
     doc = frappe.get_doc("POS Opening Shift", pos_opening_shift)
     if doc.docstatus != 1 or doc.status == "Closed":
         frappe.throw(_("Este turno de caja ya se encuentra cerrado."))
+    if doc.user != frappe.session.user and not is_supervisor():
+        frappe.throw(_("Solo el cajero titular o un supervisor puede cerrar este turno."), frappe.PermissionError)
     if doc.user != frappe.session.user and "System Manager" not in frappe.get_roles():
-        frappe.throw(_("Solo el cajero titular o un administrador puede cerrar este turno."), frappe.PermissionError)
+        user_branch = _get_active_user_branch()
+        prof_branch = (
+            frappe.db.get_value("POS Profile", doc.pos_profile, "branch")
+            if doc.pos_profile and frappe.db.has_column("POS Profile", "branch")
+            else None
+        )
+        if user_branch and prof_branch and user_branch != prof_branch:
+            frappe.throw(_("No puedes cerrar un turno de caja perteneciente a otra sucursal."), frappe.PermissionError)
 
     parsed_amounts = {}
     if closing_amounts:
@@ -1783,17 +2000,23 @@ def save_pos_order(order):
 
     order_id = cstr(payload.get("name") or "").strip()
     if order_id:
-        if not frappe.db.exists("Restaurant Order", order_id):
+        if not frappe.db.get_value("Restaurant Order", order_id, "name", for_update=True):
             frappe.throw(_("La cuenta u orden solicitada no existe."), frappe.DoesNotExistError)
-        doc = frappe.get_doc("Restaurant Order", order_id)
+        doc = frappe.get_doc("Restaurant Order", order_id, for_update=True)
         doc.check_permission("write")
         if doc.status == "Facturada":
             frappe.throw(_("Esta orden ya fue facturada y no puede modificarse."))
-        expected_modified = cstr(payload.get("expected_modified") or "").strip()
-        if expected_modified and cstr(doc.modified) != expected_modified:
-            frappe.throw(
-                _("Esta orden fue modificada recientemente por otro usuario. Recarga la cuenta antes de guardar cambios.")
-            )
+        token = cstr(payload.get("expected_modified") or payload.get("modified") or "").strip()
+        if "expected_modified" in payload or "modified" in payload:
+            try:
+                token_matches = bool(token) and get_datetime(token) == get_datetime(doc.modified)
+            except (TypeError, ValueError, OverflowError):
+                token_matches = False
+            if not token_matches:
+                frappe.throw(
+                    _("Esta orden fue modificada recientemente por otro usuario. Recarga la cuenta antes de guardar cambios."),
+                    frappe.TimestampMismatchError,
+                )
     else:
         if not frappe.has_permission("Restaurant Order", "create"):
             frappe.throw(_("No tienes permisos para abrir cuentas u órdenes."), frappe.PermissionError)
@@ -2034,13 +2257,22 @@ def get_command_configs():
         fields=cmd_fields,
         order_by="command_name asc",
     )
+    groups_by_cmd = {}
+    if rows:
+        cmd_names = [r.name for r in rows]
+        group_rows = frappe.get_all(
+            "Restaurant Command Group",
+            filters={"parent": ["in", cmd_names], "parenttype": "Restaurant Command"},
+            fields=["parent", "item_group"],
+            order_by="idx asc",
+            limit_page_length=1000,
+        )
+        for g in group_rows:
+            if g.item_group:
+                groups_by_cmd.setdefault(g.parent, []).append(g.item_group)
     configs = []
     for row in rows:
-        groups = frappe.get_all(
-            "Restaurant Command Group",
-            filters={"parent": row.name, "parenttype": "Restaurant Command"},
-            pluck="item_group",
-        )
+        groups = groups_by_cmd.get(row.name, [])
         configs.append({
             "name": row.name,
             "command_name": row.command_name,
@@ -2375,6 +2607,50 @@ def _resolve_service_income_account(company):
     )
 
 
+def _set_doc_field(doc, fieldname, value):
+    setter = getattr(doc, "set", None)
+    if callable(setter) and not isinstance(doc, dict):
+        setter(fieldname, value)
+    elif isinstance(doc, dict):
+        doc[fieldname] = value
+    else:
+        setattr(doc, fieldname, value)
+
+
+def _get_doc_items(doc):
+    getter = getattr(doc, "get", None)
+    if callable(getter):
+        return getter("items") or []
+    return getattr(doc, "items", []) or []
+
+
+def preserve_restaurant_invoice_taxes(doc, method=None):
+    """Restore Restaurant POS mixed-ISV and exoneration tax maps overwritten during ERPNext validate()."""
+    override = getattr(doc.flags, "restaurant_tax_override", None)
+    if not override:
+        return
+    saved_rates = override.get("item_tax_rates") or []
+    is_exonerated = bool(override.get("is_exonerated"))
+    doc.update_stock = 0
+    if "disable_rounded_total" in override:
+        doc.disable_rounded_total = override["disable_rounded_total"]
+    if doc.meta.has_field("tax_category") and override.get("tax_category"):
+        doc.tax_category = override["tax_category"]
+    if is_exonerated:
+        doc.taxes_and_charges = ""
+        _set_doc_field(doc, "taxes", [])
+        for si_item in _get_doc_items(doc):
+            _set_doc_field(si_item, "item_tax_rate", "{}")
+    else:
+        doc.taxes_and_charges = ""
+        if override.get("taxes") is not None:
+            _set_doc_field(doc, "taxes", [dict(row) for row in override["taxes"]])
+        for idx, si_item in enumerate(_get_doc_items(doc)):
+            if idx < len(saved_rates):
+                _set_doc_field(si_item, "item_tax_rate", saved_rates[idx])
+    doc.calculate_taxes_and_totals()
+
+
 @frappe.whitelist(methods=["POST"])
 def pay_and_invoice_order(
     order_name,
@@ -2392,6 +2668,11 @@ def pay_and_invoice_order(
     gift_card_code=None,
     gift_card_amount=None,
     loyalty_points=None,
+    tax_category=None,
+    custom_orden_compra_exenta=None,
+    custom_constancia_exonerado=None,
+    custom_carnet_diplomatico=None,
+    custom_registro_sag=None,
 ):
     """Emit and submit a native SAR Sales Invoice for a Restaurant Order and free its table."""
     _require_pos_user()
@@ -2447,7 +2728,12 @@ def pay_and_invoice_order(
         doc.customer = customer
     if tax_id is not None:
         doc.tax_id = cstr(tax_id).strip()[:60]
-        if doc.customer and doc.tax_id:
+        if (
+            doc.customer
+            and doc.tax_id
+            and doc.customer.strip().upper() != "CONSUMIDOR FINAL"
+            and frappe.has_permission("Customer", "write")
+        ):
             frappe.db.set_value("Customer", doc.customer, "tax_id", doc.tax_id)
 
     if tip_percentage is not None:
@@ -2473,6 +2759,9 @@ def pay_and_invoice_order(
         else frappe.db.get_value("Company", company, "cost_center")
     )
 
+    tax_acc_15 = _resolve_tax_account(company, 15.0)
+    tax_acc_18 = _resolve_tax_account(company, 18.0)
+
     invoice_items = []
     for row in doc.items:
         if cint(getattr(row, "is_cancelled", 0)) or row.kds_status == "Cancelado":
@@ -2482,10 +2771,25 @@ def pay_and_invoice_order(
             desc_parts.append(f"Opciones: {row.options_summary}")
         if row.note:
             desc_parts.append(f"Nota: {row.note}")
-        item_tax_rate_json = "{}"
-        tax_acc = _resolve_tax_account(company, row.tax_rate)
-        if tax_acc:
-            item_tax_rate_json = json.dumps({tax_acc: flt(row.tax_rate, 2)})
+        row_tax_pct = flt(row.tax_rate, 2)
+        item_tax_map = {}
+        if tax_acc_15 and tax_acc_18 and tax_acc_15 == tax_acc_18:
+            item_tax_map[tax_acc_15] = row_tax_pct
+        else:
+            if row_tax_pct == 15.0 and tax_acc_15:
+                item_tax_map[tax_acc_15] = 15.0
+                if tax_acc_18:
+                    item_tax_map[tax_acc_18] = 0.0
+            elif row_tax_pct == 18.0 and tax_acc_18:
+                item_tax_map[tax_acc_18] = 18.0
+                if tax_acc_15:
+                    item_tax_map[tax_acc_15] = 0.0
+            else:
+                if tax_acc_15:
+                    item_tax_map[tax_acc_15] = 0.0
+                if tax_acc_18:
+                    item_tax_map[tax_acc_18] = 0.0
+        item_tax_rate_json = json.dumps(item_tax_map) if item_tax_map else "{}"
 
         item_entry = {
             "item_code": row.item_code,
@@ -2510,24 +2814,31 @@ def pay_and_invoice_order(
         frappe.throw(_("No hay productos activos por facturar en esta cuenta."))
 
     taxes = []
-    tax_acc_15 = _resolve_tax_account(company, 15.0)
-    if tax_acc_15 and doc.isv_15 > 0:
+    if tax_acc_15 and tax_acc_18 and tax_acc_15 == tax_acc_18 and (doc.isv_15 > 0 or doc.isv_18 > 0):
         taxes.append({
             "charge_type": "On Net Total",
             "account_head": tax_acc_15,
-            "description": "ISV 15%",
-            "rate": 15.0,
+            "description": "ISV",
+            "rate": 0.0,
             "cost_center": cost_center,
         })
-    tax_acc_18 = _resolve_tax_account(company, 18.0)
-    if tax_acc_18 and doc.isv_18 > 0 and tax_acc_18 != tax_acc_15:
-        taxes.append({
-            "charge_type": "On Net Total",
-            "account_head": tax_acc_18,
-            "description": "ISV 18%",
-            "rate": 18.0,
-            "cost_center": cost_center,
-        })
+    else:
+        if tax_acc_15 and doc.isv_15 > 0:
+            taxes.append({
+                "charge_type": "On Net Total",
+                "account_head": tax_acc_15,
+                "description": "ISV 15%",
+                "rate": 0.0,
+                "cost_center": cost_center,
+            })
+        if tax_acc_18 and doc.isv_18 > 0 and tax_acc_18 != tax_acc_15:
+            taxes.append({
+                "charge_type": "On Net Total",
+                "account_head": tax_acc_18,
+                "description": "ISV 18%",
+                "rate": 0.0,
+                "cost_center": cost_center,
+            })
     if doc.tip_amount > 0:
         service_acc = _resolve_service_income_account(company)
         if service_acc:
@@ -2590,11 +2901,23 @@ def pay_and_invoice_order(
     due_cai_value = cstr(fiscal_info["due_date_cai"] or doc.due_date_cai).strip()
     auth_range_value = cstr(fiscal_info["authorized_range"]).strip()
 
-    active_opening_shift = doc.pos_opening_shift
-    if not active_opening_shift:
-        active_shift_info = _get_active_opening_shift(frappe.session.user)
-        if active_shift_info:
-            active_opening_shift = active_shift_info.get("name") or ""
+    # Prefer the billing cashier's active open shift so orders from prior closed shifts bill cleanly
+    # and reconcile in the current cashier's shift/closing count.
+    active_opening_shift = ""
+    active_shift_info = _get_active_opening_shift(frappe.session.user)
+    if active_shift_info:
+        active_opening_shift = active_shift_info.get("name") or ""
+        if active_shift_info.get("pos_profile") and not pos_profile:
+            pos_profile = active_shift_info["pos_profile"]
+    elif doc.pos_opening_shift:
+        shift_row = frappe.db.get_value(
+            "POS Opening Shift",
+            doc.pos_opening_shift,
+            ["name", "status", "docstatus"],
+            as_dict=True,
+        )
+        if shift_row and shift_row.status == "Open" and cint(shift_row.docstatus) == 1:
+            active_opening_shift = shift_row.name
 
     si_payload = {
         "doctype": "Sales Invoice",
@@ -2602,6 +2925,8 @@ def pay_and_invoice_order(
         "customer": doc.customer,
         "tax_id": doc.tax_id or "",
         "posting_date": nowdate(),
+        "posting_time": nowtime(),
+        "set_posting_time": 1,
         "due_date": nowdate(),
         "is_pos": 1,
         "pos_profile": pos_profile,
@@ -2609,6 +2934,7 @@ def pay_and_invoice_order(
         "currency": doc.currency or "HNL",
         "selling_price_list": doc.selling_price_list or (prof_doc.selling_price_list if prof_doc else "Venta estándar"),
         "update_stock": 0,
+        "disable_rounded_total": 1 if not cint(rpos_cfg.get("enable_rounded_total", 0)) else 0,
         "cai": cai_value,
         "due_date_cai": due_cai_value,
         "posa_notes": f"Orden: {doc.order_name} | Mesa: {doc.table_label or 'N/A'} | Mesero: {doc.waiter_name or 'N/A'}",
@@ -2616,6 +2942,9 @@ def pay_and_invoice_order(
         "taxes": taxes,
         "payments": payment_rows,
     }
+    if prof_doc and getattr(prof_doc, "company_address", None):
+        si_payload["company_address"] = prof_doc.company_address
+
     if flt(global_discount_percentage) > 0:
         si_payload["apply_discount_on"] = "Grand Total"
         si_payload["additional_discount_percentage"] = min(100.0, flt(global_discount_percentage, 2))
@@ -2627,6 +2956,47 @@ def pay_and_invoice_order(
         si_payload["coupon_code"] = coupon_code
 
     si_meta = frappe.get_meta("Sales Invoice")
+    cust_meta = frappe.get_meta("Customer")
+    cust_lookup_fields = ["tax_category"] if cust_meta.has_field("tax_category") else []
+    for exo_f in (
+        "custom_subtipo_exonerado",
+        "custom_constancia_exonerado",
+        "custom_carnet_diplomatico",
+        "custom_registro_sag",
+    ):
+        if cust_meta.has_field(exo_f):
+            cust_lookup_fields.append(exo_f)
+    cust_info = (
+        frappe.db.get_value("Customer", doc.customer, cust_lookup_fields, as_dict=True)
+        if doc.customer and cust_lookup_fields
+        else {}
+    ) or {}
+    resolved_tax_category = cstr(tax_category or cust_info.get("tax_category") or "Contribuyente").strip()
+    if si_meta.has_field("tax_category"):
+        si_payload["tax_category"] = resolved_tax_category
+
+    is_exonerated = resolved_tax_category == "Exonerado"
+    exo_values = {
+        "custom_subtipo_exonerado": cstr(cust_info.get("custom_subtipo_exonerado") or "").strip() if is_exonerated else "",
+        "custom_orden_compra_exenta": cstr(custom_orden_compra_exenta or "").strip() if is_exonerated else "",
+        "custom_constancia_exonerado": cstr(custom_constancia_exonerado or cust_info.get("custom_constancia_exonerado") or "").strip() if is_exonerated else "",
+        "custom_carnet_diplomatico": cstr(custom_carnet_diplomatico or cust_info.get("custom_carnet_diplomatico") or "").strip() if is_exonerated else "",
+        "custom_registro_sag": cstr(custom_registro_sag or cust_info.get("custom_registro_sag") or "").strip() if is_exonerated else "",
+    }
+    for exo_field, exo_val in exo_values.items():
+        if si_meta.has_field(exo_field):
+            si_payload[exo_field] = exo_val
+
+    for r_field, r_val in (
+        ("restaurant_order", doc.name),
+        ("restaurant_order_number", cstr(doc.order_name or doc.name)),
+        ("restaurant_table_label", cstr(doc.table_label or "")),
+        ("restaurant_service_type", cstr(doc.service_type or "")),
+        ("restaurant_waiter_name", cstr(doc.waiter_name or "")),
+    ):
+        if si_meta.has_field(r_field):
+            si_payload[r_field] = r_val
+
     if si_meta.has_field("authorized_range"):
         si_payload["authorized_range"] = auth_range_value
     if si_meta.has_field("cashier"):
@@ -2636,51 +3006,151 @@ def pay_and_invoice_order(
         si_payload["loyalty_points"] = cint(loyalty_points)
 
     si = frappe.get_doc(si_payload)
+    saved_item_tax_rates = [row.get("item_tax_rate") or "{}" for row in invoice_items]
     si.set_missing_values()
+    # Preserve Restaurant POS overrides against POS Profile / Customer defaults applied by set_missing_values()
+    si.update_stock = 0
+    si.disable_rounded_total = si_payload["disable_rounded_total"]
+    if si_meta.has_field("tax_category"):
+        si.tax_category = resolved_tax_category
+    if is_exonerated:
+        si.taxes_and_charges = ""
+        _set_doc_field(si, "taxes", [])
+        for si_item in _get_doc_items(si):
+            _set_doc_field(si_item, "item_tax_rate", "{}")
+        for exo_field, exo_val in exo_values.items():
+            if si_meta.has_field(exo_field):
+                setattr(si, exo_field, exo_val)
+    else:
+        for exo_field in exo_values:
+            if si_meta.has_field(exo_field):
+                setattr(si, exo_field, "")
+        si.taxes_and_charges = ""
+        _set_doc_field(si, "taxes", taxes)
+        for idx, si_item in enumerate(_get_doc_items(si)):
+            if idx < len(saved_item_tax_rates):
+                _set_doc_field(si_item, "item_tax_rate", saved_item_tax_rates[idx])
     si.calculate_taxes_and_totals()
 
-    total_paid = sum(flt(p.amount) for p in si.payments)
     grand_total = flt(si.grand_total, 2)
-    if flt(total_paid, 2) + 0.01 < grand_total:
+    applied_gc_amount = 0.0
+    if gift_card_doc and redeemed_gift_amount > 0:
+        applied_gc_amount = min(flt(redeemed_gift_amount, 2), grand_total)
+        gc_mop = None
+        gc_acc = None
+        for candidate_mop in ("Tarjeta de Regalo", "Gift Card"):
+            if frappe.db.exists("Mode of Payment", candidate_mop):
+                cand_acc = frappe.db.get_value(
+                    "Mode of Payment Account",
+                    {"parent": candidate_mop, "company": company},
+                    "default_account",
+                )
+                if cand_acc:
+                    gc_mop = candidate_mop
+                    gc_acc = cand_acc
+                    break
+
+        cash_due = max(0.0, flt(grand_total - applied_gc_amount, 2))
+        if not parsed_payments and si.payments:
+            si.payments[0].amount = cash_due
+
+        if gc_mop and gc_acc:
+            existing_gc_amt = sum(flt(p.amount) for p in si.payments if p.mode_of_payment == gc_mop)
+            if existing_gc_amt <= 0 and applied_gc_amount > 0:
+                si.append("payments", {
+                    "mode_of_payment": gc_mop,
+                    "amount": applied_gc_amount,
+                    "account": gc_acc,
+                })
+            expected_paid_due = grand_total
+        else:
+            write_off_acc = (
+                (getattr(prof_doc, "write_off_account", None) if prof_doc else None)
+                or frappe.db.get_value("Company", company, "write_off_account")
+                or frappe.db.get_value("Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name")
+            )
+            si.write_off_amount = flt(applied_gc_amount, 2)
+            if write_off_acc:
+                si.write_off_account = write_off_acc
+            if cost_center:
+                si.write_off_cost_center = cost_center
+            expected_paid_due = cash_due
+            si.calculate_taxes_and_totals()
+    else:
+        expected_paid_due = grand_total
+
+    total_paid = sum(flt(p.amount) for p in si.payments)
+    if flt(total_paid, 2) + 0.01 < expected_paid_due:
         frappe.throw(
-            _("El monto total pagado ({0}) es menor al total de la factura ({1}).").format(
-                flt(total_paid, 2), grand_total
+            _("El monto total pagado ({0}) es menor al total por cobrar ({1}).").format(
+                flt(total_paid, 2), expected_paid_due
             )
         )
-    if total_paid < grand_total and si.payments:
-        si.payments[0].amount = flt(si.payments[0].amount + (grand_total - total_paid), 2)
+    if total_paid < expected_paid_due and si.payments:
+        si.payments[0].amount = flt(si.payments[0].amount + (expected_paid_due - total_paid), 2)
 
+    for sar_field, sar_val in (
+        ("taxed_amount_15", 0.0 if is_exonerated else flt(doc.taxed_amount_15, 2)),
+        ("isv_15", 0.0 if is_exonerated else flt(doc.isv_15, 2)),
+        ("taxed_amount_18", 0.0 if is_exonerated else flt(doc.taxed_amount_18, 2)),
+        ("isv_18", 0.0 if is_exonerated else flt(doc.isv_18, 2)),
+        ("exempt_amount", 0.0 if is_exonerated else flt(doc.exempt_amount, 2)),
+        ("exonerated_amount", flt(doc.subtotal, 2) if is_exonerated else 0.0),
+    ):
+        if si_meta.has_field(sar_field):
+            setattr(si, sar_field, sar_val)
+
+    if not isinstance(si, dict) and getattr(si, "flags", None) is not None:
+        si.flags.restaurant_tax_override = {
+            "item_tax_rates": saved_item_tax_rates,
+            "taxes": [dict(row) for row in taxes] if not is_exonerated else [],
+            "is_exonerated": is_exonerated,
+            "tax_category": resolved_tax_category,
+            "disable_rounded_total": si_payload["disable_rounded_total"],
+        }
     si.insert(ignore_permissions=True)
-    if cint(rpos_cfg.get("auto_validate_orders", 1)):
+    auto_submit = bool(cint(rpos_cfg.get("auto_validate_orders", 1)))
+    if auto_submit:
         si.submit()
 
-    if gift_card_doc and redeemed_gift_amount > 0:
-        gift_card_doc.balance = flt(gift_card_doc.balance - redeemed_gift_amount, 2)
+    invoice_finalized = (cint(getattr(si, "docstatus", 0)) == 1) or auto_submit
+    if gift_card_doc and applied_gc_amount > 0 and invoice_finalized:
+        gift_card_doc.balance = flt(gift_card_doc.balance - applied_gc_amount, 2)
         gift_card_doc.save(ignore_permissions=True)
 
-    if not doc.pos_opening_shift and active_opening_shift:
+    if active_opening_shift:
         doc.pos_opening_shift = active_opening_shift
     doc.sales_invoice = si.name
     doc.cai = si.cai or cai_value
     doc.due_date_cai = si.due_date_cai or due_cai_value
-    doc.status = "Facturada"
+    doc.status = "Facturada" if invoice_finalized else "En curso"
     doc.save()
+
+    from restaurant.sar_format import format_lempiras_in_words
 
     return {
         "order": _serialize_order(doc),
         "invoice": {
             "name": si.name,
             "posting_date": str(si.posting_date),
+            "posting_time": cstr(si.get("posting_time") or ""),
             "customer": si.customer,
             "customer_name": si.customer_name,
             "tax_id": si.tax_id or "",
+            "tax_category": cstr(si.get("tax_category") or "Contribuyente"),
+            "custom_orden_compra_exenta": cstr(si.get("custom_orden_compra_exenta") or ""),
+            "custom_constancia_exonerado": cstr(si.get("custom_constancia_exonerado") or ""),
+            "custom_carnet_diplomatico": cstr(si.get("custom_carnet_diplomatico") or ""),
+            "custom_registro_sag": cstr(si.get("custom_registro_sag") or ""),
             "company": si.company,
             "company_tax_id": si.company_tax_id or fiscal_info["company_tax_id"],
             "cai": si.cai or cai_value,
             "due_date_cai": str(si.due_date_cai or due_cai_value),
             "authorized_range": getattr(si, "authorized_range", None) or auth_range_value,
             "prefix": getattr(si, "naming_series", None) or fiscal_info["prefix"],
+            "print_format": (prof_doc.print_format if prof_doc and prof_doc.print_format else "Ticket"),
             "net_total": flt(si.net_total, 2),
+            "discount_amount": flt(si.get("discount_amount"), 2),
             "taxed_amount_15": flt(si.get("taxed_amount_15"), 2),
             "isv_15": flt(si.get("isv_15"), 2),
             "taxed_amount_18": flt(si.get("taxed_amount_18"), 2),
@@ -2691,6 +3161,7 @@ def pay_and_invoice_order(
             "grand_total": flt(si.grand_total, 2),
             "paid_amount": flt(si.paid_amount, 2),
             "change_amount": flt(si.change_amount, 2),
+            "in_words": format_lempiras_in_words(si.grand_total),
         },
         "areas": _get_areas_with_live_tables(),
     }
@@ -2739,20 +3210,13 @@ def preview_split_order(order_name, split_items, expected_modified=None):
 
 
 def _sync_kds_after_order_change(doc):
-    """Synchronize KDS tickets and publish a realtime update after item or order cancellation."""
+    """Synchronize KDS tickets and publish a realtime update after item or order mutation."""
     try:
-        from restaurant.kds import _sync_legacy_status
+        from restaurant.kds import _sync_legacy_status, publish_kds_realtime_update
         _sync_legacy_status(doc)
+        publish_kds_realtime_update(doc=doc, source="order_change")
     except Exception:
-        frappe.log_error(frappe.get_traceback(), "KDS Sync After Cancellation")
-    try:
-        frappe.publish_realtime(
-            "restaurant_kds_update",
-            {"order_name": doc.name, "status": doc.status, "kds_status": doc.kds_status},
-            after_commit=True,
-        )
-    except Exception:
-        pass
+        frappe.log_error(frappe.get_traceback(), "KDS Sync After Order Change")
 
 
 def _authorize_sensitive_operation(action, order_name, supervisor_user=None, supervisor_pin=None, reason="", require_reason=True):
@@ -3072,6 +3536,7 @@ def unlock_waiter_order(order_name, pin):
                 "Acceso denegado a cuenta de otro mesero",
                 f"Usuario {frappe.session.user} ({linked_emp['name']}) intentó abrir la orden de {doc.waiter}",
                 order_name=doc.name,
+                result="Rechazado",
             )
             frappe.throw(_("Esta cuenta pertenece a otro mesero y no puedes abrirla."), frappe.PermissionError)
         mark_order_unlocked_for_session(doc.name)
@@ -3088,6 +3553,7 @@ def unlock_waiter_order(order_name, pin):
             "PIN de mesero incorrecto",
             f"Intento fallido de desbloquear cuenta asignada a {doc.waiter_name or doc.waiter}",
             order_name=doc.name,
+            result="Rechazado",
         )
         frappe.throw(
             _("Código incorrecto. Solo el mesero asignado ({0}) o un supervisor puede abrir esta cuenta.").format(
@@ -3149,6 +3615,11 @@ def authorize_reprint_command(order_name, supervisor_user=None, supervisor_pin=N
 def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None, email_id=None, mobile_no=None, address=None):
     """Create or update a Customer with their fiscal RTN, email, phone, and address directly from the Restaurant POS."""
     _require_pos_user()
+    if not user_can_invoice():
+        frappe.throw(
+            _("Solo cajeros autorizados o supervisores pueden crear o editar clientes."),
+            frappe.PermissionError,
+        )
     clean_name = cstr(customer_name).strip()
     clean_rtn = cstr(tax_id).strip()[:60]
     clean_email = cstr(email_id).strip()[:140]
@@ -3159,7 +3630,10 @@ def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None, email_i
 
     cust_meta = frappe.get_meta("Customer")
     if customer_id and frappe.db.exists("Customer", customer_id):
+        if customer_id.strip().upper() == "CONSUMIDOR FINAL":
+            frappe.throw(_("No puedes sobrescribir el cliente genérico CONSUMIDOR FINAL."), frappe.PermissionError)
         doc = frappe.get_doc("Customer", customer_id)
+        doc.check_permission("write")
         doc.customer_name = clean_name
         doc.tax_id = clean_rtn
         if email_id is not None and cust_meta.has_field("email_id"):
@@ -3168,8 +3642,10 @@ def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None, email_i
             doc.mobile_no = clean_phone
         if address is not None and cust_meta.has_field("primary_address"):
             doc.primary_address = clean_addr
-        doc.save(ignore_permissions=True)
+        doc.save()
     else:
+        if not frappe.has_permission("Customer", "create"):
+            frappe.throw(_("No tienes permisos para registrar nuevos clientes."), frappe.PermissionError)
         group = (
             frappe.db.get_single_value("Selling Settings", "customer_group")
             or frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
@@ -3195,7 +3671,7 @@ def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None, email_i
         if clean_addr and cust_meta.has_field("primary_address"):
             payload["primary_address"] = clean_addr
         doc = frappe.get_doc(payload)
-        doc.insert(ignore_permissions=True)
+        doc.insert()
 
     return {
         "name": doc.name,
@@ -3215,16 +3691,16 @@ def get_emitted_commands(limit=40):
     active_branch = _get_active_user_branch()
     if active_branch and frappe.get_meta("Restaurant Order").has_field("branch"):
         cmd_filters["branch"] = active_branch
-    rows = frappe.get_all(
-        "Restaurant Order",
+    order_docs = _load_orders_batch(
         filters=cmd_filters,
-        fields=["name"],
         order_by="sent_to_kitchen_at desc, modified desc",
         limit_page_length=max(10, min(100, cint(limit or 40))),
+        use_list_perms=True,
     )
+    serial_ctx = build_order_serialization_context(order_docs)
     emitted = []
-    for row in rows:
-        serialized = _serialize_order(row.name)
+    for row in order_docs:
+        serialized = _serialize_order(row, serial_ctx=serial_ctx)
         emitted_lines = [
             it for it in (serialized.get("items") or [])
             if (it.get("kds_status") and it.get("kds_status") != "Pendiente") or serialized.get("sent_to_kitchen_at")
@@ -3422,11 +3898,6 @@ def save_pos_idle_settings(enabled=1, timeout_seconds=120, background_url=None, 
 def get_restaurant_pos_config(pos_profile=None):
     """Retrieve full configuration matching the Odoo-style restaurant POS settings screen."""
     _require_pos_user()
-    try:
-        from restaurant.setup import sync_restaurant_dashboard_block
-        sync_restaurant_dashboard_block()
-    except Exception:
-        pass
     company = _get_default_company()
     all_profiles = frappe.get_all(
         "POS Profile",
@@ -3806,6 +4277,7 @@ def ensure_restaurant_stock(target_qty=100, make_inventoriable=0, warehouse=None
 @frappe.whitelist()
 def get_self_order_config(pos_profile=None):
     """Return active self-order channels and status for mobile/kiosk clients."""
+    _require_pos_user()
     cfg = _get_effective_rpos_config(pos_profile)
     enabled = bool(cint(cfg.get("enable_self_order")))
     mobile_ok = enabled and bool(cint(cfg.get("enable_mobile_self_order")))
@@ -3959,7 +4431,12 @@ def send_invoice_email(invoice_name, recipient_email=None):
     if not target_email:
         frappe.throw(_("El cliente no tiene un correo electrónico configurado."))
 
-    attachment = frappe.attach_print("Sales Invoice", si.name, file_name=f"{si.name}.pdf")
+    attachment = frappe.attach_print(
+        "Sales Invoice",
+        si.name,
+        file_name=f"{si.name}.pdf",
+        print_format="Ticket",
+    )
     frappe.sendmail(
         recipients=[target_email],
         subject=_("Factura {0} - {1}").format(si.name, si.company),

@@ -13,6 +13,12 @@
    "role": "Restaurant Manager"
   },
   {
+   "role": "Restaurant Cashier"
+  },
+  {
+   "role": "Restaurant Direct Cashier"
+  },
+  {
    "role": "Restaurant User"
   }
  ],

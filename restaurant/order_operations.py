@@ -15,7 +15,7 @@ ORDER = "Restaurant Order"
 TABLE = "Restaurant Table"
 COMPATIBILITY_FIELDS = ("company", "currency", "pos_profile", "selling_price_list", "pos_opening_shift")
 HEADER_FIELDS = (
-    "reference_note", "service_type", "restaurant_area", "restaurant_table", "guests",
+    "reference_note", "service_type", "restaurant_area", "restaurant_table", "branch", "guests",
     "waiter", "customer", "tax_id", "pos_profile", "pos_opening_shift", "company",
     "currency", "selling_price_list", "scheduled_time", "customer_note", "tip_percentage",
     "tip_amount", "kds_status", "sent_to_kitchen_at",
@@ -59,6 +59,24 @@ def check_order_version(doc, expected_modified):
         matches = False
     if not matches:
         frappe.throw(_("La cuenta cambió desde que la abriste. Actualiza la información y vuelve a intentarlo."), frappe.TimestampMismatchError)
+
+
+def _order_branch(doc):
+    if getattr(doc, "branch", None):
+        return doc.branch
+    if getattr(doc, "restaurant_table", None):
+        branch = frappe.db.get_value("Restaurant Table", doc.restaurant_table, "branch")
+        if branch:
+            return branch
+    if getattr(doc, "restaurant_area", None):
+        branch = frappe.db.get_value("Restaurant Area", doc.restaurant_area, "branch")
+        if branch:
+            return branch
+    if getattr(doc, "pos_profile", None) and frappe.db.has_column("POS Profile", "branch"):
+        branch = frappe.db.get_value("POS Profile", doc.pos_profile, "branch")
+        if branch:
+            return branch
+    return ""
 
 
 def _check_open_order(doc, require_items=True):
@@ -238,6 +256,7 @@ def _has_active_destination_table(account, cache=None):
 def get_context(order_name):
     _require_pos_user()
     source = _load_source(order_name)
+    source_branch = _order_branch(source)
     area_cache = {}
     account_rows = frappe.get_list(
         ORDER, filters={"status": "En curso", "docstatus": 0, "name": ["!=", source.name]},
@@ -246,6 +265,9 @@ def get_context(order_name):
     accounts = []
     for row in account_rows:
         account = frappe.get_doc(ORDER, row.name)
+        account_branch = _order_branch(account)
+        if source_branch and account_branch and account_branch != source_branch:
+            continue
         if (
             account.sales_invoice
             or not _can_access(account, "write")
@@ -259,6 +281,9 @@ def get_context(order_name):
         fields=["name"], order_by="restaurant_area asc, display_order asc, table_number asc", limit_page_length=0,
     ):
         table = frappe.get_doc(TABLE, row.name)
+        table_branch = table.branch or frappe.db.get_value("Restaurant Area", table.restaurant_area, "branch") or ""
+        if source_branch and table_branch and table_branch != source_branch:
+            continue
         if not _can_access(table, "read") or not _is_active_destination_table(table, cache=area_cache):
             continue
         occupants = frappe.get_all(
@@ -385,6 +410,14 @@ def transfer_account(order_name, target_table=None, target_order=None, expected_
         source = locked[source_name]
         _check_open_order(source)
         check_order_version(source, expected_modified)
+        source_branch = _order_branch(source)
+        if table:
+            table_branch = table.branch or frappe.db.get_value("Restaurant Area", table.restaurant_area, "branch") or ""
+            if source_branch and table_branch and source_branch != table_branch:
+                frappe.throw(
+                    _("No puedes transferir o mover una cuenta hacia una mesa de otra sucursal ({0}).").format(table_branch),
+                    frappe.ValidationError,
+                )
         selection = _read_selection(source, split_items, allow_all=True)
         selected, remaining = _split_drafts(source, selection, new_order_name)
         full = not remaining.items
@@ -393,6 +426,12 @@ def transfer_account(order_name, target_table=None, target_order=None, expected_
             _check_open_order(target, require_items=False)
             if not _has_active_destination_table(target):
                 frappe.throw(_("La cuenta de destino pertenece a una mesa o área que no está disponible en el POS."))
+            target_branch = _order_branch(target)
+            if source_branch and target_branch and source_branch != target_branch:
+                frappe.throw(
+                    _("No puedes fusionar cuentas de distintas sucursales ({0} y {1}).").format(source_branch, target_branch),
+                    frappe.ValidationError,
+                )
             _check_compatible(source, target)
             check_order_version(target, target_modified)
         if not target and full and table and table.name == source.restaurant_table:

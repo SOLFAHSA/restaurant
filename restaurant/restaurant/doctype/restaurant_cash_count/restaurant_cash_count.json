@@ -15,6 +15,7 @@
   "column_break_shift",
   "pos_profile",
   "company",
+  "branch",
   "currency",
   "cashier",
   "cashier_name",
@@ -85,7 +86,8 @@
    "in_list_view": 1,
    "label": "Turno de Apertura POS",
    "options": "POS Opening Shift",
-   "reqd": 1
+   "reqd": 1,
+   "search_index": 1
   },
   {
    "fieldname": "column_break_shift",
@@ -98,7 +100,8 @@
    "in_standard_filter": 1,
    "label": "Perfil POS",
    "options": "POS Profile",
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "company",
@@ -106,6 +109,15 @@
    "label": "Empresa",
    "options": "Company",
    "read_only": 1
+  },
+  {
+   "fieldname": "branch",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Sucursal",
+   "options": "Branch",
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "default": "HNL",
@@ -120,7 +132,8 @@
    "fieldtype": "Link",
    "label": "Usuario Cajero",
    "options": "User",
-   "read_only": 1
+   "read_only": 1,
+   "search_index": 1
   },
   {
    "fieldname": "cashier_name",

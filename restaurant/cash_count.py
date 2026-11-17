@@ -25,6 +25,13 @@ DEFAULT_HNL_DENOMINATIONS = (
     ("Billete", 1.0, "Billetes L 1"),
 )
 
+HNL_COIN_DENOMINATIONS = (
+    ("Moneda", 0.50, "Moneda L 0.50"),
+    ("Moneda", 0.20, "Moneda L 0.20"),
+    ("Moneda", 0.10, "Moneda L 0.10"),
+    ("Moneda", 0.05, "Moneda L 0.05"),
+)
+
 PRINT_FORMAT_TICKET = "Arqueo de Caja - Ticket 80mm"
 PRINT_FORMAT_LETTER = "Arqueo de Caja - Carta"
 
@@ -203,6 +210,35 @@ def _compute_fallback_shift_reconciliation(opening_doc, cash_movements):
     }
 
 
+def _assert_shift_access(opening_doc):
+    """Ensure only the shift cashier owner or a supervisor in the same branch can read or submit audits."""
+    from restaurant.pos import _get_active_user_branch
+    from restaurant.pos_auth import is_supervisor, user_can_invoice
+
+    if not user_can_invoice():
+        frappe.throw(
+            _("Solo cajeros o supervisores pueden consultar o registrar arqueos de caja."),
+            frappe.PermissionError,
+        )
+    if opening_doc.user != frappe.session.user and not is_supervisor():
+        frappe.throw(
+            _("No puedes consultar ni registrar arqueos de un turno perteneciente a otro cajero."),
+            frappe.PermissionError,
+        )
+    if opening_doc.user != frappe.session.user and "System Manager" not in frappe.get_roles():
+        user_branch = _get_active_user_branch()
+        prof_branch = (
+            frappe.db.get_value("POS Profile", opening_doc.pos_profile, "branch")
+            if opening_doc.pos_profile and frappe.db.has_column("POS Profile", "branch")
+            else None
+        )
+        if user_branch and prof_branch and user_branch != prof_branch:
+            frappe.throw(
+                _("No puedes acceder a turnos de caja pertenecientes a otra sucursal."),
+                frappe.PermissionError,
+            )
+
+
 def build_cash_count_snapshot(pos_opening_shift=None):
     """Build a server-verified snapshot of shift totals, payment methods, and cash movements."""
     if not pos_opening_shift:
@@ -213,6 +249,7 @@ def build_cash_count_snapshot(pos_opening_shift=None):
         frappe.throw(_("No se encontró un turno de Punto de Venta activo para realizar el arqueo."))
 
     opening_doc = frappe.get_doc("POS Opening Shift", pos_opening_shift)
+    _assert_shift_access(opening_doc)
     cash_movements = get_shift_cash_movements(opening_doc.name)
     total_income = flt(cash_movements.get("total_ingreso"), 2)
     total_expense = flt(cash_movements.get("total_retiro"), 2)
@@ -356,6 +393,8 @@ def recalculate_cash_count_doc(doc, use_denomination_cash_total=False):
     doc.company = snapshot["company"]
     doc.pos_profile = snapshot["pos_profile"]
     doc.currency = snapshot["currency"]
+    if doc.meta.has_field("branch") and doc.pos_profile and frappe.db.has_column("POS Profile", "branch"):
+        doc.branch = frappe.db.get_value("POS Profile", doc.pos_profile, "branch") or ""
     doc.cashier = snapshot["cashier"]
     doc.cashier_name = snapshot["cashier_name"]
     if not doc.posting_date:
@@ -497,8 +536,22 @@ def recalculate_cash_count_doc(doc, use_denomination_cash_total=False):
 @frappe.whitelist()
 def get_cash_count_preview(pos_opening_shift=None):
     """Return live shift expectations, Honduras denominations, and movements for the POS UI."""
+    from restaurant.pos_auth import is_supervisor
+
     _require_pos_user()
-    return build_cash_count_snapshot(pos_opening_shift)
+    snap = build_cash_count_snapshot(pos_opening_shift)
+    if cint(snap.get("hide_expected_amount")) and not is_supervisor():
+        masked_methods = []
+        for row in (snap.get("payment_methods") or []):
+            masked_row = dict(row)
+            masked_row["expected_amount"] = None
+            masked_row["sales_amount"] = None
+            masked_row["opening_amount"] = None
+            masked_methods.append(masked_row)
+        snap["payment_methods"] = masked_methods
+        snap["total_expected"] = None
+        snap["total_sales"] = None
+    return snap
 
 
 @frappe.whitelist(methods=["POST"])
@@ -542,14 +595,22 @@ def save_and_submit_cash_count(payload):
     doc.notes = cstr(data.get("notes") or "").strip()
     doc.flags.use_denomination_cash_total = True
 
+    allowed_units = {
+        round(flt(d["unit_value"]), 2)
+        for d in _get_default_denominations("HNL")
+    } | {round(flt(x[1]), 2) for x in DEFAULT_HNL_DENOMINATIONS + HNL_COIN_DENOMINATIONS}
+
     raw_denoms = data.get("denominations") or []
     if isinstance(raw_denoms, list) and raw_denoms:
         for d in raw_denoms:
             if not isinstance(d, dict):
                 continue
+            uv = round(flt(d.get("unit_value"), 2), 2)
+            if uv <= 0 or uv not in allowed_units:
+                frappe.throw(_("Denominación de efectivo no válida: L {0}.").format(uv), frappe.ValidationError)
             doc.append("denominations", {
-                "denomination_type": cstr(d.get("denomination_type") or "Billete"),
-                "unit_value": max(0.0, flt(d.get("unit_value"), 2)),
+                "denomination_type": cstr(d.get("denomination_type") or ("Moneda" if uv < 1.0 else "Billete")),
+                "unit_value": uv,
                 "denomination_label": cstr(d.get("denomination_label") or ""),
                 "quantity": max(0, cint(d.get("quantity"))),
             })

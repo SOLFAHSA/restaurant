@@ -3536,3 +3536,174 @@
     background: #2f8500;
 }
 
+/* Payment complete confirmation screen */
+.rpos-pay-success-screen {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: calc(100vh - 64px);
+    background: #f8fafc;
+    padding: 28px 28px 20px;
+}
+
+.rpos-pay-success-body {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 12px 16px;
+}
+
+.rpos-pay-success-badge {
+    width: 132px;
+    height: 132px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 22px;
+    animation: rposPayBadgeShadow 0.4s ease-out 0.48s forwards;
+}
+
+.rpos-pay-success-svg {
+    width: 132px;
+    height: 132px;
+    display: block;
+    overflow: visible;
+}
+
+.rpos-pay-success-fill {
+    fill: #16a34a;
+    opacity: 0;
+    transform: scale(0.86);
+    transform-origin: 60px 60px;
+    animation: rposPayCircleFill 0.28s ease-out 0.44s forwards;
+}
+
+.rpos-pay-success-ring {
+    fill: none;
+    stroke: #16a34a;
+    stroke-width: 6;
+    stroke-linecap: round;
+    stroke-dasharray: 327;
+    stroke-dashoffset: 327;
+    transform: rotate(-90deg);
+    transform-origin: 60px 60px;
+    animation: rposPayCircleDraw 0.52s cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+.rpos-pay-success-check {
+    fill: none;
+    stroke: #ffffff;
+    stroke-width: 8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 80;
+    stroke-dashoffset: 80;
+    animation: rposPayCheckDraw 0.32s cubic-bezier(0.22, 1, 0.36, 1) 0.52s forwards;
+}
+
+@keyframes rposPayCircleDraw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes rposPayCircleFill {
+    from {
+        opacity: 0;
+        transform: scale(0.86);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+@keyframes rposPayCheckDraw {
+    to {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes rposPayBadgeShadow {
+    from {
+        box-shadow: 0 0 0 rgba(22, 163, 74, 0);
+    }
+    to {
+        box-shadow: 0 14px 32px rgba(22, 163, 74, 0.28);
+    }
+}
+
+.rpos-pay-success-title {
+    font-size: clamp(40px, 3.6vw, 54px);
+    font-weight: 800;
+    color: #1e293b;
+    margin: 0 0 12px;
+    line-height: 1.1;
+}
+
+.rpos-pay-success-amount {
+    font-size: clamp(128px, 11.5vw, 176px);
+    font-weight: 800;
+    line-height: 1;
+    color: #1e293b;
+    letter-spacing: -3px;
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+}
+
+.rpos-pay-success-currency {
+    font-size: 0.62em;
+    color: #64748b;
+    margin-right: 10px;
+}
+
+.rpos-pay-success-decimals {
+    color: #64748b;
+}
+
+.rpos-pay-success-meta {
+    margin-top: 18px;
+    font-size: clamp(16px, 1.45vw, 22px);
+    color: #475569;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.rpos-pay-success-self-invoice {
+    margin-top: 14px;
+}
+
+.rpos-pay-success-self-invoice-btn {
+    padding: 10px 18px;
+    border-radius: 6px;
+    border: 1px solid #002456;
+    background: #eff6ff;
+    color: #002456;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.rpos-shell.is-dark-mode .rpos-pay-success-screen {
+    background: #0f172a;
+}
+
+.rpos-shell.is-dark-mode .rpos-pay-success-title,
+.rpos-shell.is-dark-mode .rpos-pay-success-amount {
+    color: #f8fafc;
+}
+
+.rpos-shell.is-dark-mode .rpos-pay-success-currency,
+.rpos-shell.is-dark-mode .rpos-pay-success-decimals {
+    color: #94a3b8;
+}
+
+.rpos-shell.is-dark-mode .rpos-pay-success-meta {
+    color: #cbd5e1;
+}
+

@@ -224,7 +224,7 @@ def consume_supervisor_auth_token(token, action, order_name=None, target=""):
         return None
     cache = frappe.cache()
     key = _supervisor_token_key(clean_token)
-    raw = cache.get_value(key)
+    raw = cache.get_value(key, expires=True)
     if not raw:
         return None
     cache.delete_value(key)
@@ -275,7 +275,7 @@ def verify_supervisor_authorization(
 
     if not sup_user:
         fail_key = _supervisor_fail_key("_pin_")
-        attempts = int(frappe.cache().get_value(fail_key) or 0)
+        attempts = int(frappe.cache().get_value(fail_key, expires=True) or 0)
         if attempts >= MAX_SUPERVISOR_PIN_ATTEMPTS:
             log_restaurant_audit(
                 f"Bloqueo por intentos fallidos ({action})",
@@ -329,7 +329,7 @@ def verify_supervisor_authorization(
             frappe.throw(_("El usuario seleccionado no tiene rol de Supervisor o Gerente."), frappe.PermissionError)
 
         fail_key = _supervisor_fail_key(sup_user)
-        attempts = int(frappe.cache().get_value(fail_key) or 0)
+        attempts = int(frappe.cache().get_value(fail_key, expires=True) or 0)
         if attempts >= MAX_SUPERVISOR_PIN_ATTEMPTS:
             log_restaurant_audit(
                 f"Bloqueo por intentos fallidos ({action})",
@@ -394,7 +394,7 @@ def is_order_unlocked_for_session(order_name):
     if not order_name:
         return True
     key = f"rpos_unlocked:{frappe.session.user}:{order_name}"
-    return bool(frappe.cache().get_value(key))
+    return bool(frappe.cache().get_value(key, expires=True))
 
 
 def mark_order_unlocked_for_session(order_name):

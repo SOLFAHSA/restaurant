@@ -39,6 +39,11 @@ class LeafRestaurantKDS {
         this.loading = false;
         this.pollTimer = null;
         this.clockTimer = null;
+        this.pollTickCount = 0;
+        this.realtimeDebounceTimer = null;
+        this._onRealtimeKdsUpdate = null;
+        this._realtimeBound = false;
+        this.activeBranch = "";
 
         this.stageConfigs = [];
 
@@ -79,12 +84,56 @@ class LeafRestaurantKDS {
         if (routeOptions.station) {
             this.selectedStation = routeOptions.station;
         }
+        this.bindRealtime();
         this.startTimers();
         this.refreshOrders();
     }
 
+    isRealtimeConnected() {
+        return Boolean(
+            window.frappe?.realtime?.socket
+            && (window.frappe.realtime.socket.connected || window.frappe.realtime.socket.io?.engine?.readyState === "open")
+        );
+    }
+
+    bindRealtime() {
+        if (this._realtimeBound || !window.frappe?.realtime?.on) return;
+        this._onRealtimeKdsUpdate = (data) => {
+            if (frappe.get_route()[0] !== "restaurant-kds") {
+                this.unbindRealtime();
+                return;
+            }
+            if (this.activeBranch && data?.branch && data.branch !== this.activeBranch) {
+                return;
+            }
+            if (this.realtimeDebounceTimer) {
+                window.clearTimeout(this.realtimeDebounceTimer);
+            }
+            this.realtimeDebounceTimer = window.setTimeout(() => {
+                this.realtimeDebounceTimer = null;
+                if (frappe.get_route()[0] !== "restaurant-kds" || this.mutating) return;
+                this.refreshOrders({ silent: true });
+            }, 250);
+        };
+        frappe.realtime.on("restaurant_kds_update", this._onRealtimeKdsUpdate);
+        this._realtimeBound = true;
+    }
+
+    unbindRealtime() {
+        if (this.realtimeDebounceTimer) {
+            window.clearTimeout(this.realtimeDebounceTimer);
+            this.realtimeDebounceTimer = null;
+        }
+        if (this._realtimeBound && this._onRealtimeKdsUpdate && window.frappe?.realtime?.off) {
+            frappe.realtime.off("restaurant_kds_update", this._onRealtimeKdsUpdate);
+        }
+        this._realtimeBound = false;
+    }
+
     startTimers() {
         this.stopTimers();
+        this.bindRealtime();
+        this.pollTickCount = 0;
         this.clockTimer = window.setInterval(() => {
             if (frappe.get_route()[0] !== "restaurant-kds") {
                 this.stopTimers();
@@ -93,16 +142,24 @@ class LeafRestaurantKDS {
             this.updateLiveStopwatches();
         }, 10000);
 
+        // Poll every 15s when Socket.IO is unavailable, or every 45s as a quiet drift safety net when connected.
         this.pollTimer = window.setInterval(() => {
             if (frappe.get_route()[0] !== "restaurant-kds") {
                 this.stopTimers();
                 return;
             }
-            this.refreshOrders({ silent: true });
-        }, 12000);
+            this.pollTickCount += 1;
+            if (this.isRealtimeConnected() && (this.pollTickCount % 3) !== 0) {
+                return;
+            }
+            if (!this.mutating) {
+                this.refreshOrders({ silent: true });
+            }
+        }, 15000);
     }
 
     stopTimers() {
+        this.unbindRealtime();
         if (this.clockTimer) {
             window.clearInterval(this.clockTimer);
             this.clockTimer = null;
@@ -173,6 +230,9 @@ class LeafRestaurantKDS {
             this.stations = Array.isArray(payload.stations) && payload.stations.length
                 ? payload.stations
                 : ["Todas las estaciones", "Cocina General"];
+            if (payload.active_branch !== undefined) {
+                this.activeBranch = payload.active_branch || "";
+            }
             if (payload.server_now) {
                 const srvMs = this.parseTimestampMs(payload.server_now);
                 this.serverClockOffsetMs = srvMs - Date.now();

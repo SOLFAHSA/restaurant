@@ -66,8 +66,78 @@ def ensure_link_permissions():
                     permission.save()
                 frappe.clear_cache(doctype=doctype)
     ensure_cashier_permissions()
+    ensure_restaurant_operational_permissions()
+    ensure_pos_profile_branch_field()
+    ensure_cash_denominations()
+    ensure_sar_print_and_fields()
+    backfill_historical_branches()
     ensure_restaurant_role_profiles()
     ensure_waiter_module_profile()
+
+
+def ensure_pos_profile_branch_field():
+    """Ensure POS Profile has an explicit Link field to Branch for multi-branch scoping."""
+    if not frappe.db.exists("DocType", "Custom Field") or not frappe.db.exists("DocType", "POS Profile"):
+        return
+    if not frappe.db.exists("Custom Field", "POS Profile-branch"):
+        frappe.get_doc({
+            "doctype": "Custom Field",
+            "name": "POS Profile-branch",
+            "dt": "POS Profile",
+            "fieldname": "branch",
+            "fieldtype": "Link",
+            "options": "Branch",
+            "label": "Sucursal",
+            "insert_after": "company",
+            "search_index": 1,
+        }).insert(ignore_permissions=True)
+        frappe.clear_cache(doctype="POS Profile")
+
+
+def ensure_restaurant_operational_permissions():
+    """Keep Custom DocPerm in sync when custom rules exist for KDS and POS operational DocTypes."""
+    if not frappe.db.exists("DocType", "Custom DocPerm"):
+        return
+    targets = [
+        ("Restaurant Preparation Display", "Restaurant User", {"read": 1, "select": 1}),
+        ("Restaurant Preparation Display", "Restaurant Cashier", {"read": 1, "select": 1}),
+        ("Restaurant Preparation Stage", "Restaurant User", {"read": 1, "select": 1}),
+        ("Restaurant Preparation Stage", "Restaurant Cashier", {"read": 1, "select": 1}),
+        ("Restaurant Order", "Restaurant Cashier", {
+            "read": 1, "write": 1, "create": 1, "delete": 0, "print": 1, "select": 1, "report": 1,
+        }),
+    ]
+    for doctype, role_name, grants in targets:
+        if not frappe.db.exists("DocType", doctype) or not frappe.db.exists("Role", role_name):
+            continue
+        if not frappe.db.exists("Custom DocPerm", {"parent": doctype}):
+            continue
+        existing = frappe.db.get_value(
+            "Custom DocPerm",
+            {"parent": doctype, "role": role_name, "permlevel": 0, "if_owner": 0},
+            "name",
+        )
+        if existing:
+            perm_doc = frappe.get_doc("Custom DocPerm", existing)
+            changed = False
+            for key, val in grants.items():
+                if int(perm_doc.get(key) or 0) != int(val):
+                    perm_doc.set(key, val)
+                    changed = True
+            if changed:
+                perm_doc.save(ignore_permissions=True)
+        else:
+            frappe.get_doc({
+                "doctype": "Custom DocPerm",
+                "parent": doctype,
+                "parenttype": "DocType",
+                "parentfield": "permissions",
+                "role": role_name,
+                "permlevel": 0,
+                **grants,
+            }).insert(ignore_permissions=True)
+        frappe.clear_cache(doctype=doctype)
+    ensure_sar_print_and_fields()
     ensure_cash_denominations()
     sync_restaurant_dashboard_block()
 
@@ -77,6 +147,12 @@ def ensure_cashier_permissions():
     from frappe.permissions import add_permission
 
     cashier_matrix = {
+        "Restaurant Manager": {
+            "POS Opening Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
+            "POS Closing Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
+            "Sales Invoice": {"read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "report": 1, "print": 1},
+            "Restaurant Cash Count": {"read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "print": 1},
+        },
         "Restaurant User": {
             "Customer": {"read": 1, "select": 1},
             "Restaurant Order": {"read": 1, "write": 1, "create": 1, "print": 1, "select": 1, "report": 1, "delete": 0},
@@ -228,10 +304,8 @@ def ensure_waiter_module_profile():
 
 
 def ensure_cash_denominations():
-    """Seed default Honduras HNL bill denominations if Restaurant Cash Denomination is empty."""
+    """Seed default Honduras HNL bill and coin denominations idempotently."""
     if not frappe.db.exists("DocType", "Restaurant Cash Denomination"):
-        return
-    if frappe.db.count("Restaurant Cash Denomination") > 0:
         return
     defaults = (
         ("Billetes L 500", "Billete", 500.0, 10),
@@ -243,8 +317,14 @@ def ensure_cash_denominations():
         ("Billetes L 5", "Billete", 5.0, 70),
         ("Billetes L 2", "Billete", 2.0, 80),
         ("Billetes L 1", "Billete", 1.0, 90),
+        ("Moneda L 0.50", "Moneda", 0.50, 100),
+        ("Moneda L 0.20", "Moneda", 0.20, 110),
+        ("Moneda L 0.10", "Moneda", 0.10, 120),
+        ("Moneda L 0.05", "Moneda", 0.05, 130),
     )
     for label, dtype, val, order in defaults:
+        if frappe.db.exists("Restaurant Cash Denomination", {"denomination_label": label}):
+            continue
         frappe.get_doc({
             "doctype": "Restaurant Cash Denomination",
             "denomination_label": label,
@@ -271,20 +351,191 @@ def sync_restaurant_dashboard_block(bootinfo=None):
     try:
         with open(fixture_path, encoding="utf-8") as f:
             rows = json.load(f)
+        updated_any = False
         for row in rows:
             block_name = row.get("name")
-            if block_name and frappe.db.exists("Custom HTML Block", block_name):
-                frappe.db.set_value(
-                    "Custom HTML Block",
-                    block_name,
-                    {
-                        "html": row.get("html") or "",
-                        "script": row.get("script") or "",
-                        "style": row.get("style") or "",
-                    },
-                    update_modified=False,
-                )
-        frappe.clear_cache(doctype="Custom HTML Block")
+            if not block_name or not frappe.db.exists("Custom HTML Block", block_name):
+                continue
+            target_html = row.get("html") or ""
+            target_script = row.get("script") or ""
+            target_style = row.get("style") or ""
+            current = frappe.db.get_value(
+                "Custom HTML Block",
+                block_name,
+                ["html", "script", "style"],
+                as_dict=True,
+            ) or {}
+            if (
+                (current.get("html") or "") == target_html
+                and (current.get("script") or "") == target_script
+                and (current.get("style") or "") == target_style
+            ):
+                continue
+            frappe.db.set_value(
+                "Custom HTML Block",
+                block_name,
+                {
+                    "html": target_html,
+                    "script": target_script,
+                    "style": target_style,
+                },
+                update_modified=False,
+            )
+            updated_any = True
+        if updated_any:
+            frappe.clear_cache(doctype="Custom HTML Block")
     except Exception:
         pass
+
+
+def ensure_sar_print_and_fields():
+    """Ensure Sales Invoice restaurant traceability fields and exact SAR centavos defaults exist."""
+    if frappe.db.exists("DocType", "Custom Field") and frappe.db.exists("DocType", "Sales Invoice"):
+        si_meta = frappe.get_meta("Sales Invoice")
+        anchor = "posa_notes" if si_meta.has_field("posa_notes") else "remarks"
+        cf_defs = [
+            {
+                "name": "Sales Invoice-restaurant_section",
+                "dt": "Sales Invoice",
+                "fieldname": "restaurant_section",
+                "fieldtype": "Section Break",
+                "label": "Restaurante LEAF",
+                "insert_after": anchor,
+                "collapsible": 1,
+            },
+            {
+                "name": "Sales Invoice-restaurant_order",
+                "dt": "Sales Invoice",
+                "fieldname": "restaurant_order",
+                "fieldtype": "Link",
+                "label": "Orden de Restaurante",
+                "options": "Restaurant Order",
+                "insert_after": "restaurant_section",
+                "read_only": 1,
+                "no_copy": 1,
+            },
+            {
+                "name": "Sales Invoice-restaurant_order_number",
+                "dt": "Sales Invoice",
+                "fieldname": "restaurant_order_number",
+                "fieldtype": "Data",
+                "label": "Número de Orden",
+                "insert_after": "restaurant_order",
+                "read_only": 1,
+                "no_copy": 1,
+            },
+            {
+                "name": "Sales Invoice-restaurant_table_label",
+                "dt": "Sales Invoice",
+                "fieldname": "restaurant_table_label",
+                "fieldtype": "Data",
+                "label": "Mesa",
+                "insert_after": "restaurant_order_number",
+                "read_only": 1,
+                "no_copy": 1,
+            },
+            {
+                "name": "Sales Invoice-restaurant_service_type",
+                "dt": "Sales Invoice",
+                "fieldname": "restaurant_service_type",
+                "fieldtype": "Data",
+                "label": "Modalidad de Servicio",
+                "insert_after": "restaurant_table_label",
+                "read_only": 1,
+                "no_copy": 1,
+            },
+            {
+                "name": "Sales Invoice-restaurant_waiter_name",
+                "dt": "Sales Invoice",
+                "fieldname": "restaurant_waiter_name",
+                "fieldtype": "Data",
+                "label": "Atendido por",
+                "insert_after": "restaurant_service_type",
+                "read_only": 1,
+                "no_copy": 1,
+            },
+        ]
+        changed = False
+        for cf in cf_defs:
+            if not frappe.db.exists("Custom Field", cf["name"]):
+                frappe.get_doc({"doctype": "Custom Field", **cf}).insert(ignore_permissions=True)
+                changed = True
+        if changed:
+            frappe.clear_cache(doctype="Sales Invoice")
+
+    # Disable automatic whole-unit rounding for exact Honduras SAR Lempiras with centavos.
+    if frappe.db.exists("DocType", "Restaurant Settings"):
+        try:
+            current_val = frappe.db.get_single_value("Restaurant Settings", "enable_rounded_total")
+            if current_val in (1, "1"):
+                frappe.db.set_value("Restaurant Settings", None, "enable_rounded_total", 0)
+        except Exception:
+            pass
+
+    if frappe.db.exists("DocType", "POS Profile"):
+        try:
+            profiles = frappe.get_all(
+                "POS Profile",
+                fields=["name", "disable_rounded_total", "print_format"],
+            )
+            has_ticket = frappe.db.exists("Print Format", "Ticket")
+            for prof in profiles:
+                updates = {}
+                if not prof.get("disable_rounded_total"):
+                    updates["disable_rounded_total"] = 1
+                if has_ticket and not prof.get("print_format"):
+                    updates["print_format"] = "Ticket"
+                if updates:
+                    frappe.db.set_value("POS Profile", prof.name, updates, update_modified=False)
+        except Exception:
+            pass
+
+
+def backfill_historical_branches():
+    """Backfill Branch on historical Restaurant Orders and Cash Counts after schema migration."""
+    try:
+        if frappe.db.has_column("Restaurant Order", "branch"):
+            if frappe.db.has_column("Restaurant Table", "branch"):
+                frappe.db.sql(
+                    """
+                    UPDATE `tabRestaurant Order` ord
+                    INNER JOIN `tabRestaurant Table` tbl ON tbl.name = ord.restaurant_table
+                    SET ord.branch = tbl.branch
+                    WHERE (ord.branch IS NULL OR ord.branch = '')
+                      AND tbl.branch IS NOT NULL AND tbl.branch != ''
+                    """
+                )
+            if frappe.db.has_column("Restaurant Area", "branch"):
+                frappe.db.sql(
+                    """
+                    UPDATE `tabRestaurant Order` ord
+                    INNER JOIN `tabRestaurant Area` area ON area.name = ord.restaurant_area
+                    SET ord.branch = area.branch
+                    WHERE (ord.branch IS NULL OR ord.branch = '')
+                      AND area.branch IS NOT NULL AND area.branch != ''
+                    """
+                )
+            if frappe.db.has_column("POS Profile", "branch"):
+                frappe.db.sql(
+                    """
+                    UPDATE `tabRestaurant Order` ord
+                    INNER JOIN `tabPOS Profile` prof ON prof.name = ord.pos_profile
+                    SET ord.branch = prof.branch
+                    WHERE (ord.branch IS NULL OR ord.branch = '')
+                      AND prof.branch IS NOT NULL AND prof.branch != ''
+                    """
+                )
+        if frappe.db.has_column("Restaurant Cash Count", "branch") and frappe.db.has_column("POS Profile", "branch"):
+            frappe.db.sql(
+                """
+                UPDATE `tabRestaurant Cash Count` rcc
+                INNER JOIN `tabPOS Profile` prof ON prof.name = rcc.pos_profile
+                SET rcc.branch = prof.branch
+                WHERE (rcc.branch IS NULL OR rcc.branch = '')
+                  AND prof.branch IS NOT NULL AND prof.branch != ''
+                """
+            )
+    except Exception:
+        pass
+
 

@@ -59,11 +59,13 @@ app_include_js = [
 # Jinja
 # ----------
 
-# add methods and filters to jinja environment
-# jinja = {
-# 	"methods": "restaurant.utils.jinja_methods",
-# 	"filters": "restaurant.utils.jinja_filters"
-# }
+# Expose Honduras SAR ticket helpers to Jinja print formats and templates
+jinja = {
+    "methods": [
+        "restaurant.sar_format.get_sar_ticket_context",
+        "restaurant.sar_format.format_lempiras_in_words",
+    ]
+}
 
 # Installation
 # ------------
@@ -238,6 +240,13 @@ fixtures = [
                 "Product Bundle Item-restaurant_input_factor",
                 "Employee-restaurant_pos_section",
                 "Employee-restaurant_pos_pin",
+                "POS Profile-branch",
+                "Sales Invoice-restaurant_section",
+                "Sales Invoice-restaurant_order",
+                "Sales Invoice-restaurant_order_number",
+                "Sales Invoice-restaurant_table_label",
+                "Sales Invoice-restaurant_service_type",
+                "Sales Invoice-restaurant_waiter_name",
             ]],
         ],
     },
@@ -264,5 +273,13 @@ doc_events = {
     "Product Bundle": {
         "validate": "restaurant.item_configuration.validate_managed_bundle",
         "on_trash": "restaurant.item_configuration.prevent_managed_recipe_deletion",
+    },
+    "Restaurant Order": {
+        "after_insert": "restaurant.kds.publish_kds_realtime_update",
+        "on_update": "restaurant.kds.publish_kds_realtime_update",
+        "on_trash": "restaurant.kds.publish_kds_realtime_update",
+    },
+    "Sales Invoice": {
+        "validate": "restaurant.pos.preserve_restaurant_invoice_taxes",
     },
 }

@@ -163,7 +163,7 @@
    "label": "Habilitar propinas"
   },
   {
-   "default": "1",
+   "default": "0",
    "description": "Aplica el redondeo estándar de totales configurado en el perfil POS.",
    "fieldname": "enable_rounded_total",
    "fieldtype": "Check",

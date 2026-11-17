@@ -1,459 +1,485 @@
 {
- "doctype": "DocType",
- "name": "Restaurant Order",
- "module": "Restaurant",
- "custom": 0,
- "autoname": "format:ORD-{#####}",
- "allow_import": 1,
- "track_changes": 1,
- "engine": "InnoDB",
- "field_order": [
-  "order_name",
-  "status",
-  "service_type",
-  "restaurant_area",
-  "restaurant_table",
-  "table_label",
-  "guests",
-  "column_break_header",
-  "customer",
-  "customer_name",
-  "tax_id",
-  "waiter",
-  "waiter_name",
-  "products_tab",
-  "section_break_items",
-  "items",
-  "section_break_totals",
-  "subtotal",
-  "taxed_amount_15",
-  "isv_15",
-  "taxed_amount_18",
-  "isv_18",
-  "exempt_amount",
-  "column_break_totals",
-  "tax_amount",
-  "tip_percentage",
-  "tip_amount",
-  "grand_total",
-  "payments_tab",
-  "section_break_invoice",
-  "sales_invoice",
-  "precuenta_printed",
-  "column_break_fiscal",
-  "cai",
-  "due_date_cai",
-  "additional_info_tab",
-  "section_break_pos",
-  "pos_profile",
-  "pos_opening_shift",
-  "cashier",
-  "column_break_pos",
-  "company",
-  "currency",
-  "selling_price_list",
-  "section_break_kitchen",
-  "kds_status",
-  "sent_to_kitchen_at",
-  "column_break_kitchen",
-  "scheduled_time",
-  "notes_tab",
-  "section_break_notes",
-  "customer_note",
-  "reference_note"
- ],
- "fields": [
-  {
-   "fieldname": "order_name",
-   "label": "Nombre de la cuenta u orden",
-   "fieldtype": "Data",
-   "reqd": 1,
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "columns": 2
-  },
-  {
-   "fieldname": "status",
-   "label": "Estado",
-   "fieldtype": "Select",
-   "options": "En curso\nFacturada\nCancelada",
-   "default": "En curso",
-   "reqd": 1,
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "columns": 2
-  },
-  {
-   "fieldname": "service_type",
-   "label": "Modalidad de servicio",
-   "fieldtype": "Select",
-   "options": "Comer en el local\nPara llevar\nEntrega",
-   "default": "Comer en el local",
-   "reqd": 1,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "restaurant_area",
-   "label": "Área",
-   "fieldtype": "Link",
-   "options": "Restaurant Area",
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "restaurant_table",
-   "label": "Mesa",
-   "fieldtype": "Link",
-   "options": "Restaurant Table",
-   "in_list_view": 0,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "table_label",
-   "label": "Mesa",
-   "fieldtype": "Data",
-   "read_only": 1,
-   "in_list_view": 1,
-   "columns": 1
-  },
-  {
-   "fieldname": "guests",
-   "label": "Invitados / Comensales",
-   "fieldtype": "Int",
-   "default": "1",
-   "non_negative": 1
-  },
-  {
-   "fieldname": "column_break_header",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "customer",
-   "label": "Cliente",
-   "fieldtype": "Link",
-   "options": "Customer",
-   "reqd": 1,
-   "in_list_view": 0,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "customer_name",
-   "label": "Nombre del cliente",
-   "fieldtype": "Data",
-   "read_only": 1,
-   "in_list_view": 1,
-   "columns": 2
-  },
-  {
-   "fieldname": "tax_id",
-   "label": "RTN del cliente",
-   "fieldtype": "Data"
-  },
-  {
-   "fieldname": "waiter",
-   "label": "Atendido por (Mesero)",
-   "fieldtype": "Link",
-   "options": "Employee",
-   "in_list_view": 0,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "waiter_name",
-   "label": "Nombre del mesero",
-   "fieldtype": "Data",
-   "read_only": 1,
-   "in_list_view": 1,
-   "columns": 2
-  },
-  {
-   "fieldname": "products_tab",
-   "label": "Productos",
-   "fieldtype": "Tab Break"
-  },
-  {
-   "fieldname": "section_break_items",
-   "label": "Platillos y productos",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "items",
-   "label": "Detalle de platillos",
-   "fieldtype": "Table",
-   "options": "Restaurant Order Item"
-  },
-  {
-   "fieldname": "section_break_totals",
-   "label": "Totales, Impuestos SAR y Propina",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "subtotal",
-   "label": "Subtotal (sin ISV)",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "read_only": 1
-  },
-  {
-   "fieldname": "taxed_amount_15",
-   "label": "Importe gravado 15%",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "read_only": 1
-  },
-  {
-   "fieldname": "isv_15",
-   "label": "ISV 15%",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "read_only": 1
-  },
-  {
-   "fieldname": "taxed_amount_18",
-   "label": "Importe gravado 18%",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "read_only": 1
-  },
-  {
-   "fieldname": "isv_18",
-   "label": "ISV 18%",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "read_only": 1
-  },
-  {
-   "fieldname": "exempt_amount",
-   "label": "Importe exento",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_totals",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "tax_amount",
-   "label": "Total impuestos (ISV)",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "read_only": 1
-  },
-  {
-   "fieldname": "tip_percentage",
-   "label": "Servicio sugerido / Propina (%)",
-   "fieldtype": "Float",
-   "default": "0",
-   "non_negative": 1
-  },
-  {
-   "fieldname": "tip_amount",
-   "label": "Monto de servicio / Propina",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "non_negative": 1
-  },
-  {
-   "fieldname": "grand_total",
-   "label": "Total general",
-   "fieldtype": "Currency",
-   "options": "currency",
-   "default": "0",
-   "read_only": 1,
-   "in_list_view": 1,
-   "columns": 1
-  },
-  {
-   "fieldname": "payments_tab",
-   "label": "Pagos",
-   "fieldtype": "Tab Break"
-  },
-  {
-   "fieldname": "section_break_invoice",
-   "label": "Control Fiscal SAR y Facturación",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "sales_invoice",
-   "label": "Factura de venta (SAR)",
-   "fieldtype": "Link",
-   "options": "Sales Invoice",
-   "read_only": 1,
-   "in_list_view": 1,
-   "in_standard_filter": 1,
-   "columns": 2
-  },
-  {
-   "fieldname": "precuenta_printed",
-   "label": "Precuenta generada",
-   "fieldtype": "Check",
-   "default": "0",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_fiscal",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "cai",
-   "label": "CAI",
-   "fieldtype": "Data",
-   "read_only": 1
-  },
-  {
-   "fieldname": "due_date_cai",
-   "label": "Fecha límite de emisión CAI",
-   "fieldtype": "Date",
-   "read_only": 1
-  },
-  {
-   "fieldname": "additional_info_tab",
-   "label": "Información adicional",
-   "fieldtype": "Tab Break"
-  },
-  {
-   "fieldname": "section_break_pos",
-   "label": "Punto de Venta y Turno",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "pos_profile",
-   "label": "Punto de venta",
-   "fieldtype": "Link",
-   "options": "POS Profile",
-   "in_list_view": 0,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "pos_opening_shift",
-   "label": "Sesión (Turno de caja)",
-   "fieldtype": "Link",
-   "options": "POS Opening Shift",
-   "in_list_view": 0,
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "cashier",
-   "label": "Cajero",
-   "fieldtype": "Link",
-   "options": "User",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_pos",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "company",
-   "label": "Empresa",
-   "fieldtype": "Link",
-   "options": "Company"
-  },
-  {
-   "fieldname": "currency",
-   "label": "Moneda",
-   "fieldtype": "Link",
-   "options": "Currency",
-   "default": "HNL"
-  },
-  {
-   "fieldname": "selling_price_list",
-   "label": "Lista de precios",
-   "fieldtype": "Link",
-   "options": "Price List"
-  },
-  {
-   "fieldname": "section_break_kitchen",
-   "label": "Cocina (KDS)",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "kds_status",
-   "label": "Estado en cocina (KDS)",
-   "fieldtype": "Select",
-   "options": "Sin enviar\nEn preparación\nListo\nEntregado\nCerrado",
-   "default": "Sin enviar",
-   "in_standard_filter": 1
-  },
-  {
-   "fieldname": "sent_to_kitchen_at",
-   "label": "Enviado a cocina",
-   "fieldtype": "Datetime",
-   "read_only": 1
-  },
-  {
-   "fieldname": "column_break_kitchen",
-   "fieldtype": "Column Break"
-  },
-  {
-   "fieldname": "scheduled_time",
-   "label": "Tiempo / Hora programada",
-   "fieldtype": "Data"
-  },
-  {
-   "fieldname": "notes_tab",
-   "label": "Nota para el cliente",
-   "fieldtype": "Tab Break"
-  },
-  {
-   "fieldname": "section_break_notes",
-   "label": "Notas y referencias",
-   "fieldtype": "Section Break"
-  },
-  {
-   "fieldname": "customer_note",
-   "label": "Nota para el cliente",
-   "fieldtype": "Small Text"
-  },
-  {
-   "fieldname": "reference_note",
-   "label": "Referencia interna",
-   "fieldtype": "Data"
-  }
- ],
- "permissions": [
-  {
-   "role": "System Manager",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 1,
-   "report": 1,
-   "export": 1,
-   "import": 1
-  },
-  {
-   "role": "Restaurant Manager",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 1,
-   "report": 1
-  },
-  {
-   "role": "Restaurant User",
-   "read": 1,
-   "write": 1,
-   "create": 1,
-   "delete": 0,
-   "print": 1,
-   "select": 1,
-   "report": 1
-  }
- ],
- "actions": [],
- "links": [],
- "states": [],
- "title_field": "order_name",
- "search_fields": "order_name,reference_note,customer_name,table_label,waiter_name",
- "sort_field": "modified",
- "sort_order": "DESC",
- "quick_entry": 0
+    "doctype": "DocType",
+    "name": "Restaurant Order",
+    "module": "Restaurant",
+    "custom": 0,
+    "autoname": "format:ORD-{#####}",
+    "allow_import": 1,
+    "track_changes": 1,
+    "engine": "InnoDB",
+    "field_order": [
+        "order_name",
+        "status",
+        "service_type",
+        "restaurant_area",
+        "restaurant_table",
+        "table_label",
+        "branch",
+        "guests",
+        "column_break_header",
+        "customer",
+        "customer_name",
+        "tax_id",
+        "waiter",
+        "waiter_name",
+        "products_tab",
+        "section_break_items",
+        "items",
+        "section_break_totals",
+        "subtotal",
+        "taxed_amount_15",
+        "isv_15",
+        "taxed_amount_18",
+        "isv_18",
+        "exempt_amount",
+        "column_break_totals",
+        "tax_amount",
+        "tip_percentage",
+        "tip_amount",
+        "grand_total",
+        "payments_tab",
+        "section_break_invoice",
+        "sales_invoice",
+        "precuenta_printed",
+        "column_break_fiscal",
+        "cai",
+        "due_date_cai",
+        "additional_info_tab",
+        "section_break_pos",
+        "pos_profile",
+        "pos_opening_shift",
+        "cashier",
+        "column_break_pos",
+        "company",
+        "currency",
+        "selling_price_list",
+        "section_break_kitchen",
+        "kds_status",
+        "sent_to_kitchen_at",
+        "column_break_kitchen",
+        "scheduled_time",
+        "notes_tab",
+        "section_break_notes",
+        "customer_note",
+        "reference_note"
+    ],
+    "fields": [
+        {
+            "fieldname": "order_name",
+            "label": "Nombre de la cuenta u orden",
+            "fieldtype": "Data",
+            "reqd": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "columns": 2
+        },
+        {
+            "fieldname": "status",
+            "label": "Estado",
+            "fieldtype": "Select",
+            "options": "En curso\nFacturada\nCancelada",
+            "default": "En curso",
+            "reqd": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "search_index": 1,
+            "columns": 2
+        },
+        {
+            "fieldname": "service_type",
+            "label": "Modalidad de servicio",
+            "fieldtype": "Select",
+            "options": "Comer en el local\nPara llevar\nEntrega",
+            "default": "Comer en el local",
+            "reqd": 1,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "restaurant_area",
+            "label": "Área",
+            "fieldtype": "Link",
+            "options": "Restaurant Area",
+            "in_standard_filter": 1,
+            "search_index": 1
+        },
+        {
+            "fieldname": "restaurant_table",
+            "label": "Mesa",
+            "fieldtype": "Link",
+            "options": "Restaurant Table",
+            "in_list_view": 0,
+            "in_standard_filter": 1,
+            "search_index": 1
+        },
+        {
+            "fieldname": "table_label",
+            "label": "Mesa",
+            "fieldtype": "Data",
+            "read_only": 1,
+            "in_list_view": 1,
+            "columns": 1
+        },
+        {
+            "fieldname": "branch",
+            "label": "Sucursal",
+            "fieldtype": "Link",
+            "options": "Branch",
+            "in_standard_filter": 1,
+            "search_index": 1,
+            "read_only": 1
+        },
+        {
+            "fieldname": "guests",
+            "label": "Invitados / Comensales",
+            "fieldtype": "Int",
+            "default": "1",
+            "non_negative": 1
+        },
+        {
+            "fieldname": "column_break_header",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "customer",
+            "label": "Cliente",
+            "fieldtype": "Link",
+            "options": "Customer",
+            "reqd": 1,
+            "in_list_view": 0,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "customer_name",
+            "label": "Nombre del cliente",
+            "fieldtype": "Data",
+            "read_only": 1,
+            "in_list_view": 1,
+            "columns": 2
+        },
+        {
+            "fieldname": "tax_id",
+            "label": "RTN del cliente",
+            "fieldtype": "Data"
+        },
+        {
+            "fieldname": "waiter",
+            "label": "Atendido por (Mesero)",
+            "fieldtype": "Link",
+            "options": "Employee",
+            "in_list_view": 0,
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "waiter_name",
+            "label": "Nombre del mesero",
+            "fieldtype": "Data",
+            "read_only": 1,
+            "in_list_view": 1,
+            "columns": 2
+        },
+        {
+            "fieldname": "products_tab",
+            "label": "Productos",
+            "fieldtype": "Tab Break"
+        },
+        {
+            "fieldname": "section_break_items",
+            "label": "Platillos y productos",
+            "fieldtype": "Section Break"
+        },
+        {
+            "fieldname": "items",
+            "label": "Detalle de platillos",
+            "fieldtype": "Table",
+            "options": "Restaurant Order Item"
+        },
+        {
+            "fieldname": "section_break_totals",
+            "label": "Totales, Impuestos SAR y Propina",
+            "fieldtype": "Section Break"
+        },
+        {
+            "fieldname": "subtotal",
+            "label": "Subtotal (sin ISV)",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "read_only": 1
+        },
+        {
+            "fieldname": "taxed_amount_15",
+            "label": "Importe gravado 15%",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "read_only": 1
+        },
+        {
+            "fieldname": "isv_15",
+            "label": "ISV 15%",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "read_only": 1
+        },
+        {
+            "fieldname": "taxed_amount_18",
+            "label": "Importe gravado 18%",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "read_only": 1
+        },
+        {
+            "fieldname": "isv_18",
+            "label": "ISV 18%",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "read_only": 1
+        },
+        {
+            "fieldname": "exempt_amount",
+            "label": "Importe exento",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_totals",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "tax_amount",
+            "label": "Total impuestos (ISV)",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "read_only": 1
+        },
+        {
+            "fieldname": "tip_percentage",
+            "label": "Servicio sugerido / Propina (%)",
+            "fieldtype": "Float",
+            "default": "0",
+            "non_negative": 1
+        },
+        {
+            "fieldname": "tip_amount",
+            "label": "Monto de servicio / Propina",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "non_negative": 1
+        },
+        {
+            "fieldname": "grand_total",
+            "label": "Total general",
+            "fieldtype": "Currency",
+            "options": "currency",
+            "default": "0",
+            "read_only": 1,
+            "in_list_view": 1,
+            "columns": 1
+        },
+        {
+            "fieldname": "payments_tab",
+            "label": "Pagos",
+            "fieldtype": "Tab Break"
+        },
+        {
+            "fieldname": "section_break_invoice",
+            "label": "Control Fiscal SAR y Facturación",
+            "fieldtype": "Section Break"
+        },
+        {
+            "fieldname": "sales_invoice",
+            "label": "Factura de venta (SAR)",
+            "fieldtype": "Link",
+            "options": "Sales Invoice",
+            "read_only": 1,
+            "in_list_view": 1,
+            "in_standard_filter": 1,
+            "search_index": 1,
+            "columns": 2
+        },
+        {
+            "fieldname": "precuenta_printed",
+            "label": "Precuenta generada",
+            "fieldtype": "Check",
+            "default": "0",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_fiscal",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "cai",
+            "label": "CAI",
+            "fieldtype": "Data",
+            "read_only": 1
+        },
+        {
+            "fieldname": "due_date_cai",
+            "label": "Fecha límite de emisión CAI",
+            "fieldtype": "Date",
+            "read_only": 1
+        },
+        {
+            "fieldname": "additional_info_tab",
+            "label": "Información adicional",
+            "fieldtype": "Tab Break"
+        },
+        {
+            "fieldname": "section_break_pos",
+            "label": "Punto de Venta y Turno",
+            "fieldtype": "Section Break"
+        },
+        {
+            "fieldname": "pos_profile",
+            "label": "Punto de venta",
+            "fieldtype": "Link",
+            "options": "POS Profile",
+            "in_list_view": 0,
+            "in_standard_filter": 1,
+            "search_index": 1
+        },
+        {
+            "fieldname": "pos_opening_shift",
+            "label": "Sesión (Turno de caja)",
+            "fieldtype": "Link",
+            "options": "POS Opening Shift",
+            "in_list_view": 0,
+            "in_standard_filter": 1,
+            "search_index": 1
+        },
+        {
+            "fieldname": "cashier",
+            "label": "Cajero",
+            "fieldtype": "Link",
+            "options": "User",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_pos",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "company",
+            "label": "Empresa",
+            "fieldtype": "Link",
+            "options": "Company"
+        },
+        {
+            "fieldname": "currency",
+            "label": "Moneda",
+            "fieldtype": "Link",
+            "options": "Currency",
+            "default": "HNL"
+        },
+        {
+            "fieldname": "selling_price_list",
+            "label": "Lista de precios",
+            "fieldtype": "Link",
+            "options": "Price List"
+        },
+        {
+            "fieldname": "section_break_kitchen",
+            "label": "Cocina (KDS)",
+            "fieldtype": "Section Break"
+        },
+        {
+            "fieldname": "kds_status",
+            "label": "Estado en cocina (KDS)",
+            "fieldtype": "Select",
+            "options": "Sin enviar\nEn preparación\nListo\nEntregado\nCerrado",
+            "default": "Sin enviar",
+            "in_standard_filter": 1
+        },
+        {
+            "fieldname": "sent_to_kitchen_at",
+            "label": "Enviado a cocina",
+            "fieldtype": "Datetime",
+            "read_only": 1
+        },
+        {
+            "fieldname": "column_break_kitchen",
+            "fieldtype": "Column Break"
+        },
+        {
+            "fieldname": "scheduled_time",
+            "label": "Tiempo / Hora programada",
+            "fieldtype": "Data"
+        },
+        {
+            "fieldname": "notes_tab",
+            "label": "Nota para el cliente",
+            "fieldtype": "Tab Break"
+        },
+        {
+            "fieldname": "section_break_notes",
+            "label": "Notas y referencias",
+            "fieldtype": "Section Break"
+        },
+        {
+            "fieldname": "customer_note",
+            "label": "Nota para el cliente",
+            "fieldtype": "Small Text"
+        },
+        {
+            "fieldname": "reference_note",
+            "label": "Referencia interna",
+            "fieldtype": "Data"
+        }
+    ],
+    "permissions": [
+        {
+            "role": "System Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1,
+            "report": 1,
+            "export": 1,
+            "import": 1
+        },
+        {
+            "role": "Restaurant Manager",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 1,
+            "report": 1
+        },
+        {
+            "role": "Restaurant User",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 0,
+            "print": 1,
+            "select": 1,
+            "report": 1
+        },
+        {
+            "role": "Restaurant Cashier",
+            "read": 1,
+            "write": 1,
+            "create": 1,
+            "delete": 0,
+            "print": 1,
+            "select": 1,
+            "report": 1
+        }
+    ],
+    "actions": [],
+    "links": [],
+    "states": [],
+    "title_field": "order_name",
+    "search_fields": "order_name,reference_note,customer_name,table_label,waiter_name",
+    "sort_field": "modified",
+    "sort_order": "DESC",
+    "quick_entry": 0
 }

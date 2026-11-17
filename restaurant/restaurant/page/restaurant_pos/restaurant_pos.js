@@ -48,6 +48,12 @@ class LeafRestaurantPOS {
         this.currentOrder = this.createBlankOrder();
         this.paymentScreenState = null;
         this.customerDisplayWindow = null;
+        this.realtimeDebounceTimer = null;
+        this._realtimeBound = false;
+        this._onRealtimePosUpdate = null;
+        this.bootstrapRefreshing = false;
+        this.kdsSendBusy = false;
+        this.payBusy = false;
         this.darkMode = false;
         try {
             this.darkMode = window.localStorage?.getItem("rpos_dark_mode") === "1";
@@ -343,6 +349,7 @@ class LeafRestaurantPOS {
                 if (existing) this.loadOrderIntoCaja(existing);
             }
             this.render();
+            this.bindRealtime();
             this.setupIdleWallpaperManager();
             if (this.canInvoice() && !this.bootstrap.opening_shift) this.openShiftDialog();
             else if (options.open_new_account) this.openNewAccountModal();
@@ -1514,8 +1521,9 @@ class LeafRestaurantPOS {
                             <div class="rpos-totals-row is-grand"><span>Total</span><span>${this.formatMoney(selectedOrd.grand_total)}</span></div>
                             ${selectedOrd.sales_invoice ? `<div class="rpos-totals-row" style="margin-top:6px;color:#16a34a;"><span>Factura SAR</span><span>${this.escape(selectedOrd.sales_invoice)}</span></div>` : ""}
                         </div>
-                        <div style="padding:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;background:#f8fafc;border-top:1px solid #e2e8f0;">
+                        <div style="padding:10px;display:grid;grid-template-columns:${selectedOrd.sales_invoice ? "1fr 1fr 1fr" : "1fr 1fr"};gap:8px;background:#f8fafc;border-top:1px solid #e2e8f0;">
                             <button type="button" class="rpos-btn-secondary" data-action="${selectedOrd.is_draft_row ? "open-precuenta" : "preview-precuenta"}" data-order="${this.escape(selectedOrd.name)}">Ver Precuenta</button>
+                            ${selectedOrd.sales_invoice ? `<button type="button" class="rpos-btn-green" data-action="reprint-sar-invoice" data-invoice="${this.escape(selectedOrd.sales_invoice)}" data-order="${this.escape(selectedOrd.name)}">🖨 Factura SAR</button>` : ""}
                             <button type="button" class="rpos-btn-primary" data-action="load-selected-order" data-order="${this.escape(selectedOrd.name)}">Cargar orden</button>
                         </div>
                     ` : `
@@ -1769,6 +1777,21 @@ class LeafRestaurantPOS {
             if (ordName) this.openPrecuentaModal(ordName);
             return;
         }
+        if (action === "reprint-sar-invoice") {
+            const invName = el.dataset.invoice;
+            const ordName = el.dataset.order;
+            const ord = (this.bootstrap?.orders || []).find(o => o.name === ordName) || { order_name: ordName };
+            if (invName) {
+                this.showInvoiceReceiptModal(
+                    {
+                        name: invName,
+                        print_format: this.getActivePosProfileObj().print_format || "Ticket",
+                    },
+                    ord
+                );
+            }
+            return;
+        }
         if (action === "cancel-order-row") {
             const ordName = el.dataset.order;
             if (ordName) this.cancelOrderById(ordName);
@@ -1858,7 +1881,7 @@ class LeafRestaurantPOS {
         }
         this.numpadBuffer = "";
         this.render();
-        await this.persistCurrentOrderSilently();
+        if (!(await this.persistCurrentOrderSilently())) return;
     }
 
     async requestCancelSentItem(lineIdx, cancelQty = null) {
@@ -2019,8 +2042,76 @@ class LeafRestaurantPOS {
         return String(maxSeq + 1);
     }
 
+    bindRealtime() {
+        if (this._realtimeBound || !window.frappe?.realtime?.on) return;
+        this._onRealtimePosUpdate = (data) => {
+            if (frappe.get_route()[0] !== "restaurant-pos") {
+                this.unbindRealtime();
+                return;
+            }
+            const activeBranch = this.bootstrap?.active_branch || "";
+            if (activeBranch && data?.branch && data.branch !== activeBranch) {
+                return;
+            }
+            if (this.realtimeDebounceTimer) {
+                window.clearTimeout(this.realtimeDebounceTimer);
+            }
+            this.realtimeDebounceTimer = window.setTimeout(() => {
+                this.realtimeDebounceTimer = null;
+                this.handleRealtimeSync(data);
+            }, 350);
+        };
+        frappe.realtime.on("restaurant_kds_update", this._onRealtimePosUpdate);
+        this._realtimeBound = true;
+    }
+
+    unbindRealtime() {
+        if (this.realtimeDebounceTimer) {
+            window.clearTimeout(this.realtimeDebounceTimer);
+            this.realtimeDebounceTimer = null;
+        }
+        if (this._realtimeBound && this._onRealtimePosUpdate && window.frappe?.realtime?.off) {
+            frappe.realtime.off("restaurant_kds_update", this._onRealtimePosUpdate);
+        }
+        this._realtimeBound = false;
+    }
+
+    async handleRealtimeSync(data) {
+        if (frappe.get_route()[0] !== "restaurant-pos") return;
+        if (this.loading || this.operationBusy || this.bootstrapRefreshing) return;
+        if (document.querySelector(".rpos-modal-backdrop")) return;
+        const viewingOverview = this.activeTab === "Mesas" || this.activeTab === "Órdenes";
+        const matchesCurrentOrder = Boolean(this.currentOrder?.name && data?.order_name === this.currentOrder.name);
+        if (!viewingOverview && !matchesCurrentOrder) return;
+        this.bootstrapRefreshing = true;
+        try {
+            await this.loadBootstrap();
+            if (frappe.get_route()[0] !== "restaurant-pos") return;
+            if (matchesCurrentOrder) {
+                const updated = (this.bootstrap?.orders || []).find(o => o.name === this.currentOrder.name);
+                if (updated) {
+                    const hasLocalPending = (this.currentOrder.items || []).some(
+                        it => !it.name && (it.kds_status || "Pendiente") === "Pendiente"
+                    );
+                    if (updated.status === "Facturada" || updated.status === "Cancelada") {
+                        this.resetCajaForNextOrder();
+                    } else if (!hasLocalPending && this.activeTab === "Caja") {
+                        this.currentOrder = updated;
+                    }
+                }
+            }
+            if (viewingOverview || (matchesCurrentOrder && this.activeTab === "Caja")) {
+                this.render();
+            }
+        } catch (e) {
+            // Transient sync error is safely retried on next event or user action.
+        } finally {
+            this.bootstrapRefreshing = false;
+        }
+    }
+
     async persistCurrentOrderSilently() {
-        if (!this.currentOrder.order_name && !this.currentOrder.items.length) return;
+        if (!this.currentOrder.order_name && !this.currentOrder.items.length) return true;
         if (!this.currentOrder.order_name) {
             this.currentOrder.order_name = this.currentOrder.table_label
                 ? `Mesa ${this.currentOrder.table_label}`
@@ -2036,9 +2127,15 @@ class LeafRestaurantPOS {
                 this.bootstrap.areas = res.message.areas || this.bootstrap.areas;
                 this.upsertOrderInBootstrap(this.currentOrder);
                 this.render();
+                return true;
             }
+            return false;
         } catch (e) {
-            // Validation feedback is handled by Frappe
+            frappe.show_alert({
+                message: "No se pudo guardar la cuenta en el servidor. Recarga o revisa tu conexión.",
+                indicator: "orange",
+            });
+            return false;
         }
     }
 
@@ -2499,7 +2596,7 @@ class LeafRestaurantPOS {
             line.note = txt.value.trim();
             backdrop.remove();
             this.render();
-            await this.persistCurrentOrderSilently();
+            if (!(await this.persistCurrentOrderSilently())) return;
         });
     }
 
@@ -2547,12 +2644,12 @@ class LeafRestaurantPOS {
                 this.render();
 
                 if (chosenPreset?.require_customer || chosenLabel === "Entrega") {
-                    await this.persistCurrentOrderSilently();
+                    if (!(await this.persistCurrentOrderSilently())) return;
                     this.openCustomerModal({ openScheduleAfter: Boolean(chosenPreset?.enable_scheduling) });
                 } else if (chosenPreset?.enable_scheduling || chosenLabel === "Para llevar") {
                     this.openOrderNameModal({ openScheduleAfter: true });
                 } else {
-                    await this.persistCurrentOrderSilently();
+                    if (!(await this.persistCurrentOrderSilently())) return;
                 }
             });
         });
@@ -2672,7 +2769,7 @@ class LeafRestaurantPOS {
             this.currentOrder.order_name = val;
             backdrop.remove();
             this.render();
-            await this.persistCurrentOrderSilently();
+            if (!(await this.persistCurrentOrderSilently())) return;
             if (opts.openScheduleAfter) {
                 this.openScheduleModal();
             }
@@ -2841,7 +2938,7 @@ class LeafRestaurantPOS {
                 this.currentOrder.scheduled_time = null;
                 backdrop.remove();
                 this.render();
-                await this.persistCurrentOrderSilently();
+                if (!(await this.persistCurrentOrderSilently())) return;
             });
         }
 
@@ -2852,7 +2949,7 @@ class LeafRestaurantPOS {
             }
             backdrop.remove();
             this.render();
-            await this.persistCurrentOrderSilently();
+            if (!(await this.persistCurrentOrderSilently())) return;
         });
     }
 
@@ -2955,7 +3052,7 @@ class LeafRestaurantPOS {
                     this.currentOrder.tax_id = saved.tax_id || "";
                     backdrop.remove();
                     this.render();
-                    await this.persistCurrentOrderSilently();
+                    if (!(await this.persistCurrentOrderSilently())) return;
                     if (opts.openScheduleAfter) {
                         this.openScheduleModal();
                     }
@@ -2998,7 +3095,7 @@ class LeafRestaurantPOS {
                     this.currentOrder.tax_id = chosen.tax_id || "";
                     backdrop.remove();
                     this.render();
-                    await this.persistCurrentOrderSilently();
+                    if (!(await this.persistCurrentOrderSilently())) return;
                     if (opts.openScheduleAfter) {
                         this.openScheduleModal();
                     }
@@ -3099,7 +3196,7 @@ class LeafRestaurantPOS {
             this.currentOrder.guests = count;
             backdrop.remove();
             this.render();
-            await this.persistCurrentOrderSilently();
+            if (!(await this.persistCurrentOrderSilently())) return;
         });
     }
 
@@ -3152,7 +3249,7 @@ class LeafRestaurantPOS {
             this.currentOrder.tip_amount = Math.max(0, Number(customInput.value || 0));
             backdrop.remove();
             this.render();
-            await this.persistCurrentOrderSilently();
+            if (!(await this.persistCurrentOrderSilently())) return;
         });
     }
 
@@ -3249,17 +3346,23 @@ class LeafRestaurantPOS {
                 frappe.msgprint("Agrega platillos a la cuenta antes de generar la Pre-cuenta.");
                 return;
             }
-            await this.persistCurrentOrderSilently();
+            const saved = await this.persistCurrentOrderSilently();
+            if (!saved) return;
             orderId = this.currentOrder.name;
         }
         if (!orderId) return;
 
+        const isCurrentOrd = orderId === this.currentOrder?.name;
+        const targetOrd = isCurrentOrd
+            ? this.currentOrder
+            : (this.bootstrap?.orders || []).find(o => o.name === orderId);
         const res = await frappe.call({
             method: "restaurant.pos.get_precuenta_data",
+            type: "POST",
             args: {
                 order_name: orderId,
-                tip_percentage: this.currentOrder.tip_percentage,
-                tip_amount: this.currentOrder.tip_amount,
+                tip_percentage: targetOrd?.tip_percentage,
+                tip_amount: targetOrd?.tip_amount,
             },
         });
         const data = res.message;
@@ -3350,7 +3453,7 @@ class LeafRestaurantPOS {
             frappe.msgprint("Agrega al menos un platillo o bebida antes de proceder al pago.");
             return;
         }
-        await this.persistCurrentOrderSilently();
+        if (!(await this.persistCurrentOrderSilently())) return;
         this.recalculateLocalTotals();
         const mops = this.bootstrap?.modes_of_payment || [{ name: "Efectivo" }, { name: "Tarjetas de credito" }, { name: "Transferencia bancaria" }];
         const defaultMop = mops.find(m => m.name.toLowerCase().includes("efectivo"))?.name || mops[0]?.name || "Efectivo";
@@ -3376,19 +3479,23 @@ class LeafRestaurantPOS {
             const paidTotal = Number(st.invoice?.grand_total ?? st.finishedOrder?.grand_total ?? 0);
             const [intPart, decPart] = paidTotal.toFixed(2).split(".");
             return `
-                <div style="display:flex;flex-direction:column;justify-content:space-between;height:calc(100vh - 64px);background:#f8fafc;padding:36px 28px 20px;">
-                    <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;">
-                        <div style="width:76px;height:76px;border-radius:50%;background:#16a34a;color:#ffffff;display:flex;align-items:center;justify-content:center;margin-bottom:18px;box-shadow:0 8px 20px rgba(22,163,74,0.25);">
-                            <svg viewBox="0 0 24 24" width="42" height="42" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                <div class="rpos-pay-success-screen" data-invoice-key="${this.escape(st.invoice?.name || String(paidTotal))}">
+                    <div class="rpos-pay-success-body">
+                        <div class="rpos-pay-success-badge" aria-hidden="true">
+                            <svg class="rpos-pay-success-svg" viewBox="0 0 120 120">
+                                <circle class="rpos-pay-success-fill" cx="60" cy="60" r="52" />
+                                <circle class="rpos-pay-success-ring" cx="60" cy="60" r="52" />
+                                <polyline class="rpos-pay-success-check" points="35 61 52 78 86 44" />
+                            </svg>
                         </div>
-                        <h2 style="font-size:36px;font-weight:800;color:#1e293b;margin:0 0 12px;">Importe pagado</h2>
-                        <div style="font-size:112px;font-weight:800;line-height:1;color:#1e293b;letter-spacing:-2px;">
-                            <span style="font-size:68px;color:#64748b;margin-right:8px;">L</span><span>${this.escape(intPart)}</span><span style="color:#64748b;">,${this.escape(decPart)}</span>
+                        <h2 class="rpos-pay-success-title">Importe pagado</h2>
+                        <div class="rpos-pay-success-amount">
+                            <span class="rpos-pay-success-currency">L</span><span>${this.escape(intPart)}</span><span class="rpos-pay-success-decimals">,${this.escape(decPart)}</span>
                         </div>
-                        ${st.invoice?.name ? `<div style="margin-top:14px;font-size:13.5px;color:#475569;font-weight:600;">Factura Fiscal SAR: <strong>${this.escape(st.invoice.name)}</strong> · Cliente: ${this.escape(st.invoice.customer_name || "Consumidor Final")}</div>` : ""}
+                        ${st.invoice?.name ? `<div class="rpos-pay-success-meta">Factura Fiscal SAR: <strong>${this.escape(st.invoice.name)}</strong> · Cliente: ${this.escape(st.invoice.customer_name || "Consumidor Final")}</div>` : ""}
                         ${cfg.enable_self_invoicing && st.invoice?.name ? `
-                            <div style="margin-top:10px;">
-                                <button type="button" data-action="pay-screen-self-invoice" style="padding:8px 16px;border-radius:6px;border:1px solid #002456;background:#eff6ff;color:#002456;font-size:12.5px;font-weight:700;cursor:pointer;">
+                            <div class="rpos-pay-success-self-invoice">
+                                <button type="button" data-action="pay-screen-self-invoice" class="rpos-pay-success-self-invoice-btn">
                                     🧾 Datos de Autofacturación (QR / URL)
                                 </button>
                             </div>
@@ -3737,7 +3844,13 @@ class LeafRestaurantPOS {
                         <label>Cliente a facturar *</label>
                         <select data-pay-customer>
                             ${customers.map(c => `
-                                <option value="${this.escape(c.name)}" data-rtn="${this.escape(c.tax_id || "")}" ${this.currentOrder.customer === c.name ? "selected" : ""}>
+                                <option value="${this.escape(c.name)}"
+                                    data-rtn="${this.escape(c.tax_id || "")}"
+                                    data-tax-cat="${this.escape(c.tax_category || "Contribuyente")}"
+                                    data-cr-exo="${this.escape(c.custom_constancia_exonerado || "")}"
+                                    data-carnet="${this.escape(c.custom_carnet_diplomatico || "")}"
+                                    data-reg-sag="${this.escape(c.custom_registro_sag || "")}"
+                                    ${this.currentOrder.customer === c.name ? "selected" : ""}>
                                     ${this.escape(c.customer_name)}
                                 </option>
                             `).join("")}
@@ -3791,6 +3904,30 @@ class LeafRestaurantPOS {
                     </div>
                 </div>
 
+                <div style="margin:6px 0;">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#475569;cursor:pointer;">
+                        <input type="checkbox" data-pay-is-exo> Factura Exonerada (OC Exenta / Constancia SAR / Reg. Sec. Agro)
+                    </label>
+                    <div data-pay-exo-box style="display:none;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px;padding:10px;background:#f8fafc;border:1px dashed #94a3b8;border-radius:6px;">
+                        <div class="rpos-field" style="margin:0;">
+                            <label>No. OC Exenta</label>
+                            <input type="text" data-pay-oc-exenta placeholder="Opcional">
+                        </div>
+                        <div class="rpos-field" style="margin:0;">
+                            <label>No. CR Exonerado</label>
+                            <input type="text" data-pay-cr-exo placeholder="Constancia Exonerados">
+                        </div>
+                        <div class="rpos-field" style="margin:0;">
+                            <label>No. Reg. Sec. Agro (SAG)</label>
+                            <input type="text" data-pay-reg-sag placeholder="Registro SAG">
+                        </div>
+                        <div class="rpos-field" style="margin:0;">
+                            <label>No. Carnet Diplomático</label>
+                            <input type="text" data-pay-carnet placeholder="Opcional">
+                        </div>
+                    </div>
+                </div>
+
                 <div style="background:#f8fafc;border:1px solid #cbd5e1;border-radius:8px;padding:12px;margin-top:6px;">
                     <div style="display:flex;justify-content:space-between;font-size:13px;color:#475569;">
                         <span>Subtotal gravado / exento:</span>
@@ -3815,14 +3952,38 @@ class LeafRestaurantPOS {
 
         const custSel = backdrop.querySelector("[data-pay-customer]");
         const rtnInp = backdrop.querySelector("[data-pay-rtn]");
+        const exoChk = backdrop.querySelector("[data-pay-is-exo]");
+        const exoBox = backdrop.querySelector("[data-pay-exo-box]");
+        const ocInp = backdrop.querySelector("[data-pay-oc-exenta]");
+        const crInp = backdrop.querySelector("[data-pay-cr-exo]");
+        const sagInp = backdrop.querySelector("[data-pay-reg-sag]");
+        const carnetInp = backdrop.querySelector("[data-pay-carnet]");
         const tipInp = backdrop.querySelector("[data-pay-tip]");
         const tenderedInp = backdrop.querySelector("[data-pay-tendered]");
         const changeInp = backdrop.querySelector("[data-pay-change]");
         const grandLbl = backdrop.querySelector("[data-pay-grand-label]");
 
+        const syncCustomerExo = () => {
+            const opt = custSel.selectedOptions[0];
+            if (!opt) return;
+            if (opt.dataset.rtn !== undefined) rtnInp.value = opt.dataset.rtn || "";
+            const isExo = (opt.dataset.taxCat || "") === "Exonerado";
+            exoChk.checked = isExo;
+            exoBox.style.display = isExo ? "grid" : "none";
+            crInp.value = isExo ? (opt.dataset.crExo || "") : "";
+            sagInp.value = isExo ? (opt.dataset.regSag || "") : "";
+            carnetInp.value = isExo ? (opt.dataset.carnet || "") : "";
+            if (typeof refreshPaymentMath === "function") {
+                const { grand } = refreshPaymentMath();
+                tenderedInp.value = grand.toFixed(2);
+                refreshPaymentMath();
+            }
+        };
+
         const refreshPaymentMath = () => {
             const tip = Math.max(0, Number(tipInp.value || 0));
-            const grand = Number((this.currentOrder.subtotal + this.currentOrder.tax_amount + tip).toFixed(2));
+            const effectiveTax = exoChk.checked ? 0 : Number(this.currentOrder.tax_amount || 0);
+            const grand = Number((Number(this.currentOrder.subtotal || 0) + effectiveTax + tip).toFixed(2));
             grandLbl.textContent = this.formatMoney(grand);
             const tendered = Math.max(0, Number(tenderedInp.value || 0));
             const change = Math.max(0, Number((tendered - grand).toFixed(2)));
@@ -3830,10 +3991,15 @@ class LeafRestaurantPOS {
             return { tip, grand, tendered };
         };
 
-        custSel.addEventListener("change", () => {
-            const opt = custSel.selectedOptions[0];
-            if (opt?.dataset?.rtn) rtnInp.value = opt.dataset.rtn;
+        exoChk.addEventListener("change", () => {
+            exoBox.style.display = exoChk.checked ? "grid" : "none";
+            const { grand } = refreshPaymentMath();
+            tenderedInp.value = grand.toFixed(2);
+            refreshPaymentMath();
         });
+        syncCustomerExo();
+
+        custSel.addEventListener("change", syncCustomerExo);
         tipInp.addEventListener("input", () => {
             const { grand } = refreshPaymentMath();
             tenderedInp.value = grand.toFixed(2);
@@ -3841,95 +4007,85 @@ class LeafRestaurantPOS {
         });
         tenderedInp.addEventListener("input", refreshPaymentMath);
 
-        backdrop.querySelector("[data-pay-submit]").addEventListener("click", async () => {
+        const paySubmitBtn = backdrop.querySelector("[data-pay-submit]");
+        paySubmitBtn.addEventListener("click", async () => {
+            if (this.payBusy || paySubmitBtn.disabled) return;
             const { tip, grand, tendered } = refreshPaymentMath();
             if (tendered < grand) {
                 frappe.msgprint("El monto recibido no puede ser menor al total de la factura.");
                 return;
             }
             const mop = backdrop.querySelector("[data-pay-mop]").value;
-            const res = await frappe.call({
-                method: "restaurant.pos.pay_and_invoice_order",
-                args: {
-                    order_name: this.currentOrder.name,
-                    customer: custSel.value,
-                    tax_id: rtnInp.value.trim(),
-                    cai: backdrop.querySelector("[data-pay-cai]").value.trim(),
-                    due_date_cai: backdrop.querySelector("[data-pay-due-cai]").value,
-                    authorized_range: backdrop.querySelector("[data-pay-auth-range]").value.trim(),
-                    tip_percentage: 0,
-                    tip_amount: tip,
-                    payments: [{ mode_of_payment: mop, amount: grand }],
-                },
-                freeze: true,
-                freeze_message: "Emitiendo Factura Fiscal SAR y registrando pago...",
-            });
+            this.payBusy = true;
+            paySubmitBtn.disabled = true;
+            try {
+                const res = await frappe.call({
+                    method: "restaurant.pos.pay_and_invoice_order",
+                    args: {
+                        order_name: this.currentOrder.name,
+                        customer: custSel.value,
+                        tax_id: rtnInp.value.trim(),
+                        cai: backdrop.querySelector("[data-pay-cai]").value.trim(),
+                        due_date_cai: backdrop.querySelector("[data-pay-due-cai]").value,
+                        authorized_range: backdrop.querySelector("[data-pay-auth-range]").value.trim(),
+                        tip_percentage: 0,
+                        tip_amount: tip,
+                        tax_category: exoChk.checked ? "Exonerado" : "Contribuyente",
+                        custom_orden_compra_exenta: exoChk.checked ? ocInp.value.trim() : "",
+                        custom_constancia_exonerado: exoChk.checked ? crInp.value.trim() : "",
+                        custom_registro_sag: exoChk.checked ? sagInp.value.trim() : "",
+                        custom_carnet_diplomatico: exoChk.checked ? carnetInp.value.trim() : "",
+                        payments: [{ mode_of_payment: mop, amount: grand }],
+                    },
+                    freeze: true,
+                    freeze_message: "Emitiendo Factura Fiscal SAR y registrando pago...",
+                });
 
-            backdrop.remove();
-            const invoice = res.message.invoice;
-            const finishedOrder = res.message.order;
-            this.bootstrap.areas = res.message.areas || this.bootstrap.areas;
-            this.upsertOrderInBootstrap(finishedOrder);
-            if (this.paymentScreenState) {
-                this.paymentScreenState.step = "done";
-                this.paymentScreenState.invoice = invoice;
-                this.paymentScreenState.finishedOrder = finishedOrder;
-                this.render();
-            } else {
-                this.currentOrder = this.createBlankOrder();
-                this.selectedLineIndex = -1;
-                this.render();
-                this.showInvoiceReceiptModal(invoice, finishedOrder);
+                backdrop.remove();
+                const invoice = res.message.invoice;
+                const finishedOrder = res.message.order;
+                this.bootstrap.areas = res.message.areas || this.bootstrap.areas;
+                this.upsertOrderInBootstrap(finishedOrder);
+                if (this.paymentScreenState) {
+                    this.paymentScreenState.step = "done";
+                    this.paymentScreenState.invoice = invoice;
+                    this.paymentScreenState.finishedOrder = finishedOrder;
+                    this.render();
+                } else {
+                    this.currentOrder = this.createBlankOrder();
+                    this.selectedLineIndex = -1;
+                    this.render();
+                    this.showInvoiceReceiptModal(invoice, finishedOrder);
+                }
+            } finally {
+                this.payBusy = false;
+                paySubmitBtn.disabled = false;
             }
         });
     }
 
     showInvoiceReceiptModal(invoice, order) {
+        const printFormat = invoice?.print_format || this.getActivePosProfileObj().print_format || "Ticket";
+        const baseUrl = frappe.urllib.get_base_url();
+        const previewUrl = `${baseUrl}/printview?doctype=${encodeURIComponent("Sales Invoice")}&name=${encodeURIComponent(invoice.name)}&format=${encodeURIComponent(printFormat)}&no_letterhead=1`;
         const backdrop = this.createModal(
-            `Factura Fiscal Emitida · ${this.escape(invoice.name)}`,
+            `Factura Fiscal SAR · ${this.escape(invoice.name)}`,
             `
-                <div class="rpos-receipt-paper" id="rpos-printable-invoice">
-                    <h4>${this.escape(invoice.company)}</h4>
-                    <div style="text-align:center;font-size:11.5px;">RTN Empresa: ${this.escape(invoice.company_tax_id)}</div>
-                    <div style="text-align:center;font-weight:800;margin:6px 0;padding:3px;background:#dcfce7;border:1px solid #86efac;">
-                        FACTURA FISCAL SAR: ${this.escape(invoice.name)}
-                    </div>
-                    <div><strong>CAI:</strong> ${this.escape(invoice.cai)}</div>
-                    <div><strong>Fecha Límite Emisión:</strong> ${this.escape(invoice.due_date_cai)}</div>
-                    ${invoice.authorized_range ? `<div><strong>Rango Autorizado:</strong> ${this.escape(invoice.authorized_range)}</div>` : ""}
-                    <div><strong>Fecha:</strong> ${this.escape(invoice.posting_date)}</div>
-                    <div><strong>Cuenta / Mesa:</strong> ${this.escape(order.order_name)} ${order.table_label ? `(Mesa ${this.escape(order.table_label)})` : ""}</div>
-                    <div><strong>Mesero:</strong> ${this.escape(order.waiter_name || "General")}</div>
-                    <div><strong>Cliente:</strong> ${this.escape(invoice.customer_name)}</div>
-                    <div><strong>RTN Cliente:</strong> ${this.escape(invoice.tax_id || "CONSUMIDOR FINAL")}</div>
-                    <div class="rpos-receipt-hr"></div>
-                    ${(order.items || []).map(it => `
-                        <div style="display:flex;justify-content:space-between;font-weight:700;">
-                            <span>${it.qty} x ${this.escape(it.item_name)}</span>
-                            <span>${this.formatMoney(it.amount)}</span>
-                        </div>
-                    `).join("")}
-                    <div class="rpos-receipt-hr"></div>
-                    <div style="display:flex;justify-content:space-between;"><span>Importe Exonerado:</span><span>${this.formatMoney(invoice.exonerated_amount)}</span></div>
-                    <div style="display:flex;justify-content:space-between;"><span>Importe Exento:</span><span>${this.formatMoney(invoice.exempt_amount)}</span></div>
-                    <div style="display:flex;justify-content:space-between;"><span>Importe Gravado 15%:</span><span>${this.formatMoney(invoice.taxed_amount_15)}</span></div>
-                    <div style="display:flex;justify-content:space-between;"><span>Importe Gravado 18%:</span><span>${this.formatMoney(invoice.taxed_amount_18)}</span></div>
-                    <div style="display:flex;justify-content:space-between;"><span>ISV 15%:</span><span>${this.formatMoney(invoice.isv_15)}</span></div>
-                    <div style="display:flex;justify-content:space-between;"><span>ISV 18%:</span><span>${this.formatMoney(invoice.isv_18)}</span></div>
-                    <div style="display:flex;justify-content:space-between;"><span>Servicio / Propina:</span><span>${this.formatMoney(invoice.tip_amount)}</span></div>
-                    <div class="rpos-receipt-hr"></div>
-                    <div style="display:flex;justify-content:space-between;font-size:15px;font-weight:800;">
-                        <span>TOTAL FACTURADO:</span>
-                        <span>${this.formatMoney(invoice.grand_total)}</span>
-                    </div>
+                <div style="display:flex;justify-content:center;background:#e2e8f0;padding:12px;border-radius:8px;max-height:70vh;overflow:auto;">
+                    <iframe
+                        id="rpos-sar-ticket-frame"
+                        src="${this.escape(previewUrl)}"
+                        title="Ticket SAR ${this.escape(invoice.name)}"
+                        style="width:330px;min-height:540px;height:66vh;border:1px solid #cbd5e1;background:#ffffff;box-shadow:0 4px 16px rgba(15,23,42,0.12);"
+                    ></iframe>
                 </div>
             `,
             `
                 <button type="button" class="rpos-btn-secondary" data-inv-desk>Ver en ERPNext</button>
-                <button type="button" class="rpos-btn-primary" data-inv-print>🖨 Imprimir Factura</button>
-                <button type="button" class="rpos-btn-green" data-modal-close>Nueva Venta</button>
+                <button type="button" class="rpos-btn-primary" data-inv-print>🖨 Imprimir Factura SAR</button>
+                <button type="button" class="rpos-btn-green" data-modal-close>${this.paymentScreenState?.step === "done" ? "Cerrar" : "Continuar"}</button>
             `,
-            "520px"
+            "460px"
         );
 
         backdrop.querySelector("[data-inv-desk]").addEventListener("click", () => {
@@ -3937,14 +4093,17 @@ class LeafRestaurantPOS {
             frappe.set_route("Form", "Sales Invoice", invoice.name);
         });
         backdrop.querySelector("[data-inv-print]").addEventListener("click", () => {
-            const html = backdrop.querySelector("#rpos-printable-invoice").outerHTML;
-            const win = window.open("", "_blank", "width=420,height=680");
-            if (win) {
-                win.document.write(`<html><head><title>Factura ${this.escape(invoice.name)}</title></head><body style="font-family:monospace;padding:12px;">${html}</body></html>`);
-                win.document.close();
-                win.focus();
-                win.print();
+            const frame = backdrop.querySelector("#rpos-sar-ticket-frame");
+            try {
+                if (frame?.contentWindow) {
+                    frame.contentWindow.focus();
+                    frame.contentWindow.print();
+                    return;
+                }
+            } catch (e) {
+                // Fallback to new window printview if iframe print is blocked.
             }
+            this.openPosaPrintView("Sales Invoice", invoice.name, printFormat, 1);
         });
     }
 
@@ -4049,33 +4208,40 @@ class LeafRestaurantPOS {
     }
 
     async sendToKdsOnly() {
+        if (this.kdsSendBusy) return;
         if (!this.currentOrder.items.length) {
             frappe.msgprint("Agrega platillos o bebidas antes de enviar al Monitor de Cocina (KDS).");
             return;
         }
-        await this.persistCurrentOrderSilently();
+        this.kdsSendBusy = true;
+        try {
+            const saved = await this.persistCurrentOrderSilently();
+            if (!saved) return;
 
-        const hasPending = (this.currentOrder.items || []).some(row => (row.kds_status || "Pendiente") === "Pendiente");
-        const res = await frappe.call({
-            method: "restaurant.pos.send_order_to_kitchen",
-            args: {
-                order_name: this.currentOrder.name,
-                station: "ALL",
-                include_sent: hasPending ? 0 : 1,
-            },
-            freeze: true,
-            freeze_message: "Enviando orden al Monitor de Cocina (KDS)...",
-        });
-        const sentOrder = res.message.order;
-        if (res.message.areas) {
-            this.bootstrap.areas = res.message.areas;
+            const hasPending = (this.currentOrder.items || []).some(row => (row.kds_status || "Pendiente") === "Pendiente");
+            const res = await frappe.call({
+                method: "restaurant.pos.send_order_to_kitchen",
+                args: {
+                    order_name: this.currentOrder.name,
+                    station: "ALL",
+                    include_sent: hasPending ? 0 : 1,
+                },
+                freeze: true,
+                freeze_message: "Enviando orden al Monitor de Cocina (KDS)...",
+            });
+            const sentOrder = res.message.order;
+            if (res.message.areas) {
+                this.bootstrap.areas = res.message.areas;
+            }
+            this.upsertOrderInBootstrap(sentOrder);
+            this.resetCajaForNextOrder();
+            frappe.show_alert({
+                message: `Orden "${sentOrder.order_name}" enviada al Monitor de Cocina (KDS). Punto de venta listo para nuevo pedido.`,
+                indicator: "green",
+            });
+        } finally {
+            this.kdsSendBusy = false;
         }
-        this.upsertOrderInBootstrap(sentOrder);
-        this.resetCajaForNextOrder();
-        frappe.show_alert({
-            message: `Orden "${sentOrder.order_name}" enviada al Monitor de Cocina (KDS). Punto de venta listo para nuevo pedido.`,
-            indicator: "green",
-        });
     }
 
     async openCommandModal() {
@@ -4083,7 +4249,7 @@ class LeafRestaurantPOS {
             frappe.msgprint("Agrega platillos antes de comandar.");
             return;
         }
-        await this.persistCurrentOrderSilently();
+        if (!(await this.persistCurrentOrderSilently())) return;
 
         const pendingByStation = {};
         let pendingTotal = 0;
@@ -4217,7 +4383,7 @@ class LeafRestaurantPOS {
         this.operationBusy = true;
         try {
             if (!this.currentOrder.name) {
-                await this.persistCurrentOrderSilently();
+                if (!(await this.persistCurrentOrderSilently())) return;
             }
             this.operationContext = {
                 order: this.currentOrder,
@@ -4657,7 +4823,7 @@ class LeafRestaurantPOS {
         backdrop.querySelector("[data-cust-note-save]").addEventListener("click", async () => {
             this.currentOrder.customer_note = backdrop.querySelector("[data-cust-note-txt]").value.trim();
             backdrop.remove();
-            await this.persistCurrentOrderSilently();
+            if (!(await this.persistCurrentOrderSilently())) return;
         });
     }
 
@@ -4682,7 +4848,7 @@ class LeafRestaurantPOS {
         backdrop.querySelector("[data-pl-save]").addEventListener("click", async () => {
             this.currentOrder.selling_price_list = backdrop.querySelector("[data-pl-select]").value;
             backdrop.remove();
-            await this.persistCurrentOrderSilently();
+            if (!(await this.persistCurrentOrderSilently())) return;
         });
     }
 
@@ -6599,58 +6765,65 @@ class LeafRestaurantPOS {
                 }
             });
 
-            footerEl.querySelector("[data-arq-submit]")?.addEventListener("click", async () => {
-                const currentCalc = computeTotals();
-                const paymentDetailsPayload = [];
-                currentCalc.methods.forEach(m => {
-                    if (m.isCash) return;
-                    (methodDetails[m.mode_of_payment] || []).forEach(row => {
-                        const amt = Math.max(0, Number(row.amount || 0));
-                        const posTerm = (row.pos_terminal || "").trim();
-                        const bankName = (row.bank_name || "").trim();
-                        const ref = (row.reference || "").trim();
-                        if (amt > 0 || posTerm || bankName || ref) {
-                            paymentDetailsPayload.push({
-                                mode_of_payment: m.mode_of_payment,
-                                pos_terminal: posTerm,
-                                bank_name: bankName,
-                                reference: ref,
-                                amount: amt,
-                            });
-                        }
+            const arqSubmitBtn = footerEl.querySelector("[data-arq-submit]");
+            arqSubmitBtn?.addEventListener("click", async () => {
+                if (arqSubmitBtn.disabled) return;
+                arqSubmitBtn.disabled = true;
+                try {
+                    const currentCalc = computeTotals();
+                    const paymentDetailsPayload = [];
+                    currentCalc.methods.forEach(m => {
+                        if (m.isCash) return;
+                        (methodDetails[m.mode_of_payment] || []).forEach(row => {
+                            const amt = Math.max(0, Number(row.amount || 0));
+                            const posTerm = (row.pos_terminal || "").trim();
+                            const bankName = (row.bank_name || "").trim();
+                            const ref = (row.reference || "").trim();
+                            if (amt > 0 || posTerm || bankName || ref) {
+                                paymentDetailsPayload.push({
+                                    mode_of_payment: m.mode_of_payment,
+                                    pos_terminal: posTerm,
+                                    bank_name: bankName,
+                                    reference: ref,
+                                    amount: amt,
+                                });
+                            }
+                        });
                     });
-                });
-                const payload = {
-                    pos_opening_shift: snapshot.pos_opening_shift,
-                    count_type: countType,
-                    notes: notesText,
-                    denominations: denomState.map(d => ({
-                        denomination_type: d.denomination_type,
-                        unit_value: d.unit_value,
-                        denomination_label: d.denomination_label,
-                        quantity: Math.max(0, Math.floor(Number(d.quantity || 0))),
-                    })),
-                    payment_methods: currentCalc.methods.map(m => ({
-                        mode_of_payment: m.mode_of_payment,
-                        counted_amount: m.counted_amount,
-                    })),
-                    payment_details: paymentDetailsPayload,
-                };
+                    const payload = {
+                        pos_opening_shift: snapshot.pos_opening_shift,
+                        count_type: countType,
+                        notes: notesText,
+                        denominations: denomState.map(d => ({
+                            denomination_type: d.denomination_type,
+                            unit_value: d.unit_value,
+                            denomination_label: d.denomination_label,
+                            quantity: Math.max(0, Math.floor(Number(d.quantity || 0))),
+                        })),
+                        payment_methods: currentCalc.methods.map(m => ({
+                            mode_of_payment: m.mode_of_payment,
+                            counted_amount: m.counted_amount,
+                        })),
+                        payment_details: paymentDetailsPayload,
+                    };
 
-                const saveRes = await frappe.call({
-                    method: "restaurant.cash_count.save_and_submit_cash_count",
-                    args: { payload },
-                    freeze: true,
-                    freeze_message: countType === "Arqueo de Cierre"
-                        ? "Validando arqueo y cerrando turno POS..."
-                        : "Guardando y validando arqueo parcial...",
-                });
-                if (saveRes.message?.cash_count) {
-                    frappe.show_alert({
-                        message: `Arqueo ${saveRes.message.cash_count.name} guardado (${saveRes.message.cash_count.status}).`,
-                        indicator: "green",
+                    const saveRes = await frappe.call({
+                        method: "restaurant.cash_count.save_and_submit_cash_count",
+                        args: { payload },
+                        freeze: true,
+                        freeze_message: countType === "Arqueo de Cierre"
+                            ? "Validando arqueo y cerrando turno POS..."
+                            : "Guardando y validando arqueo parcial...",
                     });
-                    renderConfirmedState(saveRes.message);
+                    if (saveRes.message?.cash_count) {
+                        frappe.show_alert({
+                            message: `Arqueo ${saveRes.message.cash_count.name} guardado (${saveRes.message.cash_count.status}).`,
+                            indicator: "green",
+                        });
+                        renderConfirmedState(saveRes.message);
+                    }
+                } finally {
+                    arqSubmitBtn.disabled = false;
                 }
             });
 

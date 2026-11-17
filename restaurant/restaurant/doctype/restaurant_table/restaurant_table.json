@@ -27,6 +27,7 @@
    "reqd": 1,
    "in_list_view": 1,
    "in_standard_filter": 1,
+   "search_index": 1,
    "columns": 3
   },
   {
@@ -37,6 +38,7 @@
    "read_only": 1,
    "in_list_view": 1,
    "in_standard_filter": 1,
+   "search_index": 1,
    "columns": 2
   },
   {
@@ -75,6 +77,7 @@
    "reqd": 1,
    "in_list_view": 1,
    "in_standard_filter": 1,
+   "search_index": 1,
    "columns": 2
   },
   {

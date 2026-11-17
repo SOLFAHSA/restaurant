@@ -66,16 +66,89 @@ def _display_data(doc):
     }
 
 
-def _read_displays():
-    names = frappe.get_list(
-        DISPLAY, fields=["name"], order_by="display_name asc, name asc", limit_page_length=0
+def _read_displays_batch(stage_by_name=None, active_branch=None):
+    """Load enabled and permitted preparation displays with child tables in 4 batch queries."""
+    has_branch = frappe.get_meta(DISPLAY).has_field("branch")
+    disp_fields = [
+        "name", "display_name", "description", "enabled",
+        "auto_clear", "auto_clear_minutes", "modified",
+    ]
+    if has_branch:
+        disp_fields.append("branch")
+    rows = frappe.get_list(
+        DISPLAY, fields=disp_fields, order_by="display_name asc, name asc", limit_page_length=0,
     )
+    if not rows:
+        return []
+    if stage_by_name is None:
+        stage_rows = frappe.get_list(
+            STAGE,
+            fields=["name", "stage_name", "color", "alert_minutes"],
+            order_by="stage_name asc",
+            limit_page_length=0,
+        )
+        stage_by_name = {s.name: _stage_data(s) for s in stage_rows}
+    display_names = [row.name for row in rows]
+    pos_rows = frappe.get_all(
+        "Restaurant Preparation POS",
+        filters={"parent": ["in", display_names], "parenttype": DISPLAY},
+        fields=["parent", "pos_profile"],
+        order_by="idx asc",
+        limit_page_length=1000,
+    )
+    group_rows = frappe.get_all(
+        "Restaurant Command Group",
+        filters={"parent": ["in", display_names], "parenttype": DISPLAY},
+        fields=["parent", "item_group"],
+        order_by="idx asc",
+        limit_page_length=1000,
+    )
+    stage_link_rows = frappe.get_all(
+        "Restaurant Preparation Display Stage",
+        filters={"parent": ["in", display_names], "parenttype": DISPLAY},
+        fields=["parent", "stage"],
+        order_by="idx asc",
+        limit_page_length=1000,
+    )
+    pos_by_disp = {}
+    for prow in pos_rows:
+        if prow.pos_profile:
+            pos_by_disp.setdefault(prow.parent, []).append(prow.pos_profile)
+    groups_by_disp = {}
+    for grow in group_rows:
+        if grow.item_group:
+            groups_by_disp.setdefault(grow.parent, []).append(grow.item_group)
+    stages_by_disp = {}
+    for srow in stage_link_rows:
+        st_data = stage_by_name.get(srow.stage)
+        if st_data:
+            stages_by_disp.setdefault(srow.parent, []).append(st_data)
+
+    can_write_disp = bool(get_role_permissions(DISPLAY).get("write"))
     displays = []
-    for row in names:
-        doc = frappe.get_doc(DISPLAY, row.name)
-        doc.check_permission("read")
-        displays.append(_display_data(doc))
+    for row in rows:
+        row_branch = cstr(row.get("branch") or "")
+        if active_branch and row_branch and row_branch != active_branch:
+            continue
+        displays.append({
+            "name": row.name,
+            "display_name": row.display_name,
+            "description": row.description or "",
+            "enabled": cint(row.enabled),
+            "auto_clear": cint(row.auto_clear),
+            "auto_clear_minutes": cint(row.auto_clear_minutes),
+            "branch": row_branch,
+            "pos_profiles": pos_by_disp.get(row.name, []),
+            "item_groups": groups_by_disp.get(row.name, []),
+            "stages": stages_by_disp.get(row.name, []),
+            "modified": str(row.modified) if row.modified else "",
+            "can_write": can_write_disp,
+        })
     return displays
+
+
+def _read_displays():
+    return _read_displays_batch()
 
 
 def _eligible_items(doc, display, station=None):
@@ -104,17 +177,20 @@ def ticket_name(display_name, order_name):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _ticket_contexts(doc, display, for_update=False):
+def _ticket_contexts(doc, display, for_update=False, preloaded_tickets=None):
     """Assign each row to one persisted segment; new rows belong to the base."""
     eligible = _eligible_items(doc, display)
     if not eligible:
         return []
     base_name = ticket_name(display["name"], doc.name)
-    records = frappe.db.get_values(
-        TICKET, {"preparation_display": display["name"], "restaurant_order": doc.name},
-        ["name"], as_dict=True, for_update=for_update,
-    )
-    tickets = [frappe.get_doc(TICKET, row.name, for_update=for_update) for row in records]
+    if preloaded_tickets is not None:
+        tickets = list(preloaded_tickets)
+    else:
+        records = frappe.db.get_values(
+            TICKET, {"preparation_display": display["name"], "restaurant_order": doc.name},
+            ["name"], as_dict=True, for_update=for_update,
+        )
+        tickets = [frappe.get_doc(TICKET, row.name, for_update=for_update) for row in records]
     imported = sorted((ticket for ticket in tickets if ticket.name != base_name), key=lambda ticket: ticket.name)
     contexts, assigned = [], set()
     for ticket in imported:
@@ -196,11 +272,11 @@ def _is_retired(projection, display, current_time):
     )
 
 
-def _serialize_ticket(doc, display, ticket, eligible, current_time):
+def _serialize_ticket(doc, display, ticket, eligible, current_time, serial_ctx=None):
     projection = _ticket_projection(doc, display, ticket, eligible)
     if not projection["active_item_names"] or _is_retired(projection, display, current_time):
         return None
-    serialized = _serialize_order(doc)
+    serialized = _serialize_order(doc, serial_ctx=serial_ctx)
     names = set(projection["active_item_names"])
     serialized["items"] = [row for row in serialized["items"] if row["name"] in names]
     serialized.update({
@@ -218,29 +294,69 @@ def _serialize_ticket(doc, display, ticket, eligible, current_time):
 
 @frappe.whitelist()
 def get_kds_state(display_name=None, station=None):
-    """Read persisted preparation configuration and permitted active orders."""
+    """Read persisted preparation configuration and permitted active orders in batched queries."""
+    from restaurant.pos import _get_active_user_branch, _load_orders_batch, build_order_serialization_context
+
     _require_pos_user()
-    displays = _read_displays()
+    active_branch = _get_active_user_branch()
+
+    stage_rows = frappe.get_list(
+        STAGE,
+        fields=["name", "stage_name", "color", "alert_minutes"],
+        order_by="stage_name asc",
+        limit_page_length=0,
+    )
+    stages_catalog = [_stage_data(s) for s in stage_rows]
+    stage_by_name = {s["name"]: s for s in stages_catalog}
+
+    displays = _read_displays_batch(stage_by_name=stage_by_name, active_branch=active_branch)
     selected = next((row for row in displays if row["name"] == display_name), None)
     if display_name and not selected:
         frappe.throw(_("No tienes acceso a la pantalla seleccionada."), frappe.PermissionError)
     if not selected:
         selected = next((row for row in displays if row["enabled"]), None)
+    if selected and not frappe.has_permission(DISPLAY, ptype="read", doc=selected["name"]):
+        frappe.throw(_("No tienes acceso a la pantalla seleccionada."), frappe.PermissionError)
+
     now = now_datetime()
-    rows = frappe.get_list(
-        ORDER,
-        filters={
-            "status": ["in", ["En curso", "Facturada"]],
-            "docstatus": ["!=", 2],
-            "kds_status": ["in", ["En preparación", "Listo", "Entregado"]],
-        },
-        fields=["name"], order_by="sent_to_kitchen_at asc, creation asc", limit_page_length=0,
+    order_filters = {
+        "status": ["in", ["En curso", "Facturada"]],
+        "docstatus": ["!=", 2],
+        "kds_status": ["in", ["En preparación", "Listo", "Entregado"]],
+    }
+    if active_branch and frappe.get_meta(ORDER).has_field("branch"):
+        order_filters["branch"] = active_branch
+
+    documents = _load_orders_batch(
+        filters=order_filters,
+        order_by="sent_to_kitchen_at asc, creation asc",
+        limit_page_length=0,
+        use_list_perms=True,
     )
-    documents = []
-    for row in rows:
-        doc = frappe.get_doc(ORDER, row.name)
-        doc.check_permission("read")
-        documents.append(doc)
+    serial_ctx = build_order_serialization_context(documents)
+
+    enabled_display_names = [d["name"] for d in displays if d["enabled"]]
+    order_names = [d.name for d in documents]
+    tickets_by_key = {}
+    if enabled_display_names and order_names:
+        ticket_rows = frappe.get_all(
+            TICKET,
+            filters={
+                "preparation_display": ["in", enabled_display_names],
+                "restaurant_order": ["in", order_names],
+            },
+            fields=[
+                "name", "preparation_display", "restaurant_order", "stage_index",
+                "completed_items_json", "stages_json", "included_item_names_json",
+                "active_item_names_json", "stage_started_at", "completed_at", "cleared_at",
+            ],
+            limit_page_length=5000,
+        )
+        for trow in ticket_rows:
+            tickets_by_key.setdefault(
+                (trow.preparation_display, trow.restaurant_order), []
+            ).append(trow)
+
     orders = []
     stations = {"Todas las estaciones", "Cocina General"}
     for display in displays:
@@ -255,9 +371,12 @@ def get_kds_state(display_name=None, station=None):
                 continue
             for item in eligible:
                 stations.update(_row_stations(item))
-            contexts = _ticket_contexts(doc, display)
+            preloaded = tickets_by_key.get((display["name"], doc.name), [])
+            contexts = _ticket_contexts(doc, display, preloaded_tickets=preloaded)
             for batch_index, (ticket, batch_items) in enumerate(contexts, 1):
-                serialized = _serialize_ticket(doc, display, ticket, batch_items, now)
+                serialized = _serialize_ticket(
+                    doc, display, ticket, batch_items, now, serial_ctx=serial_ctx
+                )
                 if not serialized:
                     continue
                 serialized.update({"batch_index": batch_index, "batch_count": len(contexts)})
@@ -272,13 +391,14 @@ def get_kds_state(display_name=None, station=None):
                         orders.append(serialized)
         if display["in_progress_count"]:
             display["avg_wait_minutes"] = round(total_wait / display["in_progress_count"])
-    stage_rows = frappe.get_list(STAGE, fields=["name"], order_by="stage_name asc", limit_page_length=0)
+
     return {
         "displays": displays,
         "selected_display": selected["name"] if selected else None,
+        "active_branch": active_branch or "",
         "orders": orders,
         "stations": sorted(stations),
-        "stages_catalog": [_stage_data(frappe.get_doc(STAGE, row.name)) for row in stage_rows],
+        "stages_catalog": stages_catalog,
         "server_now": str(now),
         "has_more": False,
         "can_create_display": bool(get_role_permissions(DISPLAY).get("create")),
@@ -467,13 +587,45 @@ def _sync_legacy_status(doc):
                 row.kds_status = row_status
 
 
+def publish_kds_realtime_update(doc=None, method=None, order_name=None, source="order_event", ticket_name=None):
+    """Push lightweight KDS/POS realtime sync events after DB commit without polling storms."""
+    if getattr(frappe.flags, "in_install", False) or getattr(frappe.flags, "in_migrate", False) or getattr(frappe.flags, "in_patch", False):
+        return
+    try:
+        resolved_order = order_name or getattr(doc, "name", None) or ""
+        branch = getattr(doc, "branch", None) or ""
+        if not branch and getattr(doc, "restaurant_area", None):
+            branch = frappe.db.get_value("Restaurant Area", doc.restaurant_area, "branch") or ""
+        payload = {
+            "order_name": cstr(resolved_order),
+            "status": cstr(getattr(doc, "status", "") or ""),
+            "kds_status": cstr(getattr(doc, "kds_status", "") or ""),
+            "restaurant_table": cstr(getattr(doc, "restaurant_table", "") or ""),
+            "restaurant_area": cstr(getattr(doc, "restaurant_area", "") or ""),
+            "branch": cstr(branch),
+            "pos_profile": cstr(getattr(doc, "pos_profile", "") or ""),
+            "ticket_name": cstr(ticket_name or ""),
+            "source": cstr(method or source or "order_event"),
+            "ts": cstr(now_datetime()),
+        }
+        frappe.publish_realtime("restaurant_kds_update", payload, after_commit=True)
+    except Exception:
+        pass
+
+
 def _mutation_result(doc, display, ticket, eligible):
     _persist_ticket(ticket)
     _capture_enabled_screen_tickets(doc)
     _sync_legacy_status(doc)
+    serialized = _serialize_ticket(doc, display, ticket, eligible, now_datetime())
+    publish_kds_realtime_update(
+        doc=doc,
+        source="kds_ticket",
+        ticket_name=ticket.name,
+    )
     return {
         "ticket_name": ticket.name,
-        "order": _serialize_ticket(doc, display, ticket, eligible, now_datetime()),
+        "order": serialized,
     }
 
 
