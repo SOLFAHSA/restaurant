@@ -146,12 +146,20 @@ def ensure_cashier_permissions():
     """Ensure Restaurant Cashier and Restaurant Direct Cashier have DB permissions for POS, customers, shifts, and reports."""
     from frappe.permissions import add_permission
 
+    # Grintsys ERPNext creates these fiscal-series control records on the first invoice of a
+    # new SAR series without ignore_permissions. Temporary workaround until the fork is fixed
+    # (see docs/qa/reporte-grintsys-permisos-serie-sar.md).
+    sar_series_records = {
+        "Prefix sales for days": {"read": 1, "create": 1},
+        "Daily summary series": {"read": 1, "create": 1},
+    }
     cashier_matrix = {
         "Restaurant Manager": {
             "POS Opening Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
             "POS Closing Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
             "Sales Invoice": {"read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "report": 1, "print": 1},
             "Restaurant Cash Count": {"read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "print": 1},
+            **sar_series_records,
         },
         "Restaurant User": {
             "Customer": {"read": 1, "select": 1},
@@ -173,6 +181,7 @@ def ensure_cashier_permissions():
             "Restaurant Cash Count": {"read": 1, "write": 1, "create": 1, "submit": 1, "print": 1},
             "POS Opening Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
             "POS Closing Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
+            **sar_series_records,
         },
         "Restaurant Direct Cashier": {
             "Customer": {"read": 1, "write": 1, "create": 1, "select": 1, "report": 1},
@@ -181,6 +190,7 @@ def ensure_cashier_permissions():
             "Restaurant Cash Count": {"read": 1, "write": 1, "create": 1, "submit": 1, "print": 1},
             "POS Opening Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
             "POS Closing Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
+            **sar_series_records,
         },
     }
     for role_name, doctypes in cashier_matrix.items():
