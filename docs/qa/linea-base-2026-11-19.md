@@ -54,6 +54,7 @@ Se agregó `restaurant/tests/fixtures.py` con `ensure_restaurant_test_baseline()
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | v1 (sin datos base) | 246 | 119 | 40 | 74 | 13 | 160,2 s |
 | **v2 (con datos base)** | 246 | **226** | 4 | 6 | 10 | 369,4 s |
+| **v3 (con permiso de series SAR)** | 246 | **228** | 4 | 4 | 10 | 414,3 s |
 
 ### Fallos restantes (10)
 
@@ -71,6 +72,27 @@ Se agregó `restaurant/tests/fixtures.py` con `ensure_restaurant_test_baseline()
 | test_qa_comprehensive_audit | `test_kds_realtime_event_emitted_on_order_and_ticket_mutations` | `PermissionError` en el mismo punto | **Por confirmar**: misma causa que la anterior |
 
 **Conclusión v2 (ANALYZED):** 8 de los 10 fallos restantes son de entorno. Los 2 `PermissionError` al facturar como cajero deben investigarse antes de la Fase 1, porque tocan el flujo de cobro.
+
+## v3: corrección de los 2 `PermissionError` del cajero (VERIFIED)
+
+**Causa:** en ERPNext Grintsys, `SalesInvoice.before_naming` crea `Prefix sales for days` y `Daily summary series` con `doc.insert()` sin `ignore_permissions`, y solo System Manager puede crearlos. La primera factura de una serie SAR nueva emitida por un cajero falla. Detalle en [reporte-grintsys-permisos-serie-sar.md](reporte-grintsys-permisos-serie-sar.md).
+
+**Mitigación (Nivel 2):** `restaurant/setup.py`, `ensure_cashier_permissions()`, otorga `read` y `create` sobre esos dos DocTypes a Restaurant Manager, Restaurant Cashier y Restaurant Direct Cashier (sin `write` ni `delete`). Se aplica en cada `bench migrate`.
+
+**Verificación:** con los dos registros borrados (condición original del defecto) y tras `migrate`, `test_03b_pure_cashier_can_submit_invoice_via_pos_api` y `test_kds_realtime_event_emitted_on_order_and_ticket_mutations` pasan. Suite completa: 228/246, sin regresiones. Los 8 fallos restantes son los de entorno ya descritos en v2.
+
+## Pruebas de reproducción de la Fase 1 (VERIFIED)
+
+`restaurant/tests/test_phase1_known_defects.py` documenta 4 defectos con `@unittest.expectedFailure`. Resultado: `Ran 4 tests … OK (expected failures=4)`. Se verificó, sin la marca, que cada una falla por el defecto y no por la preparación:
+
+| Prueba | Defecto | Evidencia sin la marca |
+| :--- | :--- | :--- |
+| `test_cancelled_invoice_does_not_leave_the_order_billed` | 1a: al anular la factura, la orden queda "Facturada" y enlazada | La orden sigue apuntando a la factura anulada |
+| `test_cancelled_invoice_restores_the_gift_card_balance` | 1a: no se devuelve el saldo de la tarjeta de regalo | Saldo 0, se esperaba 50 |
+| `test_cashier_cannot_exceed_the_pos_profile_discount_limit_alone` | 1c: el cajero supera `posa_max_discount_allowed` sin supervisor | Se guardó 50% con límite 10% (5% sí pasa) |
+| `test_item_max_discount_is_enforced_when_the_order_is_saved` | 1c: `Item.max_discount` no se valida al guardar la orden | Se guardó 50% con máximo 10% |
+
+Cuando la Fase 1 corrija un defecto, unittest reportará *unexpected success*: en ese momento hay que quitar la marca de esa prueba. El cobro sin pagos (1b) no tiene prueba porque está pendiente la decisión de negocio.
 
 ## Detalle v1: pruebas con fallo o error (114)
 
