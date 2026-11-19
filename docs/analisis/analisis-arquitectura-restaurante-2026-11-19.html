@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Análisis de Arquitectura — Módulo Restaurante LEAF ERP v14</title>
+<style>
+  @page { size: Letter; margin: 16mm 14mm 16mm 14mm; }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 9.6pt; color: #1f2a24; line-height: 1.42; }
+  h1 { font-size: 20pt; color: #1e5631; margin: 0 0 4px 0; }
+  h2 { font-size: 13pt; color: #1e5631; border-bottom: 2px solid #1e5631; padding-bottom: 3px; margin: 22px 0 8px 0; page-break-after: avoid; }
+  h3 { font-size: 10.8pt; color: #24452f; margin: 14px 0 5px 0; page-break-after: avoid; }
+  p { margin: 4px 0 7px 0; }
+  ul, ol { margin: 4px 0 8px 0; padding-left: 20px; }
+  li { margin-bottom: 3px; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 12px 0; font-size: 8.6pt; page-break-inside: auto; }
+  tr { page-break-inside: avoid; }
+  th { background: #1e5631; color: #fff; text-align: left; padding: 5px 6px; font-weight: bold; }
+  td { border-bottom: 1px solid #d5ddd7; padding: 5px 6px; vertical-align: top; }
+  tr:nth-child(even) td { background: #f4f7f5; }
+  code { font-family: "DejaVu Sans Mono", monospace; font-size: 8.2pt; background: #eef2ef; padding: 0 2px; }
+  .cover { border-left: 6px solid #1e5631; padding: 6px 0 6px 14px; margin-bottom: 14px; }
+  .subtitle { font-size: 11pt; color: #4a5a50; margin: 0; }
+  .meta td { border: none; padding: 2px 8px 2px 0; background: none !important; font-size: 9pt; }
+  .meta td:first-child { font-weight: bold; width: 150px; color: #24452f; }
+  .box { border: 1px solid #c6d3ca; background: #f4f8f5; padding: 8px 10px; margin: 8px 0 12px 0; page-break-inside: avoid; }
+  .warn { border-color: #e0b44c; background: #fdf8ea; }
+  .crit { border-color: #d0796b; background: #fcf1ef; }
+  .ok { color: #1e7a3c; font-weight: bold; }
+  .adj { color: #a86a00; font-weight: bold; }
+  .bad { color: #b3261e; font-weight: bold; }
+  .tag { font-size: 7.6pt; font-weight: bold; padding: 0 4px; border: 1px solid #9fb3a6; color: #24452f; }
+  .small { font-size: 8.2pt; color: #55645b; }
+  .pb { page-break-before: always; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <h1>Análisis de Arquitectura del Módulo Restaurante</h1>
+  <p class="subtitle">LEAF ERP v14 · Grintsys — Evaluación de reutilización, calidad y hoja de ruta</p>
+</div>
+
+<table class="meta">
+  <tr><td>Practicante</td><td>Manuel Padilla — Ingeniería en Sistemas (semana 6 de práctica)</td></tr>
+  <tr><td>Fecha</td><td>19 de noviembre de 2026</td></tr>
+  <tr><td>Alcance</td><td>Custom App <code>restaurant</code> (rama <code>feature/modulo-restaurante</code>), ERPNext v14 Grintsys, POS Awesome, sistema de agentes LEAF</td></tr>
+  <tr><td>Método</td><td>Revisión estática del código, comparación con funcionalidad nativa y consultas al sitio <code>development</code></td></tr>
+</table>
+
+<div class="box">
+  <b>Clasificación de evidencia</b> (regla global LEAF):
+  <b>VERIFIED</b> = comprobado por ejecución o consulta a base de datos;
+  <b>ANALYZED</b> = inspeccionado en el código;
+  <b>PROPOSED</b> = recomendación pendiente de aprobación.
+  Salvo indicación, los hallazgos de este documento son <b>ANALYZED</b>.
+  <b>La suite de pruebas automatizadas no se ejecutó</b> durante este análisis; se propone como primer paso.
+</div>
+
+<h2>1. Resumen ejecutivo</h2>
+<p>El módulo Restaurante está bien orientado en lo esencial: la caja usa los turnos nativos de POS Awesome, la venta termina en una <b>Sales Invoice</b> nativa, las recetas usan <b>Product Bundle</b>, los meseros son <b>Employee</b> y las categorías son <b>Item Group</b>. Las entidades propias del rubro (mesas, áreas, comandas, Kitchen Display, modificadores, división y transferencia de cuentas) no existen en ERPNext v14 y su creación como DocTypes es legítima.</p>
+<p>El hallazgo principal es que la app <b>duplica tres capacidades que Grintsys ya implementó</b>, contrario a la regla del orquestador de no crear motores paralelos:</p>
+<ol>
+  <li><b>Cálculo fiscal ISV/SAR</b>, que ya resuelve la Sales Invoice de Grintsys.</li>
+  <li><b>Tarjetas de regalo</b>, que ya existen como <i>Certificado de Regalo</i>.</li>
+  <li><b>Métodos de pago y configuración</b>, almacenados en dos o tres fuentes distintas.</li>
+</ol>
+<p>Además se identificaron riesgos contables concretos: la cancelación de una factura no se refleja en la comanda, los descuentos no tienen límite ni autorización, y un cobro sin pagos registra automáticamente el pago completo en efectivo.</p>
+
+<h2>2. Responsabilidad de cada capa</h2>
+<table>
+  <tr><th style="width:20%">Capa</th><th style="width:48%">Qué ya resuelve</th><th>Uso correcto desde Restaurante</th></tr>
+  <tr><td><b>ERPNext + Grintsys</b></td><td>Sales Invoice con CAI automático (<code>assign_cai</code>), ISV 15%/18%, exento y exonerado (<code>get_itemised_tax_info</code>), Item Tax Template por categoría fiscal, exoneraciones SAR/SAG/diplomático, Certificado de Regalo (16 dígitos con Luhn, consulta a ciegas, canje parcial) y reportes de ventas: Libro de Ventas, Ventas del Día, General de Ventas con costo y utilidad, Ventas Exoneradas SAR.</td><td>Entregar los datos a la factura y dejar que ella calcule.</td></tr>
+  <tr><td><b>POS Awesome</b></td><td>POS Opening Shift, POS Closing Shift con conciliación, ingresos y retiros de efectivo, historial de autorizaciones, POS Offer / POS Coupon, límite <code>posa_max_discount_allowed</code>.</td><td>Apertura, cierre y movimientos de caja.</td></tr>
+  <tr><td><b>App restaurant</b></td><td>Lo que no existe en ninguna capa: mesas y áreas, comandas, KDS, modificadores de platillos, impresión por estación, división y transferencia de cuentas, PIN de mesero, arqueo por denominaciones.</td><td>Interfaz y orquestación del proceso de salón.</td></tr>
+</table>
+
+<h2>3. Comparativo por requisito funcional</h2>
+<p class="small">Leyenda: <span class="ok">Correcto</span> · <span class="adj">Ajustar</span> · <span class="bad">Duplica o falta</span></p>
+<table>
+  <tr><th style="width:15%">Requisito</th><th style="width:22%">Camino nativo</th><th style="width:38%">Implementación actual</th><th>Dictamen</th></tr>
+  <tr><td>Apertura de caja</td><td>POS Opening Shift (POS Awesome)</td><td><code>open_pos_shift</code> crea el documento nativo.</td><td><span class="ok">Correcto</span></td></tr>
+  <tr><td>Ingresos / retiros de efectivo</td><td>Retiro de efectivo (POS Awesome)</td><td>Usa el mismo DocType.</td><td><span class="ok">Correcto</span></td></tr>
+  <tr><td>Cierre de caja</td><td>POS Closing Shift</td><td>Reutiliza <code>make_closing_shift_from_opening</code>. Si POS Closing Shift no existiera, marca el turno "Closed" con <code>db.set_value</code> sin generar cierre.</td><td><span class="adj">Ajustar</span>: eliminar esa salida alternativa (POS Awesome es obligatorio).</td></tr>
+  <tr><td>Arqueo de caja</td><td>POS Closing Shift no cuenta billetes y monedas</td><td><code>Restaurant Cash Count</code> con denominaciones, enlazado al turno nativo.</td><td><span class="ok">Correcto</span>: extensión justificada. Quitar el cálculo alternativo sin POS Awesome.</td></tr>
+  <tr><td>Comandas</td><td>No existe en v14 (el módulo Restaurant de v13 fue retirado)</td><td><code>Restaurant Order</code> + <code>Restaurant Command</code> (impresión por estación según Item Group).</td><td><span class="ok">Correcto</span>: entidad nueva legítima.</td></tr>
+  <tr><td>Kitchen Display / etapas</td><td>No existe</td><td>Preparation Display / Stage / Ticket con actualización en tiempo real.</td><td><span class="ok">Correcto</span></td></tr>
+  <tr><td>Separar / transferir cuentas</td><td>No existe</td><td><code>order_operations.py</code> con control de concurrencia (<code>expected_modified</code>) y bitácora de auditoría.</td><td><span class="ok">Correcto</span></td></tr>
+  <tr><td>Descuentos</td><td>Pricing Rule, Coupon Code, <code>posa_max_discount_allowed</code>, <code>Item.max_discount</code></td><td>Cualquier usuario que no sea mesero puede aplicar 0–100% sin límite, sin autorización ni motivo.</td><td><span class="bad">Riesgo</span>: respetar límites nativos y exigir PIN de supervisor sobre el límite.</td></tr>
+  <tr><td>Servicio sugerido / propina</td><td>Sin concepto nativo</td><td>Fila de impuesto tipo "Actual" contra una cuenta de ingresos encontrada por nombre.</td><td><span class="adj">Ajustar</span>: definir con contabilidad si es ingreso o pasivo con empleados (<i>requiere validación tributaria local</i>); cuenta configurable.</td></tr>
+  <tr><td>Impuestos ISV / CAI</td><td><b>Ya resuelto por Grintsys</b> en Sales Invoice</td><td>Construye <code>item_tax_rate</code> manualmente, filas de impuesto con tasa 0, deduce la tasa por el <i>nombre</i> de la plantilla y restaura impuestos con un hook en <code>validate</code>.</td><td><span class="bad">Duplica</span>: motor fiscal paralelo.</td></tr>
+  <tr><td>Tarjetas de regalo</td><td><b>Certificado de Regalo</b> (Grintsys), integrado al cierre</td><td><code>Restaurant Gift Card</code> propia: saldo editable sin historial ni pasivo; plan B con write-off a cuenta de gasto.</td><td><span class="bad">Duplica</span>: migrar al nativo.</td></tr>
+  <tr><td>Productos sin inventario</td><td><code>Item.is_stock_item = 0</code></td><td>Así se maneja; <code>update_stock</code> solo si hay artículos inventariables.</td><td><span class="ok">Correcto</span></td></tr>
+  <tr><td>Platillos con receta e inventario</td><td><b>Product Bundle</b> (componentes descargados como packed items)</td><td>Lo usa con unidad de insumo y factor de conversión; valida existencias con bloqueo de fila.</td><td><span class="ok">Correcto</span>. BOM solo si hay producción previa (masas, salsas).</td></tr>
+  <tr><td>Modificadores / opciones</td><td>No existe (las variantes no sirven para este caso)</td><td><code>Restaurant Option Group</code> / <code>Dish Option</code>; precio recalculado en servidor.</td><td><span class="ok">Correcto</span></td></tr>
+  <tr><td>Mesas, áreas, mapa</td><td>No existe</td><td><code>Restaurant Area</code> / <code>Restaurant Table</code> + página de mapa.</td><td><span class="ok">Correcto</span>. Retirar los fixtures sin uso <code>Location-restaurant_area</code> y <code>Location-restaurant_branch</code>.</td></tr>
+  <tr><td>Meseros</td><td>Employee + Designation</td><td>Designation "Mesero" + PIN en campo Password cifrado.</td><td><span class="ok">Correcto</span> y seguro.</td></tr>
+  <tr><td>Categorías / subcategorías</td><td><b>Item Group</b> (árbol)</td><td>Usa Item Group con color por grupo.</td><td><span class="ok">Correcto</span></td></tr>
+  <tr><td>Creación de productos</td><td>Item</td><td><code>create_pos_product</code> crea Items nativos.</td><td><span class="ok">Correcto</span>; verificar que asigne la plantilla de impuesto Grintsys.</td></tr>
+  <tr><td>Precios</td><td>Item Price / Price List / Pricing Rule</td><td>Toma <code>price_list_rate</code> en servidor, pero fija <code>rate</code> manualmente, omitiendo Pricing Rules.</td><td><span class="adj">Ajustar</span>: las promociones nativas pueden no aplicarse.</td></tr>
+  <tr><td>Métodos de pago</td><td>Mode of Payment + tabla de pagos del POS Profile</td><td>Guardados en <code>Restaurant Settings.payment_methods</code> y en <code>POS Profile.payments</code>. <code>_resolve_payment_account</code> modifica el Mode of Payment sin aviso.</td><td><span class="bad">Duplica</span>: única fuente en POS Profile.</td></tr>
+  <tr><td>Configuración</td><td>POS Profile (por caja)</td><td><code>Restaurant Settings</code> global + configuración por perfil + valores fijos en el código.</td><td><span class="adj">Ajustar</span>: separar qué es global y qué es por caja.</td></tr>
+  <tr><td>Clientes</td><td>Customer con <code>tax_id</code> (RTN) y <code>tax_category</code></td><td><code>save_customer_with_rtn</code> usa Customer nativo.</td><td><span class="ok">Correcto</span></td></tr>
+  <tr><td>Reportes</td><td>Grintsys ya tiene 8+ reportes de ventas y SAR</td><td>La app no tiene ningún reporte.</td><td><span class="bad">Falta</span>: solo reportes propios del restaurante.</td></tr>
+  <tr><td>Cancelación de factura</td><td><code>on_cancel</code> de Sales Invoice</td><td>Sin hook: la orden permanece "Facturada" y el saldo de la tarjeta de regalo no se devuelve.</td><td><span class="bad">Falta</span>: rompe la trazabilidad.</td></tr>
+</table>
+
+<h2 class="pb">4. Fortalezas verificadas</h2>
+<ul>
+  <li><b>Custom App independiente (Nivel 3):</b> no se modificó el código de Frappe ni de ERPNext para el restaurante.</li>
+  <li><b>Persistencia transaccional nativa:</b> el cobro genera y envía una Sales Invoice; ERPNext crea GL Entry y Stock Ledger Entry. Trazabilidad mediante el campo <code>restaurant_order</code>.</li>
+  <li><b>Totales calculados en el servidor:</b> el JavaScript solo muestra una vista previa; <code>validate_order()</code> recalcula precios, opciones y totales.</li>
+  <li><b>Seguridad en el servidor:</b> endpoints solo POST, verificación de rol y <code>check_permission</code>, aislamiento por empresa, límite de intentos de PIN, bloqueo <code>FOR UPDATE</code> contra doble facturación.</li>
+  <li><b>Extensión declarativa:</b> Custom Fields versionados como fixtures y lógica adicional mediante <code>doc_events</code>.</li>
+  <li><b>Disciplina de proyecto:</b> pruebas unitarias y de interfaz, bitácoras semanales, documentación QA, código en inglés y mensajes en español.</li>
+  <li><b>Datos actuales consistentes (VERIFIED):</b> 76 órdenes, 17 facturas enlazadas, 0 facturas canceladas enlazadas; cuentas de ISV con una única coincidencia por empresa.</li>
+</ul>
+
+<h2>5. Riesgos contables y de integridad</h2>
+<div class="box crit">
+<b>R1 — Cancelación sin reversión.</b> No existe hook <code>on_cancel</code> para Sales Invoice. Al cancelar una factura la orden sigue "Facturada", enlazada a un documento cancelado y sin posibilidad de recobro; el saldo de tarjeta de regalo no se restituye.
+</div>
+<div class="box crit">
+<b>R2 — Tarjeta de regalo como motor paralelo.</b> Saldo editable manualmente, sin libro de movimientos ni registro del pasivo al vender la tarjeta; si falta el modo de pago, el monto se registra como write-off contra la primera cuenta de gasto encontrada. La expiración solo se aplica al guardar el documento.
+</div>
+<div class="box crit">
+<b>R3 — Pagos vacíos.</b> Si el frontend envía la lista de pagos vacía, el servidor asume el pago completo con el primer modo de pago del perfil.
+</div>
+<div class="box warn">
+<b>R4 — Descuentos sin control.</b> Hasta 100% sin límite, autorización ni motivo para cajeros.
+</div>
+<div class="box warn">
+<b>R5 — Propina como ingreso.</b> Registro contra cuenta de ingresos; su tratamiento y su relación con la base gravable SAR <i>requieren validación tributaria local</i>.
+</div>
+<div class="box warn">
+<b>R6 — Efectos secundarios sobre datos maestros.</b> <code>_resolve_payment_account</code> agrega cuentas al Mode of Payment sin confirmación; <code>ensure_restaurant_stock</code> crea entradas de inventario de demostración y marca artículos como inventariables. Debe salir de la API de producción.
+</div>
+<div class="box warn">
+<b>R7 — Búsquedas frágiles.</b> Cuentas de ISV por <code>LIKE '%15%%'</code> (el <code>%</code> actúa como comodín) y tasas por subcadena del nombre de plantilla. Funciona con los datos actuales (VERIFIED), falla con otros catálogos de cuentas.
+</div>
+
+<h2>6. Detalle de las duplicaciones</h2>
+<h3>6.1 Motor fiscal paralelo — prioridad máxima (Nivel 5: fiscal)</h3>
+<p><b>Situación:</b> la app decide la tasa ISV leyendo el nombre de la plantilla, arma el mapa de impuestos y luego lo restaura tras el <code>validate</code> de ERPNext (<code>preserve_restaurant_invoice_taxes</code>).</p>
+<p><b>Camino nativo:</b> Grintsys ya implementó <code>set_missing_item_tax_templates</code>, <code>get_fallback_item_tax_template</code> y <code>get_itemised_tax_info</code>, que calculan ISV 15%, ISV 18%, exento y exonerado, y asignan el CAI.</p>
+<p><b>Propuesta (PROPOSED):</b> crear la factura con <code>taxes_and_charges</code>, <code>tax_category</code> e ítems, sin enviar <code>item_tax_rate</code> ni filas de impuesto. La tasa mostrada en la comanda se lee de <code>Item Tax Template.taxes[].tax_rate</code>. Con esto se eliminan <code>preserve_restaurant_invoice_taxes</code>, <code>_sync_sar_tax_summary</code>, <code>_resolve_tax_account</code> y <code>_tax_rate_from_templates</code>, y el restaurante hereda automáticamente las correcciones SAR futuras de Grintsys.</p>
+<h3>6.2 Tarjeta de regalo — Nivel 3 (datos existentes)</h3>
+<p>Migrar a <b>Certificado de Regalo</b>. Requiere previamente <code>data-integrity-auditor</code> para identificar tarjetas con saldo y <code>migration-patch-specialist</code> para el patch de migración y la deprecación del DocType.</p>
+<h3>6.3 Configuración y métodos de pago</h3>
+<p>Una sola fuente de verdad: los métodos de pago en POS Profile. <code>Restaurant Settings</code> conserva solo parámetros sin equivalente nativo (KDS, mesas, inactividad, autoservicio).</p>
+
+<h2>7. Funcionalidad faltante</h2>
+<table>
+  <tr><th style="width:42%">Elemento</th><th style="width:10%">Nivel</th><th>Observación</th></tr>
+  <tr><td><code>on_cancel</code> de Sales Invoice: reabrir orden, desvincular factura, revertir saldo aplicado</td><td>3</td><td>Obligatorio para trazabilidad y reversión.</td></tr>
+  <tr><td>Límite de descuento + autorización de supervisor con motivo</td><td>3</td><td>Reutilizar <code>posa_max_discount_allowed</code> y <code>_authorize_sensitive_operation</code> existente.</td></tr>
+  <tr><td>Rechazo de cobro con pagos vacíos</td><td>3</td><td>Eliminar el pago implícito en efectivo.</td></tr>
+  <tr><td>Cuenta de propina configurable</td><td>3</td><td>Tras la decisión contable.</td></tr>
+  <tr><td>Reportes propios del restaurante (Query/Script Report sobre campos <code>restaurant_*</code> de Sales Invoice)</td><td>2–3</td><td>Ventas por mesero, por área/mesa y por tipo de servicio; propinas por mesero; cancelaciones (desde <code>Restaurant Audit Log</code>); tiempos de preparación KDS. No replicar Libro de Ventas ni Ventas del Día.</td></tr>
+  <tr><td>Patches de migración</td><td>3</td><td><code>patches.txt</code> está vacío; todo cambio de esquema con datos existentes requiere patch.</td></tr>
+</table>
+
+<h2>8. Calidad de código y arquitectura</h2>
+<table>
+  <tr><th style="width:42%">Hallazgo</th><th>Recomendación</th></tr>
+  <tr><td><code>pos.py</code>: 4 657 líneas y 37 endpoints que mezclan interfaz HTTP, reglas de negocio y acceso a datos.</td><td>Arquitectura en capas: <code>restaurant/api/</code> (endpoints delgados: permisos y parámetros) y <code>restaurant/services/</code> (<code>billing</code>, <code>shift</code>, <code>orders</code>, <code>kitchen</code>, <code>catalog</code>, <code>config</code>). Refactor sin cambio funcional, protegido por pruebas.</td></tr>
+  <tr><td><code>restaurant_order.py</code> (34 líneas) delega su validación a <code>pos.py</code>.</td><td>La lógica del DocType vive en su controlador o en <code>services/orders.py</code>; el DocType no debe depender del POS.</td></tr>
+  <tr><td><code>restaurant_pos.js</code>: 6 868 líneas.</td><td>Módulos por pantalla (mesas, carrito, cobro, caja) y un cliente de API único.</td></tr>
+  <tr><td><code>pay_and_invoice_order</code>: ~530 líneas con ~15 responsabilidades.</td><td>Pasos con nombre y prueba individual: <code>_validate_checkout</code> → <code>_build_invoice</code> → <code>_apply_payments</code> → <code>_submit</code> → <code>_close_order</code>.</td></tr>
+  <tr><td>Rutas alternativas sin POS Awesome y utilidades de demostración en la API.</td><td>Mover a <code>demo_data.py</code> o comandos <code>bench</code>.</td></tr>
+  <tr><td>30 usos de <code>ignore_permissions=True</code>.</td><td>Revisión individual; documentar la validación previa en cada caso.</td></tr>
+  <tr><td>Trabajo sin versionar: 14 archivos modificados y 9 nuevos (incluye pruebas fiscales y de inventario).</td><td>Commits temáticos antes de la siguiente auditoría.</td></tr>
+</table>
+
+<h2 class="pb">9. Sistema de agentes LEAF — inconsistencias detectadas</h2>
+<p>Se verificaron las tres ubicaciones del sistema de agentes: <code>.agents/rules/</code> (copia aplicada), <code>LEAF_AGENT_SYSTEM_V14_EXPORT/agents/</code> y <code>LEAF_AGENT_SYSTEM_V14_EXPORT/rules/</code>. Catorce reglas especialistas son idénticas en las tres ubicaciones (VERIFIED por comparación de contenido).</p>
+<ol>
+  <li><b>Agente adicional no catalogado.</b> <code>.agents/rules/frappe-unit-test-engineer.md</code> existe solo en la copia aplicada; no figura en <code>AGENT_CATALOG.md</code>, <code>MANIFEST.md</code>, <code>ORCHESTRATION.md</code> ni en las copias de exportación. Se incorporó en el commit <code>4768046</code> del 5 de noviembre de 2026 ("Modulo de hospital").</li>
+  <li><b>Orquestador divergente.</b> La versión aplicada de <code>00-orchestrator-global-rule.md</code> incluye a <code>frappe-unit-test-engineer</code> en las rutas de Nivel 2, 4 y 5; la versión exportada no.</li>
+  <li><b>Solapamiento de responsabilidades</b> entre <code>frappe-test-engineer</code> y <code>frappe-unit-test-engineer</code>.</li>
+  <li><b>Skill no registrada.</b> <code>leaf-qa-guardian</code> no aparece en catálogo ni manifiesto.</li>
+</ol>
+<p><b>Propuesta (PROPOSED):</b> oficializar <code>frappe-unit-test-engineer</code> como agente 15, registrándolo en catálogo, manifiesto, orquestación y copias de exportación; delimitar responsabilidades (el 09 diseña la matriz de 7 dimensiones; el 15 automatiza con <code>FrappeTestCase</code>, verifica GL/Stock Ledger y actúa como compuerta previa al commit); agregar una sección "Skills" al catálogo; definir una única fuente de verdad del sistema de agentes; aislar estos cambios en commits <code>chore(agents)</code> y añadir una verificación automática de sincronía en CI.</p>
+<p class="small">Mientras se decide, el practicante sigue la ruta más estricta (con el paso de pruebas unitarias), compatible con ambas versiones.</p>
+
+<h2>10. Hoja de ruta propuesta</h2>
+<table>
+  <tr><th style="width:6%">Fase</th><th style="width:40%">Contenido</th><th>Ruta de agentes</th></tr>
+  <tr><td>0</td><td>Versionar trabajo pendiente y ejecutar la suite de pruebas para una línea base VERIFIED.</td><td>repo-structure-git-guardian → frappe-test-engineer</td></tr>
+  <tr><td>1</td><td>Contabilidad urgente: <code>on_cancel</code> de factura, rechazo de pagos vacíos, límite y autorización de descuentos.</td><td>Nivel 5: functional-analyst-accountant → erpnext-logic-mapper → backend-implementer-frappe → pruebas → qa-functional-accounting-auditor</td></tr>
+  <tr><td>2</td><td>Eliminar el motor fiscal paralelo y delegar ISV/SAR a la Sales Invoice de Grintsys.</td><td>Nivel 5 + erpnext-core-behavior-researcher + upgrade-compatibility-reviewer</td></tr>
+  <tr><td>3</td><td>Migrar tarjetas de regalo a Certificado de Regalo con patch.</td><td>Nivel 3: data-integrity-auditor → migration-patch-specialist</td></tr>
+  <tr><td>4</td><td>Unificar configuración (POS Profile como fuente de métodos de pago) y retirar fixtures sin uso de Location.</td><td>Nivel 3</td></tr>
+  <tr><td>5</td><td>Reportes propios del restaurante.</td><td>Nivel 2</td></tr>
+  <tr><td>6</td><td>Refactor en capas de <code>pos.py</code> y <code>restaurant_pos.js</code>, sin cambio funcional.</td><td>Nivel 2</td></tr>
+</table>
+
+<h2>11. Decisiones solicitadas a Grintsys</h2>
+<ol>
+  <li><b>Contabilidad:</b> tratamiento de la propina o servicio sugerido (ingreso por servicio o pasivo con empleados) y su inclusión o exclusión de la base gravable SAR — <i>requiere validación tributaria local</i>.</li>
+  <li><b>Sistema de agentes:</b> oficializar o revertir <code>frappe-unit-test-engineer</code> y el orquestador modificado.</li>
+  <li><b>Rama de ERPNext:</b> el entorno usa <code>feat/sar-ticket-registro-sag</code> (no <code>version-14</code>), que incluye el commit <code>b7eb588</code> del practicante (formato Ticket SAR y campo <code>custom_registro_sag</code>). Confirmar que es la rama a integrar.</li>
+  <li><b>Aprobación del orden de fases</b> propuesto en la sección 10, en especial la Fase 2 (impacto fiscal).</li>
+</ol>
+
+<p class="small" style="margin-top:18px; border-top:1px solid #d5ddd7; padding-top:6px;">Documento elaborado a partir de la revisión del repositorio local al 19/11/2026. Las referencias a archivos corresponden a <code>development/frappe-bench/apps/</code>. Todo cambio propuesto está sujeto a aprobación previa y a las compuertas del orquestador LEAF (Native Path Check, datos existentes, decisión arquitectónica y evidencia).</p>
+
+</body>
+</html>
