@@ -120,3 +120,47 @@
 ### `DEF-2026-016` — Trampa `Employee.create_user_permission = 1` e inconsistencias menores de idioma/copy (`P3`)
 - **Archivo y líneas:** `kds_setup.py:21-23, 32` (`"To cook"`, `"Ready"`, `"Completed"`), `migrate_app_name.py:18-26` (sin `_()`), `restaurant_pos.js:1529, 4934` (`"escaneé"`, `"Backend"`), `restaurant_kds.js:445-446` (`"← Kitchen Display"`), `setup.py` / creación de `Employee` en Desk.
 - **Detalle comprobado (`VERIFIED`):** Si un usuario cajero tiene un `Employee` con `create_user_permission = 1`, ERPNext restringe sus consultas a `waiter == propio empleado`, bloqueando cuentas de meseros. En `test_qa_comprehensive_audit.py` se comprobó que `create_user_permission = 0` evita dicho bloqueo.
+
+## DEF-2026-017 - Descuento global del 100% conserva base, ISV y cobro anteriores
+
+**Estado actual** Corregido y verificado en development el 18/11/2026, con autorización de Manuel.
+
+**Severidad** Alta cuando se usa descuento global del 100%.
+
+**Seguimiento** Issue #12, M6-06.
+
+**Código analizado** restaurant/pos.py, _sync_sar_tax_summary y pay_and_invoice_order.
+
+**Regresión** restaurant/tests/test_checkout_acceptance.py, test_full_global_discount_has_zero_tax_base_and_no_cash_tendered.
+
+Una venta original de L 115 con base L 100 e ISV L 15, descuento global del 100% y pago explícito cero produjo una factura enviada con net_total=0 y grand_total=0, pero taxed_amount_15=100, isv_15=15, paid_amount=115 y change_amount=115. El Ticket renderizado mostró esos mismos valores inconsistentes.
+
+ANALYZED. El resumen SAR recupera amount cuando net_amount vale cero. La normalización de pagos omite la fila de importe cero y construye el pago por defecto desde el total original de la orden.
+
+PROPOSED. Respetar el cero en el resumen y resolver el pago predeterminado según el total final nativo. La corrección fue autorizada por Manuel y aplicada respetando el cálculo nativo de Sales Invoice.
+
+[Informe y reproducción](aceptacion-cobro-caja-2026-11-18.md).
+
+**Resultado posterior VERIFIED** La regresión de cero aprobó. Se aprobaron 51 pruebas distintas entre aceptación, SAR, inventario, CAI y arranque. Las 17 facturas históricas y sus GL/SLE conservaron su huella. El detalle previo y posterior está en el informe enlazado.
+
+## DEF-2026-018 - El listado de órdenes usa la empresa predeterminada con un turno de otra empresa
+
+**Estado** Corregido y verificado en `development` el 19/11/2026 (pendiente reinicio de proceso Bench Web `--noreload` y revalidación visual en navegador). **Severidad** Alta por el riesgo de mezclar órdenes y cierres entre empresas.
+
+**Reproducción y evidencia VERIFIED.** Con una orden pendiente de Empresa Demostrativa y un turno abierto en la segunda empresa, entrar en Órdenes del POS. La captura del cajero muestra ORD-00087. Se verificó su empresa en la base de datos y se ejecutó get_pos_bootstrap como el usuario del turno nuevo: la empresa del turno era la segunda empresa, la empresa devuelta para el listado era Empresa Demostrativa y la respuesta incluía ORD-00087. Se revirtió la transacción de diagnóstico.
+
+**Resultado esperado.** Caja y Órdenes muestran las cuentas de la empresa del turno, incluidas las de otros meseros autorizados y las pendientes de turnos previos de la misma empresa. Una orden de otra empresa no se puede cobrar, editar ni cancelar desde ese turno.
+
+**ANALYZED.** En `restaurant/pos.py`, `get_pos_bootstrap` filtraba por la empresa predeterminada aunque ya resolvía el turno activo, y `pay_and_invoice_order` / operaciones sobre órdenes no comprobaban que la empresa de la orden coincidiera con la del turno activo.
+
+**Corrección aplicada y verificada (`VERIFIED`).**
+- Se implementó `_get_order_company()` y `_check_order_company()` en `restaurant/pos.py`, `restaurant/kds.py` y `restaurant/order_operations.py` para usar la empresa de `POS Opening Shift` activo en caja, mapa de mesas, KDS, reimpresión de comandas, precuenta, edición, división, transferencia, cancelación y facturación; y se limpiaron los identificadores de orden en el evento realtime `restaurant_kds_update`.
+- En `restaurant/restaurant/page/restaurant_pos/restaurant_pos.js` se reinicia el estado local al cambiar empresa/turno en `loadBootstrap` y se evita persistir órdenes abiertas en un contexto de empresa distinto.
+- Se agregaron y ampliaron regresiones en `restaurant/tests/test_order_company_isolation.py` (`9/9 OK`, cubriendo ambos sentidos del cambio de empresa, cuentas de turnos previos de la misma empresa, ocupación de mesas, KDS y operaciones de caja/división/transferencia) y se alinearon las precondiciones multiempresa en `test_sar_ticket.py`, `test_rbac_security_regression.py`, `test_multibranch_concurrency.py` y `test_qa_comprehensive_audit.py`.
+- **Suite completa verificada (`190/190 OK` Python + `3/3 OK` Node UI, `0` fallos, `0` omitidos):** `test_order_company_isolation` (9), `test_kds` (28), `test_order_operations` (35), `test_pos_startup` (8), `test_sar_ticket` (7), `test_fiscal_numbering` (11), `test_invoice_stock` (8), `test_checkout_acceptance` (17), `test_pos_auth` (6), `test_item_configuration` (28), `test_rbac_security_regression` (6), `test_waiter_permissions_and_cancellations` (5), `test_multibranch_concurrency` (4), `test_qa_comprehensive_audit` (18) y `tests/ui/precuenta_state.cjs` (3). No se ejecutó `test_demo_data.py`.
+- **Integridad de datos `development` antes y después (`VERIFIED`):** `get_pos_bootstrap()` bajo el turno abierto `POSA-OS-26-0000011` devuelve la segunda empresa y `0` órdenes (`ORD-00087` queda oculta y preservada bajo su empresa original). La serie de la nueva empresa continúa sin contador ni facturas (rango completo de 2,000 folios intacto), las `28` facturas históricas (`000-001-01-00000001` a `000-001-01-00000028`, `159` GL Entries y `17` SLE) conservan su estado y no quedaron órdenes ni turnos `QA` persistidos.
+
+**Observaciones pendientes (`ANALYZED` / `PROPOSED`):**
+1. El servidor Bench Web en puerto `8000` corre bajo VS Code `debugpy` con `--noreload` iniciado antes de estos cambios: reiniciar la depuración y recargar navegador antes de la revalidación visual.
+2. El documento `CAI` de la nueva empresa en `development` figura con `status = Active` y `docstatus = 0` (borrador); conviene confirmar si se envía (`submit`) para mantener paridad con el registro histórico (`docstatus = 1`).
+3. Endpoints auxiliares de stock/lealtad (`get_restaurant_stock_status`, `ensure_restaurant_stock`, `get_customer_loyalty_points`) aún consultan `_get_default_company()` en lugar de `_get_order_company()`.
