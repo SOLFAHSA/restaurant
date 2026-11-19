@@ -12,6 +12,7 @@ from restaurant.pos import (
     _get_order_company, _serialize_order, pay_and_invoice_order, save_pos_order, send_order_to_kitchen,
     split_order, transfer_order_table,
 )
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline
 
 
 class TestPreparationDisplay(FrappeTestCase):
@@ -21,6 +22,7 @@ class TestPreparationDisplay(FrappeTestCase):
     )
 
     def setUp(self):
+        ensure_restaurant_test_baseline()
         self.original_user = frappe.session.user
         frappe.set_user("Administrator")
         self.savepoint = "restaurant_kds_test"

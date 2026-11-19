@@ -6,11 +6,13 @@ from frappe.utils.password import set_encrypted_password
 
 from restaurant import pos, pos_auth
 from restaurant.setup import ensure_employee_pos_fields, ensure_restaurant_roles
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline
 
 
 class TestRestaurantPOSAuth(FrappeTestCase):
     def setUp(self):
         super().setUp()
+        ensure_restaurant_test_baseline()
         frappe.set_user("Administrator")
         ensure_restaurant_roles()
         ensure_employee_pos_fields()

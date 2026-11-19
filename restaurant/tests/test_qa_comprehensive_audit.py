@@ -18,6 +18,7 @@ from restaurant.setup import (
     ensure_restaurant_role_profiles,
     ensure_waiter_module_profile,
 )
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline
 
 
 class TestQAComprehensiveAudit2026(FrappeTestCase):
@@ -25,6 +26,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
 
     def setUp(self):
         super().setUp()
+        ensure_restaurant_test_baseline()
         self.original_user = frappe.session.user
         frappe.set_user("Administrator")
         self.savepoint = f"qa_audit_{uuid4().hex[:8]}"

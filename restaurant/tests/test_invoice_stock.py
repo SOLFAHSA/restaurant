@@ -9,11 +9,13 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, now_datetime
 
 from restaurant import pos
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline
 
 
 class TestRestaurantInvoiceStock(FrappeTestCase):
     def setUp(self):
         super().setUp()
+        ensure_restaurant_test_baseline()
         original_user = frappe.session.user
         frappe.set_user("Administrator")
         self.addCleanup(frappe.set_user, original_user)

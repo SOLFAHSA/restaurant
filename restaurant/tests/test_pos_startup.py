@@ -12,6 +12,7 @@ from restaurant.pos import (
     _require_pos_user,
     get_pos_bootstrap,
 )
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline
 
 
 class TestPosStartup(FrappeTestCase):
@@ -21,6 +22,7 @@ class TestPosStartup(FrappeTestCase):
     )
 
     def setUp(self):
+        ensure_restaurant_test_baseline()
         self.original_user = frappe.session.user
         frappe.set_user("Administrator")
         self.savepoint = "restaurant_pos_startup_test"
