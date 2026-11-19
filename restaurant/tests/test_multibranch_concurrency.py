@@ -79,6 +79,7 @@ class TestQAMultiBranchConcurrency(FrappeTestCase):
         order = frappe.get_doc({
             "doctype": "Restaurant Order",
             "order_name": f"MB-ORD-{self.suffix}",
+            "company": pos._get_order_company(),
             "customer": customer,
             "restaurant_table": table1,
             "items": [{"item_code": item, "qty": 1, "base_rate": 120.0}],
@@ -104,6 +105,7 @@ class TestQAMultiBranchConcurrency(FrappeTestCase):
         order = frappe.get_doc({
             "doctype": "Restaurant Order",
             "order_name": f"MB-RACE-{self.suffix}",
+            "company": pos._get_order_company(),
             "customer": customer,
             "items": [{"item_code": item, "qty": 1, "base_rate": 120.0}],
         }).insert(ignore_permissions=True)
@@ -129,6 +131,7 @@ class TestQAMultiBranchConcurrency(FrappeTestCase):
         order = frappe.get_doc({
             "doctype": "Restaurant Order",
             "order_name": f"MB-XBR-{self.suffix}",
+            "company": pos._get_order_company(),
             "customer": customer,
             "restaurant_table": table_a,
             "items": [{"item_code": item, "qty": 1, "base_rate": 120.0}],

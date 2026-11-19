@@ -99,8 +99,20 @@ class TestSarTicket(FrappeTestCase):
         if not frappe.db.exists("Print Format", "Ticket"):
             self.fail("Print Format 'Ticket' must exist")
 
-        company = frappe.db.get_default("company") or frappe.db.get_value("Company", {}, "name")
-        pos_profile = frappe.db.get_value("POS Profile", {"disabled": 0}, "name")
+    def _ensure_sar_test_prereqs(self):
+        active_shift = frappe.db.get_value(
+            "POS Opening Shift",
+            {"user": "Administrator", "status": "Open", "docstatus": 1},
+            ["company", "pos_profile"],
+            as_dict=True,
+            order_by="creation desc",
+        )
+        if active_shift and active_shift.company and active_shift.pos_profile:
+            company = active_shift.company
+            pos_profile = active_shift.pos_profile
+        else:
+            company = frappe.db.get_default("company") or frappe.db.get_value("Company", {}, "name")
+            pos_profile = frappe.db.get_value("POS Profile", {"disabled": 0, "company": company}, "name")
         customer = frappe.db.get_value("Customer", {"disabled": 0}, "name")
         if not (company and pos_profile and customer):
             self.skipTest("Site missing baseline Company / POS Profile / Customer")
@@ -122,7 +134,7 @@ class TestSarTicket(FrappeTestCase):
         else:
             item = frappe.get_doc("Item", test_item_code)
 
-        if not frappe.db.exists("POS Opening Shift", {"user": "Administrator", "status": "Open", "docstatus": 1}):
+        if not active_shift:
             shift = frappe.get_doc({
                 "doctype": "POS Opening Shift",
                 "period_start_date": frappe.utils.now_datetime(),
@@ -133,6 +145,30 @@ class TestSarTicket(FrappeTestCase):
             })
             shift.insert(ignore_permissions=True)
             shift.submit()
+        return company, pos_profile, customer
+
+    def _ensure_non_stock_item(self, item_code, item_name, rate):
+        if frappe.db.exists("Item", item_code):
+            return frappe.get_doc("Item", item_code)
+        item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
+        uom = frappe.db.get_value("UOM", {}, "name") or "Unidad"
+        return frappe.get_doc({
+            "doctype": "Item",
+            "item_code": item_code,
+            "item_name": item_name,
+            "item_group": item_group,
+            "stock_uom": uom,
+            "is_stock_item": 0,
+            "is_sales_item": 1,
+            "standard_rate": rate,
+        }).insert(ignore_permissions=True)
+
+    def test_pay_and_invoice_order_disables_rounding_and_renders_ticket(self):
+        if not frappe.db.exists("Print Format", "Ticket"):
+            self.fail("Print Format 'Ticket' must exist")
+
+        company, pos_profile, customer = self._ensure_sar_test_prereqs()
+        item = self._ensure_non_stock_item("_TEST_SAR_PLATILLO", "Combo Familiar Prueba SAR", 15.50)
 
         table_name = frappe.db.get_value("Restaurant Table", {}, "name") if frappe.db.exists("DocType", "Restaurant Table") else None
         order = frappe.get_doc({
@@ -174,6 +210,9 @@ class TestSarTicket(FrappeTestCase):
 
         self.assertEqual(int(si.disable_rounded_total), 1)
         self.assertEqual(flt(si.grand_total, 2), expected_grand)
+        self.assertEqual(flt(si.taxed_amount_15, 2), 15.50)
+        self.assertEqual(flt(si.isv_15, 2), 2.33)
+        self.assertEqual(flt(si.exempt_amount, 2), 0.0)
         self.assertEqual(si.restaurant_order, order.name)
         self.assertEqual(si.restaurant_order_number, "9991")
         self.assertEqual(si.restaurant_table_label, order.table_label or "")
@@ -192,3 +231,132 @@ class TestSarTicket(FrappeTestCase):
         self.assertIn(expected_badge, html)
         self.assertIn("PAPAS GRANDES", html)
         self.assertIn(format_lempiras_in_words(si.grand_total), html)
+
+    def test_exact_tax_accumulation_30_70_and_strict_cent_validation(self):
+        company, pos_profile, customer = self._ensure_sar_test_prereqs()
+        half_item = self._ensure_non_stock_item("_TEST_SAR_15_35", "Item Mitad Centavo", 15.35)
+
+        order = frappe.get_doc({
+            "doctype": "Restaurant Order",
+            "order_name": "9992",
+            "company": company,
+            "pos_profile": pos_profile,
+            "customer": customer,
+            "service_type": "Para llevar",
+            "currency": "HNL",
+            "items": [
+                {
+                    "item_code": half_item.name,
+                    "item_name": half_item.item_name,
+                    "qty": 1,
+                    "uom": half_item.stock_uom,
+                    "base_rate": 15.35,
+                    "rate": 15.35,
+                    "amount": 15.35,
+                    "tax_rate": 15.0,
+                },
+                {
+                    "item_code": half_item.name,
+                    "item_name": half_item.item_name,
+                    "qty": 1,
+                    "uom": half_item.stock_uom,
+                    "base_rate": 15.35,
+                    "rate": 15.35,
+                    "amount": 15.35,
+                    "tax_rate": 15.0,
+                },
+            ],
+        })
+        order.insert(ignore_permissions=True)
+
+        self.assertEqual(flt(order.subtotal, 2), 30.70)
+        self.assertEqual(flt(order.isv_15, 2), 4.61)
+        self.assertEqual(flt(order.grand_total, 2), 35.31)
+
+        with self.assertRaises(frappe.ValidationError):
+            pay_and_invoice_order(
+                order_name=order.name,
+                payments=[{"mode_of_payment": "Efectivo", "amount": 35.30}],
+                customer=customer,
+            )
+
+        res = pay_and_invoice_order(
+            order_name=order.name,
+            payments=[{"mode_of_payment": "Efectivo", "amount": 35.31}],
+            customer=customer,
+        )
+        si = frappe.get_doc("Sales Invoice", res["invoice"]["name"])
+        self.assertEqual(flt(si.grand_total, 2), 35.31)
+        self.assertEqual(flt(si.paid_amount, 2), 35.31)
+        self.assertEqual(flt(si.taxed_amount_15, 2), 30.70)
+        self.assertEqual(flt(si.isv_15, 2), 4.61)
+        self.assertEqual(flt(si.exempt_amount, 2), 0.0)
+
+    def test_persisted_sar_tax_breakdown_matches_invoice_and_ticket_for_19_90(self):
+        company, pos_profile, customer = self._ensure_sar_test_prereqs()
+        drink = self._ensure_non_stock_item("_TEST_SAR_DRINK_2_20", "Refresco Prueba SAR", 2.20)
+        burger = self._ensure_non_stock_item("_TEST_SAR_PLATILLO", "Combo Familiar Prueba SAR", 15.50)
+
+        order = frappe.get_doc({
+            "doctype": "Restaurant Order",
+            "order_name": "9993",
+            "company": company,
+            "pos_profile": pos_profile,
+            "customer": customer,
+            "service_type": "Para llevar",
+            "currency": "HNL",
+            "items": [
+                {
+                    "item_code": drink.name,
+                    "item_name": drink.item_name,
+                    "qty": 1,
+                    "uom": drink.stock_uom,
+                    "base_rate": 2.20,
+                    "rate": 2.20,
+                    "amount": 2.20,
+                    "tax_rate": 15.0,
+                },
+                {
+                    "item_code": burger.name,
+                    "item_name": burger.item_name,
+                    "qty": 1,
+                    "uom": burger.stock_uom,
+                    "base_rate": 15.50,
+                    "rate": 15.50,
+                    "amount": 15.50,
+                    "tax_rate": 15.0,
+                },
+                {
+                    "item_code": drink.name,
+                    "item_name": "Jugo Prueba SAR",
+                    "qty": 1,
+                    "uom": drink.stock_uom,
+                    "base_rate": 2.20,
+                    "rate": 2.20,
+                    "amount": 2.20,
+                    "tax_rate": 15.0,
+                },
+            ],
+        })
+        order.insert(ignore_permissions=True)
+
+        self.assertEqual(flt(order.subtotal, 2), 19.90)
+        self.assertEqual(flt(order.isv_15, 2), 2.99)
+        self.assertEqual(flt(order.grand_total, 2), 22.89)
+
+        res = pay_and_invoice_order(
+            order_name=order.name,
+            payments=[{"mode_of_payment": "Efectivo", "amount": 22.89}],
+            customer=customer,
+        )
+        si = frappe.get_doc("Sales Invoice", res["invoice"]["name"])
+        self.assertEqual(flt(si.grand_total, 2), 22.89)
+        self.assertEqual(flt(si.taxed_amount_15, 2), 19.90)
+        self.assertEqual(flt(si.isv_15, 2), 2.99)
+        self.assertEqual(flt(si.exempt_amount, 2), 0.0)
+        self.assertEqual(flt(si.exonerated_amount, 2), 0.0)
+
+        html = frappe.get_print("Sales Invoice", si.name, "Ticket", no_letterhead=1)
+        self.assertRegex(html, r"EXENTO L\.\s*</td>\s*<td[^>]*>\s*0\.00")
+        self.assertRegex(html, r"GRAVADO 15% L\.\s*</td>\s*<td[^>]*>\s*19\.90")
+        self.assertRegex(html, r"IMPTO\. 15% L\.\s*</td>\s*<td[^>]*>\s*2\.99")

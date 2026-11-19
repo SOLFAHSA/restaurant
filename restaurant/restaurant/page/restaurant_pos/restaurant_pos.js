@@ -44,6 +44,7 @@ class LeafRestaurantPOS {
         this.splitAccountName = "";
 
         this.bootstrap = null;
+        this.bootstrapRequestId = 0;
         this.categorySearch = "";
         this.currentOrder = this.createBlankOrder();
         this.paymentScreenState = null;
@@ -283,6 +284,7 @@ class LeafRestaurantPOS {
     }
 
     createBlankOrder(overrides = {}) {
+        const profile = this.getActivePosProfileObj();
         const defaultCustomer = this.bootstrap?.customers?.[0] || {
             name: "CONSUMIDOR FINAL",
             customer_name: "CONSUMIDOR FINAL",
@@ -307,9 +309,10 @@ class LeafRestaurantPOS {
             customer: defaultCustomer.name,
             customer_name: defaultCustomer.customer_name || defaultCustomer.name,
             tax_id: defaultCustomer.tax_id || "",
-            pos_profile: this.bootstrap?.opening_shift?.pos_profile || this.bootstrap?.pos_profiles?.[0]?.name || "",
+            company: this.bootstrap?.company?.name || "",
+            pos_profile: profile.name || "",
             pos_opening_shift: this.bootstrap?.opening_shift?.name || "",
-            selling_price_list: this.bootstrap?.pos_profiles?.[0]?.selling_price_list || "Venta estándar",
+            selling_price_list: profile.selling_price_list || "Venta estándar",
             kds_status: "Sin enviar",
             scheduled_time: "",
             customer_note: "",
@@ -385,7 +388,8 @@ class LeafRestaurantPOS {
         });
     }
 
-    async loadBootstrap() {
+    async loadBootstrap(refreshCurrentOrder = true) {
+        const requestId = ++this.bootstrapRequestId;
         const request = frappe.call({
             method: "restaurant.pos.get_pos_bootstrap",
             args: { area_name: this.selectedAreaName || null },
@@ -406,14 +410,24 @@ class LeafRestaurantPOS {
         } finally {
             clearTimeout(timer);
         }
+        if (requestId !== this.bootstrapRequestId) return;
         if (!response?.message || ["items", "areas", "orders", "pos_profiles"].some(
             key => !Array.isArray(response.message[key])
         )) {
             throw new Error("Restaurant POS bootstrap data is incomplete");
         }
+        const previous = this.bootstrap;
         this.bootstrap = response.message;
-        if (!this.selectedAreaName && this.bootstrap.areas?.length) {
-            this.selectedAreaName = this.bootstrap.areas[0].name;
+        const companyChanged = previous?.company?.name !== this.bootstrap.company?.name;
+        if (companyChanged || !this.bootstrap.areas.some(area => area.name === this.selectedAreaName)) {
+            this.selectedAreaName = this.bootstrap.areas[0]?.name || "";
+        }
+        if (!previous || companyChanged || previous.opening_shift?.name !== this.bootstrap.opening_shift?.name) {
+            this.closeSplitView(false);
+            this.operationContext = null;
+            this.paymentScreenState = null;
+            this.orderPage = 1;
+            this.resetCajaForNextOrder(false);
         }
         if (!this.currentOrder.customer && this.bootstrap.customers?.length) {
             const c = this.bootstrap.customers[0];
@@ -421,7 +435,7 @@ class LeafRestaurantPOS {
             this.currentOrder.customer_name = c.customer_name || c.name;
             this.currentOrder.tax_id = c.tax_id || "";
         }
-        if (this.currentOrder.name) {
+        if (refreshCurrentOrder && this.currentOrder.name) {
             const refreshed = (this.bootstrap.orders || []).find(o => o.name === this.currentOrder.name);
             if (refreshed && refreshed.status === "En curso") {
                 this.currentOrder = JSON.parse(JSON.stringify(refreshed));
@@ -429,12 +443,31 @@ class LeafRestaurantPOS {
         }
     }
 
+    roundMoney(value, precision = 2) {
+        const num = Number(value);
+        if (!Number.isFinite(num) || num === 0) return 0;
+        const factor = 10 ** precision;
+        const sign = num < 0 ? -1 : 1;
+        const scaled = Number((Math.abs(num) * factor).toFixed(8));
+        const method =
+            this.bootstrap?.rounding_method ||
+            window.frappe?.boot?.sysdefaults?.rounding_method ||
+            "Banker's Rounding (legacy)";
+        if (method === "Banker's Rounding") {
+            const floorVal = Math.floor(scaled);
+            const dec = scaled - floorVal;
+            const roundedInt = Math.abs(dec - 0.5) < 1e-8
+                ? (floorVal % 2 === 0 ? floorVal : floorVal + 1)
+                : Math.round(scaled);
+            return (sign * roundedInt) / factor;
+        }
+        return (sign * Math.round(scaled)) / factor;
+    }
+
     recalculateLocalTotals() {
         let subtotal = 0;
         let taxed15 = 0;
-        let isv15 = 0;
         let taxed18 = 0;
-        let isv18 = 0;
         let exempt = 0;
 
         (this.currentOrder.items || []).forEach(row => {
@@ -447,8 +480,8 @@ class LeafRestaurantPOS {
             const baseRate = Math.max(0, Number(row.base_rate ?? row.rate ?? 0));
             const optRate = Math.max(0, Number(row.options_rate || 0));
             const disc = Math.min(100, Math.max(0, Number(row.discount_percentage || 0)));
-            const unitRate = Number(((baseRate + optRate) * (1 - disc / 100)).toFixed(2));
-            const amount = Number((qty * unitRate).toFixed(2));
+            const unitRate = this.roundMoney((baseRate + optRate) * (1 - disc / 100));
+            const amount = this.roundMoney(qty * unitRate);
             row.qty = qty;
             row.base_rate = baseRate;
             row.options_rate = optRate;
@@ -460,31 +493,36 @@ class LeafRestaurantPOS {
             subtotal += amount;
             if (Math.abs(taxRate - 15) < 0.01) {
                 taxed15 += amount;
-                isv15 += Number((amount * 0.15).toFixed(2));
             } else if (Math.abs(taxRate - 18) < 0.01) {
                 taxed18 += amount;
-                isv18 += Number((amount * 0.18).toFixed(2));
             } else {
                 exempt += amount;
             }
         });
 
-        this.currentOrder.subtotal = Number(subtotal.toFixed(2));
-        this.currentOrder.taxed_amount_15 = Number(taxed15.toFixed(2));
-        this.currentOrder.isv_15 = Number(isv15.toFixed(2));
-        this.currentOrder.taxed_amount_18 = Number(taxed18.toFixed(2));
-        this.currentOrder.isv_18 = Number(isv18.toFixed(2));
-        this.currentOrder.exempt_amount = Number(exempt.toFixed(2));
-        this.currentOrder.tax_amount = Number((isv15 + isv18).toFixed(2));
+        // Match ERPNext Sales Invoice taxes_and_totals: round once per accumulated tax rate.
+        const roundedSubtotal = this.roundMoney(subtotal);
+        const roundedTaxed15 = this.roundMoney(taxed15);
+        const roundedTaxed18 = this.roundMoney(taxed18);
+        const isv15 = this.roundMoney(roundedTaxed15 * 0.15);
+        const isv18 = this.roundMoney(roundedTaxed18 * 0.18);
+
+        this.currentOrder.subtotal = roundedSubtotal;
+        this.currentOrder.taxed_amount_15 = roundedTaxed15;
+        this.currentOrder.isv_15 = isv15;
+        this.currentOrder.taxed_amount_18 = roundedTaxed18;
+        this.currentOrder.isv_18 = isv18;
+        this.currentOrder.exempt_amount = this.roundMoney(exempt);
+        this.currentOrder.tax_amount = this.roundMoney(isv15 + isv18);
 
         const tipPct = Math.max(0, Number(this.currentOrder.tip_percentage || 0));
         if (tipPct > 0) {
-            this.currentOrder.tip_amount = Number((this.currentOrder.subtotal * (tipPct / 100)).toFixed(2));
+            this.currentOrder.tip_amount = this.roundMoney(this.currentOrder.subtotal * (tipPct / 100));
         } else {
-            this.currentOrder.tip_amount = Math.max(0, Number(this.currentOrder.tip_amount || 0));
+            this.currentOrder.tip_amount = Math.max(0, this.roundMoney(this.currentOrder.tip_amount || 0));
         }
-        this.currentOrder.grand_total = Number(
-            (this.currentOrder.subtotal + this.currentOrder.tax_amount + this.currentOrder.tip_amount).toFixed(2)
+        this.currentOrder.grand_total = this.roundMoney(
+            this.currentOrder.subtotal + this.currentOrder.tax_amount + this.currentOrder.tip_amount
         );
     }
 
@@ -2081,14 +2119,15 @@ class LeafRestaurantPOS {
         if (this.loading || this.operationBusy || this.bootstrapRefreshing) return;
         if (document.querySelector(".rpos-modal-backdrop")) return;
         const viewingOverview = this.activeTab === "Mesas" || this.activeTab === "Órdenes";
-        const matchesCurrentOrder = Boolean(this.currentOrder?.name && data?.order_name === this.currentOrder.name);
+        const orderName = this.currentOrder?.name;
+        const matchesCurrentOrder = Boolean(orderName && (!data?.order_name || data.order_name === orderName));
         if (!viewingOverview && !matchesCurrentOrder) return;
         this.bootstrapRefreshing = true;
         try {
-            await this.loadBootstrap();
+            await this.loadBootstrap(false);
             if (frappe.get_route()[0] !== "restaurant-pos") return;
-            if (matchesCurrentOrder) {
-                const updated = (this.bootstrap?.orders || []).find(o => o.name === this.currentOrder.name);
+            if (matchesCurrentOrder && this.currentOrder?.name === orderName) {
+                const updated = (this.bootstrap?.orders || []).find(o => o.name === orderName);
                 if (updated) {
                     const hasLocalPending = (this.currentOrder.items || []).some(
                         it => !it.name && (it.kds_status || "Pendiente") === "Pendiente"
@@ -2112,6 +2151,7 @@ class LeafRestaurantPOS {
 
     async persistCurrentOrderSilently() {
         if (!this.currentOrder.order_name && !this.currentOrder.items.length) return true;
+        const openingShift = this.bootstrap?.opening_shift?.name;
         if (!this.currentOrder.order_name) {
             this.currentOrder.order_name = this.currentOrder.table_label
                 ? `Mesa ${this.currentOrder.table_label}`
@@ -2123,6 +2163,10 @@ class LeafRestaurantPOS {
                 args: { order: this.currentOrder },
             });
             if (res.message?.order) {
+                if (this.bootstrap?.opening_shift?.name !== openingShift
+                    || (res.message.order.company && res.message.order.company !== this.bootstrap?.company?.name)) {
+                    return false;
+                }
                 this.currentOrder = res.message.order;
                 this.bootstrap.areas = res.message.areas || this.bootstrap.areas;
                 this.upsertOrderInBootstrap(this.currentOrder);
@@ -2277,7 +2321,7 @@ class LeafRestaurantPOS {
                 frappe.msgprint("Selecciona una empresa y un perfil de Punto de Venta válido.");
                 return;
             }
-            const res = await frappe.call({
+            await frappe.call({
                 method: "restaurant.pos.open_pos_shift",
                 args: {
                     company,
@@ -2287,10 +2331,9 @@ class LeafRestaurantPOS {
                 freeze: true,
                 freeze_message: "Creando turno de apertura de POS...",
             });
-            this.bootstrap.opening_shift = res.message;
             backdrop.remove();
             frappe.show_alert({ message: "Turno de Punto de Venta abierto correctamente", indicator: "green" });
-            this.render();
+            await this.onShow();
         });
     }
 
@@ -3359,6 +3402,7 @@ class LeafRestaurantPOS {
         const res = await frappe.call({
             method: "restaurant.pos.get_precuenta_data",
             type: "POST",
+            freeze: true,
             args: {
                 order_name: orderId,
                 tip_percentage: targetOrd?.tip_percentage,
@@ -3367,6 +3411,11 @@ class LeafRestaurantPOS {
         });
         const data = res.message;
         const ord = data.order;
+        this.upsertOrderInBootstrap(ord);
+        if (this.currentOrder === targetOrd && this.currentOrder?.name === ord.name) {
+            this.currentOrder = JSON.parse(JSON.stringify(ord));
+            this.render();
+        }
 
         const backdrop = this.createModal(
             `Pre-cuenta · ${this.escape(ord.order_name)}`,
@@ -3421,10 +3470,18 @@ class LeafRestaurantPOS {
             "520px"
         );
 
-        backdrop.querySelector("[data-precuenta-tip]").addEventListener("click", () => {
+        const resumeOrder = async (action) => {
             backdrop.remove();
-            this.openTipModal();
-        });
+            if (this.currentOrder?.name !== ord.name) {
+                await this.loadOrderIntoCaja(ord);
+                if (this.currentOrder?.name !== ord.name) return;
+            }
+            return action();
+        };
+
+        backdrop.querySelector("[data-precuenta-tip]").addEventListener("click", () =>
+            resumeOrder(() => this.openTipModal())
+        );
 
         backdrop.querySelector("[data-precuenta-print]").addEventListener("click", () => {
             const html = backdrop.querySelector("#rpos-printable-precuenta").outerHTML;
@@ -3437,10 +3494,9 @@ class LeafRestaurantPOS {
             }
         });
 
-        backdrop.querySelector("[data-precuenta-pay]").addEventListener("click", () => {
-            backdrop.remove();
-            this.openPaymentModal();
-        });
+        backdrop.querySelector("[data-precuenta-pay]")?.addEventListener("click", () =>
+            resumeOrder(() => this.openPaymentModal())
+        );
     }
 
     /* 10. Pantalla Completa de Pago (estilo Odoo) y Emisión de Factura Fiscal SAR */
@@ -3530,7 +3586,7 @@ class LeafRestaurantPOS {
         this.recalculateLocalTotals();
         const grand = Number(this.currentOrder.grand_total || 0);
         const tenderedNum = st.tenderedBuffer ? Number(st.tenderedBuffer) : grand;
-        const change = Math.max(0, Number((tenderedNum - grand).toFixed(2)));
+        const change = Math.max(0, this.roundMoney(tenderedNum - grand));
         const [intPart, decPart] = grand.toFixed(2).split(".");
 
         const rawMops = this.bootstrap?.modes_of_payment || [];
@@ -3735,9 +3791,6 @@ class LeafRestaurantPOS {
         if (action === "pay-screen-validate") {
             this.recalculateLocalTotals();
             const grand = Number(this.currentOrder.grand_total || 0);
-            const caiDefault = this.currentOrder.cai || this.bootstrap?.fiscal_defaults?.cai || "3A8F9E-12B4C6-78D0E2-9F1A3B-45C6D8-01";
-            const dueCaiDefault = this.currentOrder.due_date_cai || this.bootstrap?.fiscal_defaults?.due_date_cai || "2026-12-31";
-            const authRangeDefault = this.bootstrap?.fiscal_defaults?.authorized_range || "000-001-01-00000001 al 000-001-01-00050000";
 
             const res = await frappe.call({
                 method: "restaurant.pos.pay_and_invoice_order",
@@ -3745,9 +3798,6 @@ class LeafRestaurantPOS {
                     order_name: this.currentOrder.name,
                     customer: this.currentOrder.customer,
                     tax_id: this.currentOrder.tax_id || "",
-                    cai: caiDefault,
-                    due_date_cai: dueCaiDefault,
-                    authorized_range: authRangeDefault,
                     tip_percentage: this.currentOrder.tip_percentage || 0,
                     tip_amount: this.currentOrder.tip_amount || 0,
                     global_discount_percentage: st.globalDiscountPct || 0,
@@ -3830,11 +3880,9 @@ class LeafRestaurantPOS {
     }
 
     async openFiscalPaymentModal() {
+        this.recalculateLocalTotals();
         const customers = this.bootstrap?.customers || [];
         const mops = this.bootstrap?.modes_of_payment || [{ name: "Efectivo" }, { name: "Tarjetas de credito" }, { name: "Transferencia bancaria" }];
-        const caiDefault = this.currentOrder.cai || this.bootstrap?.fiscal_defaults?.cai || "3A8F9E-12B4C6-78D0E2-9F1A3B-45C6D8-01";
-        const dueCaiDefault = this.currentOrder.due_date_cai || this.bootstrap?.fiscal_defaults?.due_date_cai || "2026-12-31";
-        const authRangeDefault = this.bootstrap?.fiscal_defaults?.authorized_range || "000-001-01-00000001 al 000-001-01-00050000";
 
         const backdrop = this.createModal(
             `Facturación Fiscal SAR y Pago · ${this.escape(this.currentOrder.order_name)}`,
@@ -3862,21 +3910,7 @@ class LeafRestaurantPOS {
                     </div>
                 </div>
 
-                <div style="display:grid;grid-template-columns:1.3fr 0.7fr;gap:12px;">
-                    <div class="rpos-field">
-                        <label>CAI SAR Activo</label>
-                        <input type="text" data-pay-cai value="${this.escape(caiDefault)}">
-                    </div>
-                    <div class="rpos-field">
-                        <label>Fecha límite CAI</label>
-                        <input type="date" data-pay-due-cai value="${this.escape(dueCaiDefault)}">
-                    </div>
-                </div>
-
-                <div class="rpos-field">
-                    <label>Rango Autorizado de Facturación SAR</label>
-                    <input type="text" data-pay-auth-range value="${this.escape(authRangeDefault)}">
-                </div>
+                <p>ERPNext asigna el CAI y el folio al emitir la factura.</p>
 
                 <div style="display:grid;grid-template-columns:${this.getRposConfig().tips_enabled !== 0 ? "1fr 1fr" : "1fr"};gap:12px;">
                     <div class="rpos-field">
@@ -3981,12 +4015,12 @@ class LeafRestaurantPOS {
         };
 
         const refreshPaymentMath = () => {
-            const tip = Math.max(0, Number(tipInp.value || 0));
-            const effectiveTax = exoChk.checked ? 0 : Number(this.currentOrder.tax_amount || 0);
-            const grand = Number((Number(this.currentOrder.subtotal || 0) + effectiveTax + tip).toFixed(2));
+            const tip = this.roundMoney(Math.max(0, Number(tipInp.value || 0)));
+            const effectiveTax = exoChk.checked ? 0 : this.roundMoney(this.currentOrder.tax_amount || 0);
+            const grand = this.roundMoney(this.roundMoney(this.currentOrder.subtotal || 0) + effectiveTax + tip);
             grandLbl.textContent = this.formatMoney(grand);
             const tendered = Math.max(0, Number(tenderedInp.value || 0));
-            const change = Math.max(0, Number((tendered - grand).toFixed(2)));
+            const change = Math.max(0, this.roundMoney(tendered - grand));
             changeInp.value = this.formatMoney(change);
             return { tip, grand, tendered };
         };
@@ -4025,9 +4059,6 @@ class LeafRestaurantPOS {
                         order_name: this.currentOrder.name,
                         customer: custSel.value,
                         tax_id: rtnInp.value.trim(),
-                        cai: backdrop.querySelector("[data-pay-cai]").value.trim(),
-                        due_date_cai: backdrop.querySelector("[data-pay-due-cai]").value,
-                        authorized_range: backdrop.querySelector("[data-pay-auth-range]").value.trim(),
                         tip_percentage: 0,
                         tip_amount: tip,
                         tax_category: exoChk.checked ? "Exonerado" : "Contribuyente",
@@ -4199,12 +4230,12 @@ class LeafRestaurantPOS {
         });
     }
 
-    resetCajaForNextOrder() {
+    resetCajaForNextOrder(render = true) {
         this.currentOrder = this.createBlankOrder();
         this.selectedLineIndex = -1;
         this.numpadBuffer = "";
         this.selectedOrderPreviewName = "";
-        this.render();
+        if (render) this.render();
     }
 
     async sendToKdsOnly() {
@@ -5586,8 +5617,10 @@ class LeafRestaurantPOS {
     }
 
     getActivePosProfileObj() {
-        const profName = this.bootstrap?.opening_shift?.pos_profile;
-        return (this.bootstrap?.pos_profiles || []).find(p => p.name === profName) || this.bootstrap?.pos_profiles?.[0] || {};
+        const profiles = this.bootstrap?.pos_profiles || [];
+        const shift = this.bootstrap?.opening_shift;
+        if (shift) return profiles.find(p => p.name === shift.pos_profile) || {};
+        return profiles.find(p => p.company === this.bootstrap?.company?.name) || {};
     }
 
     async openCashMovementModal() {
@@ -6022,6 +6055,7 @@ class LeafRestaurantPOS {
                 freeze_message: "Cerrando turno y generando POS Closing Shift...",
             });
             backdrop.remove();
+            const prof = this.getActivePosProfileObj();
             this.bootstrap.opening_shift = null;
             const closingDoc = closeRes.message?.pos_closing_shift;
             frappe.show_alert({
@@ -6030,7 +6064,6 @@ class LeafRestaurantPOS {
                     : "Turno de caja cerrado correctamente",
                 indicator: "green",
             });
-            const prof = this.getActivePosProfileObj();
             const fmt = prof.print_format_for_online || prof.close_pos_format;
             if (closingDoc && fmt) {
                 this.openPosaPrintView("POS Closing Shift", closingDoc, fmt, prof.letter_head);

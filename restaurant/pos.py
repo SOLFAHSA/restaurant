@@ -179,6 +179,16 @@ def _get_active_opening_shift(user=None):
     }
 
 
+def _get_order_company():
+    shift = _get_active_opening_shift(frappe.session.user)
+    return shift["company"] if shift else _get_default_company()
+
+
+def _check_order_company(doc, company=None):
+    if not doc.company or doc.company != (company or _get_order_company()):
+        frappe.throw(_("La orden no pertenece a la empresa activa del punto de venta."), frappe.PermissionError)
+
+
 def _resolve_command_map():
     """Map Item Group names to configured Restaurant Command station names in 2 batch queries."""
     cached = getattr(frappe.local, "_restaurant_command_map_cache", None)
@@ -302,7 +312,7 @@ def validate_order(doc):
         doc.cashier = frappe.session.user
 
     if not doc.company:
-        doc.company = _get_default_company()
+        doc.company = _get_order_company()
     if not doc.currency:
         doc.currency = (
             frappe.db.get_value("Company", doc.company, "default_currency")
@@ -385,9 +395,7 @@ def validate_order(doc):
 
     subtotal = 0.0
     taxed_15 = 0.0
-    isv_15 = 0.0
     taxed_18 = 0.0
-    isv_18 = 0.0
     exempt = 0.0
 
     item_meta = frappe.get_meta("Restaurant Order Item")
@@ -527,18 +535,17 @@ def validate_order(doc):
         subtotal += row.amount
         if abs(row.tax_rate - 15.0) < 0.01:
             taxed_15 += row.amount
-            isv_15 += flt(row.amount * 0.15, 2)
         elif abs(row.tax_rate - 18.0) < 0.01:
             taxed_18 += row.amount
-            isv_18 += flt(row.amount * 0.18, 2)
         else:
             exempt += row.amount
 
     doc.subtotal = flt(subtotal, 2)
     doc.taxed_amount_15 = flt(taxed_15, 2)
-    doc.isv_15 = flt(isv_15, 2)
+    # Match ERPNext Sales Invoice taxes_and_totals: accumulate taxable net per rate before rounding once.
+    doc.isv_15 = flt(doc.taxed_amount_15 * 0.15, 2)
     doc.taxed_amount_18 = flt(taxed_18, 2)
-    doc.isv_18 = flt(isv_18, 2)
+    doc.isv_18 = flt(doc.taxed_amount_18 * 0.18, 2)
     doc.exempt_amount = flt(exempt, 2)
     doc.tax_amount = flt(doc.isv_15 + doc.isv_18, 2)
 
@@ -1114,7 +1121,7 @@ def _get_catalog_for_pos(selling_price_list=None, allowed_categories=None):
     return categories, items
 
 
-def _get_areas_with_live_tables(branch=None):
+def _get_areas_with_live_tables(branch=None, company=None):
     """Return active Restaurant Areas with floor map elements and live table order status."""
     from restaurant.table_management import parse_area_layout
 
@@ -1146,7 +1153,7 @@ def _get_areas_with_live_tables(branch=None):
     if not areas:
         return []
 
-    open_order_filters = {"status": "En curso"}
+    open_order_filters = {"status": "En curso", "company": company or _get_order_company()}
     if effective_branch and frappe.get_meta("Restaurant Order").has_field("branch"):
         open_order_filters["branch"] = effective_branch
 
@@ -1211,7 +1218,7 @@ def _get_areas_with_live_tables(branch=None):
                 "table_number": row.table_number,
                 "seats": row.seats,
                 "shape": row.shape,
-                "status": "Ocupada" if live else (row.status or "Disponible"),
+                "status": "Ocupada" if live else (row.status if row.status in ("Inactiva", "Reservada") else "Disponible"),
                 "display_order": row.display_order,
                 "color": row.color,
                 "notes": row.notes,
@@ -1236,97 +1243,47 @@ def _get_areas_with_live_tables(branch=None):
 
 
 def _resolve_sar_fiscal_info(pos_profile=None, company=None):
-    """Resolve active SAR Honduras CAI, deadline, authorized range, prefix, and company RTN."""
+    """Read the configured series and its active authorization for the POS bootstrap."""
     company = company or _get_default_company()
-    company_tax_id = (
-        frappe.db.get_value("Company", company, "tax_id") if company else ""
-    ) or "05019000123456"
-
-    prefix = ""
-    if pos_profile and frappe.db.exists("POS Profile", pos_profile):
-        if frappe.get_meta("POS Profile").has_field("prefix"):
-            prefix = cstr(frappe.db.get_value("POS Profile", pos_profile, "prefix") or "").strip()
-
-    cai_val = ""
-    due_date_val = ""
-    authorized_range_val = ""
-    initial_num = ""
-    final_num = ""
-
-    if frappe.db.exists("DocType", "CAI"):
-        cai_meta = frappe.get_meta("CAI")
-        cai_filters = {"status": "Active"}
-        if company and cai_meta.has_field("company"):
-            cai_filters["company"] = company
-        if prefix:
-            cai_filters["prefix"] = prefix
-        cai_rows = frappe.get_all(
-            "CAI",
-            filters=cai_filters,
-            fields=["cai", "issue_deadline", "initial_number", "final_number", "prefix"],
-            order_by="creation desc",
-            limit=1,
-        )
-        if not cai_rows and prefix:
-            fallback_filters = {"status": "Active"}
-            if company and cai_meta.has_field("company"):
-                fallback_filters["company"] = company
-            cai_rows = frappe.get_all(
-                "CAI",
-                filters=fallback_filters,
-                fields=["cai", "issue_deadline", "initial_number", "final_number", "prefix"],
-                order_by="creation desc",
-                limit=1,
-            )
-        if cai_rows:
-            row = cai_rows[0]
-            cai_val = cstr(row.cai or "").strip()
-            due_date_val = str(row.issue_deadline) if row.issue_deadline else ""
-            prefix = prefix or cstr(row.prefix or "").strip()
-            initial_num = cstr(row.initial_number or "").strip()
-            final_num = cstr(row.final_number or "").strip()
-            clean_pre = prefix.split(".")[0] if prefix else "000-001-01-"
-            if initial_num and final_num:
-                try:
-                    authorized_range_val = (
-                        f"{clean_pre}{int(initial_num):08d} al {clean_pre}{int(final_num):08d}"
-                    )
-                except Exception:
-                    authorized_range_val = f"{clean_pre}{initial_num} al {clean_pre}{final_num}"
-
-    if not cai_val:
-        si_fields = ["cai", "due_date_cai"]
-        if frappe.get_meta("Sales Invoice").has_field("authorized_range"):
-            si_fields.append("authorized_range")
-        last_cai = frappe.db.get_value(
-            "Sales Invoice",
-            {"cai": ["is", "set"]},
-            si_fields,
-            order_by="creation desc",
-            as_dict=True,
-        )
-        if last_cai:
-            cai_val = cstr(last_cai.get("cai") or "").strip()
-            due_date_val = str(last_cai.get("due_date_cai")) if last_cai.get("due_date_cai") else ""
-            authorized_range_val = cstr(last_cai.get("authorized_range") or "").strip()
-
-    clean_prefix = (prefix.split(".")[0] if prefix else "000-001-01-") or "000-001-01-"
-    return {
-        "cai": cai_val or "3A8F9E-12B4C6-78D0E2-9F1A3B-45C6D8-01",
-        "due_date_cai": due_date_val or "2026-12-31",
-        "authorized_range": authorized_range_val or f"{clean_prefix}00000001 al {clean_prefix}00050000",
-        "prefix": prefix or "000-001-01-.########",
-        "company_tax_id": company_tax_id,
+    profile = frappe.db.get_value("POS Profile", pos_profile, ["company", "prefix"], as_dict=True) if pos_profile else None
+    prefix = cstr(profile.prefix).strip() if profile and profile.company == company else ""
+    fiscal_info = {
+        "cai": "",
+        "due_date_cai": "",
+        "authorized_range": "",
+        "prefix": prefix,
+        "company_tax_id": cstr(frappe.db.get_value("Company", company, "tax_id")) if company else "",
     }
+    if not prefix:
+        return fiscal_info
+
+    authorizations = frappe.get_all(
+        "CAI",
+        filters={"status": "Active", "prefix": prefix, "select_doc_for_series": "Sales Invoice"},
+        fields=["cai", "issue_deadline", "initial_number", "final_number"],
+        limit=2,
+    )
+    if len(authorizations) == 1:
+        authorization = authorizations[0]
+        series_key = prefix.rsplit(".", 1)[0]
+        fiscal_info.update({
+            "cai": cstr(authorization.cai),
+            "due_date_cai": cstr(authorization.issue_deadline),
+            "authorized_range": f"{series_key}{cint(authorization.initial_number):08d} al {series_key}{cint(authorization.final_number):08d}",
+        })
+    return fiscal_info
 
 
 @frappe.whitelist()
 def get_pos_bootstrap(area_name=None):
     """Return all operational context needed to launch the Restaurant POS."""
     _require_pos_user()
-    company = _get_default_company()
-    default_profile = _get_default_pos_profile(company)
     opening_shift = _get_active_opening_shift(frappe.session.user)
+    company = opening_shift["company"] if opening_shift else _get_default_company()
+    default_profile = (
+        frappe.get_cached_doc("POS Profile", opening_shift["pos_profile"])
+        if opening_shift else _get_default_pos_profile(company)
+    )
 
     prof_meta = frappe.get_meta("POS Profile")
     prof_fields = ["name", "company", "currency", "selling_price_list", "warehouse", "customer"]
@@ -1416,7 +1373,7 @@ def get_pos_bootstrap(area_name=None):
         default_profile.selling_price_list if default_profile else "Venta estándar"
     )
     categories, items = _get_catalog_for_pos(active_price_list, allowed_categories=allowed_cats)
-    areas = _get_areas_with_live_tables(branch=active_branch)
+    areas = _get_areas_with_live_tables(branch=active_branch, company=company)
 
     waiter_filters = {"designation": "Mesero", "status": "Active"}
     if active_branch:
@@ -1491,9 +1448,7 @@ def get_pos_bootstrap(area_name=None):
     can_invoice = user_can_invoice()
     supervisor_flag = is_supervisor()
 
-    order_filters = {}
-    if company and frappe.get_meta("Restaurant Order").has_field("company"):
-        order_filters["company"] = company
+    order_filters = {"company": company}
     if active_branch and frappe.get_meta("Restaurant Order").has_field("branch"):
         order_filters["branch"] = active_branch
     if not cint(rpos_config.get("share_open_orders", 1)):
@@ -1560,6 +1515,7 @@ def get_pos_bootstrap(area_name=None):
         "command_configs": get_command_configs(),
         "presets": get_order_presets(),
         "idle_wallpaper": get_pos_idle_settings(),
+        "rounding_method": frappe.get_system_settings("rounding_method") or "Banker's Rounding (legacy)",
         "rpos_config": rpos_config,
         "fiscal_defaults": {
             "cai": fiscal_info["cai"],
@@ -1998,11 +1954,20 @@ def save_pos_order(order):
             frappe.PermissionError,
         )
 
+    active_shift = _get_active_opening_shift(frappe.session.user)
+    company = active_shift["company"] if active_shift else _get_default_company()
+    if not company or (payload.get("company") and payload["company"] != company):
+        frappe.throw(_("La empresa indicada no coincide con la empresa activa."), frappe.PermissionError)
+    for field, doctype in (("pos_profile", "POS Profile"), ("pos_opening_shift", "POS Opening Shift")):
+        if payload.get(field) and frappe.db.get_value(doctype, payload[field], "company") != company:
+            frappe.throw(_("El perfil o turno no pertenece a la empresa activa."), frappe.PermissionError)
+
     order_id = cstr(payload.get("name") or "").strip()
     if order_id:
         if not frappe.db.get_value("Restaurant Order", order_id, "name", for_update=True):
             frappe.throw(_("La cuenta u orden solicitada no existe."), frappe.DoesNotExistError)
         doc = frappe.get_doc("Restaurant Order", order_id, for_update=True)
+        _check_order_company(doc, company)
         doc.check_permission("write")
         if doc.status == "Facturada":
             frappe.throw(_("Esta orden ya fue facturada y no puede modificarse."))
@@ -2022,7 +1987,7 @@ def save_pos_order(order):
             frappe.throw(_("No tienes permisos para abrir cuentas u órdenes."), frappe.PermissionError)
         doc = frappe.new_doc("Restaurant Order")
 
-    active_shift = _get_active_opening_shift(frappe.session.user)
+    doc.company = company
     effective_profile = (
         payload.get("pos_profile")
         or doc.pos_profile
@@ -2108,12 +2073,9 @@ def save_pos_order(order):
         else:
             doc.order_name = _get_next_order_sequence_number()
 
-    if not doc.pos_opening_shift:
-        active_shift = _get_active_opening_shift(frappe.session.user)
-        if active_shift:
-            doc.pos_opening_shift = active_shift["name"]
-            doc.pos_profile = doc.pos_profile or active_shift["pos_profile"]
-            doc.company = doc.company or active_shift["company"]
+    if active_shift and (not order_id or not doc.pos_opening_shift):
+        doc.pos_opening_shift = active_shift["name"]
+        doc.pos_profile = active_shift["pos_profile"]
 
     if "items" in payload and isinstance(payload.get("items"), list):
         existing_rows = {r.name: r for r in (doc.items or []) if getattr(r, "name", None)}
@@ -2457,6 +2419,7 @@ def send_order_to_kitchen(order_name, station=None, include_sent=0):
     if not order_name or not frappe.db.exists("Restaurant Order", order_name):
         frappe.throw(_("Guarda la cuenta u orden antes de enviarla a cocina."))
     doc = frappe.get_doc("Restaurant Order", order_name)
+    _check_order_company(doc)
     doc.check_permission("write")
     if not doc.items:
         frappe.throw(_("Agrega al menos un platillo o bebida antes de enviar la comanda a cocina."))
@@ -2514,6 +2477,7 @@ def get_precuenta_data(order_name, tip_percentage=None, tip_amount=None):
     if not order_name or not frappe.db.exists("Restaurant Order", order_name):
         frappe.throw(_("La cuenta u orden solicitada no existe."), frappe.DoesNotExistError)
     doc = frappe.get_doc("Restaurant Order", order_name)
+    _check_order_company(doc)
     doc.check_permission("read")
 
     if doc.status == "En curso" and doc.has_permission("write"):
@@ -2527,8 +2491,8 @@ def get_precuenta_data(order_name, tip_percentage=None, tip_amount=None):
         doc.precuenta_printed = 1
         doc.save()
 
-    company_name = doc.company or _get_default_company() or "Empresa Demostrativa"
-    company_rtn = frappe.db.get_value("Company", company_name, "tax_id") or "05019000123456"
+    company_name = doc.company or _get_default_company()
+    company_rtn = cstr(frappe.db.get_value("Company", company_name, "tax_id")) if company_name else ""
 
     return {
         "company_name": company_name,
@@ -2624,6 +2588,106 @@ def _get_doc_items(doc):
     return getattr(doc, "items", []) or []
 
 
+def _parse_item_tax_pct(raw_map):
+    if not raw_map:
+        return 0.0
+    if isinstance(raw_map, str):
+        try:
+            raw_map = json.loads(raw_map)
+        except Exception:
+            return 0.0
+    if isinstance(raw_map, dict):
+        return sum(flt(v) for v in raw_map.values())
+    return 0.0
+
+
+def _sync_sar_tax_summary(
+    doc,
+    saved_rates=None,
+    is_exonerated=False,
+    tax_acc_15=None,
+    tax_acc_18=None,
+    si_meta=None,
+):
+    """Synchronize Honduras SAR tax summary fields on Sales Invoice from restored item/tax rows."""
+    taxed_15 = 0.0
+    taxed_18 = 0.0
+    exempt = 0.0
+    exonerated = 0.0
+    for idx, si_item in enumerate(_get_doc_items(doc)):
+        net_amt = (
+            si_item.get("net_amount") if isinstance(si_item, dict) else getattr(si_item, "net_amount", None)
+        )
+        if net_amt is None:
+            net_amt = (
+                si_item.get("amount") if isinstance(si_item, dict) else getattr(si_item, "amount", 0)
+            )
+        net_amt = flt(net_amt)
+        if is_exonerated:
+            exonerated += net_amt
+            continue
+        raw_rate_map = (
+            saved_rates[idx]
+            if saved_rates is not None and idx < len(saved_rates)
+            else (
+                si_item.get("item_tax_rate")
+                if isinstance(si_item, dict)
+                else getattr(si_item, "item_tax_rate", None)
+            )
+        )
+        pct = _parse_item_tax_pct(raw_rate_map)
+        if abs(pct - 15.0) < 0.01:
+            taxed_15 += net_amt
+        elif abs(pct - 18.0) < 0.01:
+            taxed_18 += net_amt
+        else:
+            exempt += net_amt
+
+    isv_15 = 0.0
+    isv_18 = 0.0
+    if is_exonerated:
+        taxed_15 = 0.0
+        taxed_18 = 0.0
+        exempt = 0.0
+        exonerated = flt(exonerated, 2)
+    else:
+        taxed_15 = flt(taxed_15, 2)
+        taxed_18 = flt(taxed_18, 2)
+        exempt = flt(exempt, 2)
+        doc_taxes = doc.get("taxes") if callable(getattr(doc, "get", None)) else getattr(doc, "taxes", None)
+        if tax_acc_15 and tax_acc_18 and tax_acc_15 != tax_acc_18 and doc_taxes:
+            for trow in doc_taxes:
+                acc = trow.get("account_head") if isinstance(trow, dict) else getattr(trow, "account_head", None)
+                raw_tax_amt = (
+                    trow.get("tax_amount_after_discount_amount")
+                    if isinstance(trow, dict)
+                    else getattr(trow, "tax_amount_after_discount_amount", None)
+                )
+                if raw_tax_amt is None:
+                    raw_tax_amt = trow.get("tax_amount") if isinstance(trow, dict) else getattr(trow, "tax_amount", 0)
+                tax_amt = flt(raw_tax_amt, 2)
+                if acc == tax_acc_15 and taxed_15 > 0:
+                    isv_15 = tax_amt
+                elif acc == tax_acc_18 and taxed_18 > 0:
+                    isv_18 = tax_amt
+        if taxed_15 > 0 and isv_15 == 0.0:
+            isv_15 = flt(taxed_15 * 0.15, 2)
+        if taxed_18 > 0 and isv_18 == 0.0:
+            isv_18 = flt(taxed_18 * 0.18, 2)
+
+    meta = si_meta or getattr(doc, "meta", None) or frappe.get_meta("Sales Invoice")
+    for sar_field, sar_val in (
+        ("taxed_amount_15", flt(taxed_15, 2)),
+        ("isv_15", flt(isv_15, 2)),
+        ("taxed_amount_18", flt(taxed_18, 2)),
+        ("isv_18", flt(isv_18, 2)),
+        ("exempt_amount", flt(exempt, 2)),
+        ("exonerated_amount", flt(exonerated, 2)),
+    ):
+        if meta.has_field(sar_field):
+            _set_doc_field(doc, sar_field, sar_val)
+
+
 def preserve_restaurant_invoice_taxes(doc, method=None):
     """Restore Restaurant POS mixed-ISV and exoneration tax maps overwritten during ERPNext validate()."""
     override = getattr(doc.flags, "restaurant_tax_override", None)
@@ -2631,7 +2695,6 @@ def preserve_restaurant_invoice_taxes(doc, method=None):
         return
     saved_rates = override.get("item_tax_rates") or []
     is_exonerated = bool(override.get("is_exonerated"))
-    doc.update_stock = 0
     if "disable_rounded_total" in override:
         doc.disable_rounded_total = override["disable_rounded_total"]
     if doc.meta.has_field("tax_category") and override.get("tax_category"):
@@ -2649,6 +2712,71 @@ def preserve_restaurant_invoice_taxes(doc, method=None):
             if idx < len(saved_rates):
                 _set_doc_field(si_item, "item_tax_rate", saved_rates[idx])
     doc.calculate_taxes_and_totals()
+    # Recompute SAR summary fields after restoring taxes; SalesInvoice.validate() ran get_itemised_tax_info() before this hook.
+    _sync_sar_tax_summary(
+        doc,
+        saved_rates=saved_rates,
+        is_exonerated=is_exonerated,
+        tax_acc_15=override.get("tax_acc_15"),
+        tax_acc_18=override.get("tax_acc_18"),
+        si_meta=getattr(doc, "meta", None),
+    )
+
+
+def _invoice_has_stock_items(items):
+    return bool(frappe.db.exists("Item", {
+        "name": ["in", [item.get("item_code") for item in items]],
+        "is_stock_item": 1,
+    }))
+
+
+def validate_restaurant_invoice_stock(doc, method=None):
+    """Validate the warehouse and lock stock when creating or submitting a Restaurant sale."""
+    if not doc.get("restaurant_order") or doc.is_return:
+        return
+
+    previous_invoice = doc.get_doc_before_save()
+    if not doc.update_stock:
+        if previous_invoice and previous_invoice.update_stock:
+            frappe.throw(_("No se puede desactivar la actualización de inventario de esta factura de Restaurante."))
+        if doc.docstatus == 1 and _invoice_has_stock_items(doc.items):
+            frappe.throw(_("Activa la actualización de inventario antes de enviar esta factura de Restaurante."))
+        return
+
+    warehouse = doc.set_warehouse
+    if previous_invoice:
+        warehouse = previous_invoice.set_warehouse or frappe.db.get_value(
+            "POS Profile", previous_invoice.pos_profile or doc.pos_profile or "", "warehouse",
+        )
+    if not warehouse:
+        frappe.throw(_("Configura un almacén en el perfil POS de esta factura de Restaurante."))
+    if warehouse != doc.set_warehouse:
+        frappe.throw(_("No se puede cambiar el almacén de la factura de Restaurante."))
+
+    quantities = {}
+    for row in doc.get_item_list():
+        if row.qty <= 0 or not frappe.get_cached_value("Item", row.item_code, "is_stock_item"):
+            continue
+        if warehouse and row.warehouse != warehouse:
+            frappe.throw(_("El producto {0} debe usar el almacén {1} de la factura de Restaurante.").format(
+                row.item_code, warehouse,
+            ))
+        key = (row.item_code, row.warehouse)
+        quantities[key] = quantities.get(key, 0) + row.qty
+
+    if not doc.is_new() and doc.docstatus != 1:
+        return
+
+    precision = doc.precision("stock_qty", "items")
+    # Lock in a stable order and let ERPNext post the movements in the same transaction.
+    for (item_code, warehouse), requested in sorted(quantities.items()):
+        available = flt(frappe.db.get_value(
+            "Bin", {"item_code": item_code, "warehouse": warehouse}, "actual_qty", for_update=True,
+        ))
+        if flt(available - requested, precision) < 0:
+            frappe.throw(_("Existencia insuficiente para {0} en el almacén {1}. Disponible: {2}. Requerido: {3}.").format(
+                item_code, warehouse, flt(available, precision), flt(requested, precision),
+            ))
 
 
 @frappe.whitelist(methods=["POST"])
@@ -2686,6 +2814,7 @@ def pay_and_invoice_order(
 
     frappe.db.get_value("Restaurant Order", order_name, "name", for_update=True)
     doc = frappe.get_doc("Restaurant Order", order_name)
+    _check_order_company(doc)
     doc.check_permission("write")
     if doc.status == "Facturada" or doc.sales_invoice:
         frappe.throw(_("Esta cuenta ya fue facturada en el documento {0}.").format(doc.sales_invoice or doc.name))
@@ -2694,11 +2823,19 @@ def pay_and_invoice_order(
     if not doc.items:
         frappe.throw(_("No puedes facturar una orden sin platillos ni productos."))
 
-    company = doc.company or _get_default_company()
-    pos_profile = doc.pos_profile
+    company = doc.company
+    active_shift_info = _get_active_opening_shift(frappe.session.user)
+    pos_profile = doc.pos_profile or (active_shift_info.get("pos_profile") if active_shift_info else None)
     if not pos_profile:
         default_prof = _get_default_pos_profile(company)
         pos_profile = default_prof.name if default_prof else None
+    prof_doc = frappe.get_doc("POS Profile", pos_profile) if pos_profile else None
+    if not prof_doc or cint(prof_doc.disabled) or prof_doc.company != company or not prof_doc.prefix:
+        frappe.throw(_("Configura una serie fiscal en un perfil POS activo de la empresa de esta orden."))
+    if frappe.db.exists("POS Profile", {
+        "prefix": prof_doc.prefix, "company": ["!=", company], "disabled": 0,
+    }):
+        frappe.throw(_("La serie fiscal del perfil POS está asignada a más de una empresa."))
     rpos_cfg = _get_effective_rpos_config(pos_profile)
 
     if not cint(rpos_cfg.get("tips_enabled", 1)):
@@ -2746,8 +2883,7 @@ def pay_and_invoice_order(
 
     validate_order(doc)
 
-    prof_doc = frappe.get_doc("POS Profile", pos_profile) if pos_profile else None
-    warehouse = prof_doc.warehouse if prof_doc else None
+    warehouse = prof_doc.warehouse
     income_account = (
         prof_doc.income_account
         if prof_doc and getattr(prof_doc, "income_account", None)
@@ -2813,6 +2949,10 @@ def pay_and_invoice_order(
     if not invoice_items:
         frappe.throw(_("No hay productos activos por facturar en esta cuenta."))
 
+    update_stock = int(_invoice_has_stock_items(invoice_items))
+    if update_stock and (not warehouse or prof_doc.company != company):
+        frappe.throw(_("Configura un almacén en un perfil POS de la misma empresa para facturar productos inventariables."))
+
     taxes = []
     if tax_acc_15 and tax_acc_18 and tax_acc_15 == tax_acc_18 and (doc.isv_15 > 0 or doc.isv_18 > 0):
         taxes.append({
@@ -2868,7 +3008,8 @@ def pay_and_invoice_order(
                     "amount": flt(p["amount"], 2),
                     "account": acc,
                 })
-    if not payment_rows:
+    default_payment_used = not payment_rows
+    if default_payment_used:
         default_mop = "Efectivo"
         if prof_doc and prof_doc.payments:
             default_mop = prof_doc.payments[0].mode_of_payment
@@ -2896,27 +3037,20 @@ def pay_and_invoice_order(
             frappe.throw(_("Saldo insuficiente en la tarjeta de regalo (disponible: {0}).").format(flt(gift_card_doc.balance, 2)))
         redeemed_gift_amount = flt(gift_card_amount, 2)
 
-    fiscal_info = _resolve_sar_fiscal_info(pos_profile=pos_profile, company=company)
-    cai_value = cstr(fiscal_info["cai"] or doc.cai).strip()
-    due_cai_value = cstr(fiscal_info["due_date_cai"] or doc.due_date_cai).strip()
-    auth_range_value = cstr(fiscal_info["authorized_range"]).strip()
-
     # Prefer the billing cashier's active open shift so orders from prior closed shifts bill cleanly
     # and reconcile in the current cashier's shift/closing count.
     active_opening_shift = ""
-    active_shift_info = _get_active_opening_shift(frappe.session.user)
     if active_shift_info:
+        _check_order_company(doc, active_shift_info["company"])
         active_opening_shift = active_shift_info.get("name") or ""
-        if active_shift_info.get("pos_profile") and not pos_profile:
-            pos_profile = active_shift_info["pos_profile"]
     elif doc.pos_opening_shift:
         shift_row = frappe.db.get_value(
             "POS Opening Shift",
             doc.pos_opening_shift,
-            ["name", "status", "docstatus"],
+            ["name", "status", "docstatus", "company"],
             as_dict=True,
         )
-        if shift_row and shift_row.status == "Open" and cint(shift_row.docstatus) == 1:
+        if shift_row and shift_row.company == company and shift_row.status == "Open" and cint(shift_row.docstatus) == 1:
             active_opening_shift = shift_row.name
 
     si_payload = {
@@ -2933,15 +3067,16 @@ def pay_and_invoice_order(
         "posa_pos_opening_shift": active_opening_shift or "",
         "currency": doc.currency or "HNL",
         "selling_price_list": doc.selling_price_list or (prof_doc.selling_price_list if prof_doc else "Venta estándar"),
-        "update_stock": 0,
+        "update_stock": update_stock,
         "disable_rounded_total": 1 if not cint(rpos_cfg.get("enable_rounded_total", 0)) else 0,
-        "cai": cai_value,
-        "due_date_cai": due_cai_value,
+        "naming_series": prof_doc.prefix,
         "posa_notes": f"Orden: {doc.order_name} | Mesa: {doc.table_label or 'N/A'} | Mesero: {doc.waiter_name or 'N/A'}",
         "items": invoice_items,
         "taxes": taxes,
         "payments": payment_rows,
     }
+    if update_stock:
+        si_payload["set_warehouse"] = warehouse
     if prof_doc and getattr(prof_doc, "company_address", None):
         si_payload["company_address"] = prof_doc.company_address
 
@@ -2997,8 +3132,6 @@ def pay_and_invoice_order(
         if si_meta.has_field(r_field):
             si_payload[r_field] = r_val
 
-    if si_meta.has_field("authorized_range"):
-        si_payload["authorized_range"] = auth_range_value
     if si_meta.has_field("cashier"):
         si_payload["cashier"] = frappe.session.user
     if si_meta.has_field("redeem_loyalty_points") and flt(loyalty_points) > 0:
@@ -3009,7 +3142,7 @@ def pay_and_invoice_order(
     saved_item_tax_rates = [row.get("item_tax_rate") or "{}" for row in invoice_items]
     si.set_missing_values()
     # Preserve Restaurant POS overrides against POS Profile / Customer defaults applied by set_missing_values()
-    si.update_stock = 0
+    si.update_stock = update_stock
     si.disable_rounded_total = si_payload["disable_rounded_total"]
     if si_meta.has_field("tax_category"):
         si.tax_category = resolved_tax_category
@@ -3033,6 +3166,9 @@ def pay_and_invoice_order(
     si.calculate_taxes_and_totals()
 
     grand_total = flt(si.grand_total, 2)
+    if default_payment_used and si.payments:
+        si.payments[0].amount = grand_total
+        si.calculate_taxes_and_totals()
     applied_gc_amount = 0.0
     if gift_card_doc and redeemed_gift_amount > 0:
         applied_gc_amount = min(flt(redeemed_gift_amount, 2), grand_total)
@@ -3051,7 +3187,7 @@ def pay_and_invoice_order(
                     break
 
         cash_due = max(0.0, flt(grand_total - applied_gc_amount, 2))
-        if not parsed_payments and si.payments:
+        if default_payment_used and si.payments:
             si.payments[0].amount = cash_due
 
         if gc_mop and gc_acc:
@@ -3080,25 +3216,35 @@ def pay_and_invoice_order(
         expected_paid_due = grand_total
 
     total_paid = sum(flt(p.amount) for p in si.payments)
-    if flt(total_paid, 2) + 0.01 < expected_paid_due:
+    total_paid_cents = round(flt(total_paid, 2) * 100)
+    expected_due_cents = round(flt(expected_paid_due, 2) * 100)
+    if total_paid_cents < expected_due_cents:
         frappe.throw(
-            _("El monto total pagado ({0}) es menor al total por cobrar ({1}).").format(
-                flt(total_paid, 2), expected_paid_due
+            _("El monto total pagado ({0:.2f}) es menor al total por cobrar ({1:.2f}).").format(
+                flt(total_paid, 2), flt(expected_paid_due, 2)
             )
         )
-    if total_paid < expected_paid_due and si.payments:
-        si.payments[0].amount = flt(si.payments[0].amount + (expected_paid_due - total_paid), 2)
 
-    for sar_field, sar_val in (
-        ("taxed_amount_15", 0.0 if is_exonerated else flt(doc.taxed_amount_15, 2)),
-        ("isv_15", 0.0 if is_exonerated else flt(doc.isv_15, 2)),
-        ("taxed_amount_18", 0.0 if is_exonerated else flt(doc.taxed_amount_18, 2)),
-        ("isv_18", 0.0 if is_exonerated else flt(doc.isv_18, 2)),
-        ("exempt_amount", 0.0 if is_exonerated else flt(doc.exempt_amount, 2)),
-        ("exonerated_amount", flt(doc.subtotal, 2) if is_exonerated else 0.0),
-    ):
-        if si_meta.has_field(sar_field):
-            setattr(si, sar_field, sar_val)
+    if _get_doc_items(si):
+        _sync_sar_tax_summary(
+            si,
+            saved_rates=saved_item_tax_rates,
+            is_exonerated=is_exonerated,
+            tax_acc_15=tax_acc_15,
+            tax_acc_18=tax_acc_18,
+            si_meta=si_meta,
+        )
+    else:
+        for sar_field, sar_val in (
+            ("taxed_amount_15", 0.0 if is_exonerated else flt(doc.taxed_amount_15, 2)),
+            ("isv_15", 0.0 if is_exonerated else flt(doc.isv_15, 2)),
+            ("taxed_amount_18", 0.0 if is_exonerated else flt(doc.taxed_amount_18, 2)),
+            ("isv_18", 0.0 if is_exonerated else flt(doc.isv_18, 2)),
+            ("exempt_amount", 0.0 if is_exonerated else flt(doc.exempt_amount, 2)),
+            ("exonerated_amount", flt(doc.subtotal, 2) if is_exonerated else 0.0),
+        ):
+            if si_meta.has_field(sar_field):
+                setattr(si, sar_field, sar_val)
 
     if not isinstance(si, dict) and getattr(si, "flags", None) is not None:
         si.flags.restaurant_tax_override = {
@@ -3107,6 +3253,8 @@ def pay_and_invoice_order(
             "is_exonerated": is_exonerated,
             "tax_category": resolved_tax_category,
             "disable_rounded_total": si_payload["disable_rounded_total"],
+            "tax_acc_15": tax_acc_15,
+            "tax_acc_18": tax_acc_18,
         }
     si.insert(ignore_permissions=True)
     auto_submit = bool(cint(rpos_cfg.get("auto_validate_orders", 1)))
@@ -3121,8 +3269,8 @@ def pay_and_invoice_order(
     if active_opening_shift:
         doc.pos_opening_shift = active_opening_shift
     doc.sales_invoice = si.name
-    doc.cai = si.cai or cai_value
-    doc.due_date_cai = si.due_date_cai or due_cai_value
+    doc.cai = si.cai
+    doc.due_date_cai = si.due_date_cai
     doc.status = "Facturada" if invoice_finalized else "En curso"
     doc.save()
 
@@ -3143,11 +3291,11 @@ def pay_and_invoice_order(
             "custom_carnet_diplomatico": cstr(si.get("custom_carnet_diplomatico") or ""),
             "custom_registro_sag": cstr(si.get("custom_registro_sag") or ""),
             "company": si.company,
-            "company_tax_id": si.company_tax_id or fiscal_info["company_tax_id"],
-            "cai": si.cai or cai_value,
-            "due_date_cai": str(si.due_date_cai or due_cai_value),
-            "authorized_range": getattr(si, "authorized_range", None) or auth_range_value,
-            "prefix": getattr(si, "naming_series", None) or fiscal_info["prefix"],
+            "company_tax_id": cstr(si.company_tax_id),
+            "cai": cstr(si.cai),
+            "due_date_cai": cstr(si.due_date_cai),
+            "authorized_range": cstr(si.get("authorized_range")),
+            "prefix": cstr(si.get("naming_series")) or prof_doc.prefix,
             "print_format": (prof_doc.print_format if prof_doc and prof_doc.print_format else "Ticket"),
             "net_total": flt(si.net_total, 2),
             "discount_amount": flt(si.get("discount_amount"), 2),
@@ -3258,6 +3406,7 @@ def cancel_sent_order_item(
 
     frappe.db.sql("SELECT name FROM `tabRestaurant Order` WHERE name=%s FOR UPDATE", order_name)
     doc = frappe.get_doc("Restaurant Order", order_name)
+    _check_order_company(doc)
     doc.check_permission("write")
 
     if doc.status == "Facturada":
@@ -3373,6 +3522,7 @@ def clear_pos_order(
 
     frappe.db.sql("SELECT name FROM `tabRestaurant Order` WHERE name=%s FOR UPDATE", order_name)
     doc = frappe.get_doc("Restaurant Order", order_name)
+    _check_order_company(doc)
     doc.check_permission("write")
     if doc.status == "Facturada":
         frappe.throw(_("No puedes vaciar una cuenta que ya fue facturada."))
@@ -3459,6 +3609,7 @@ def cancel_pos_order(order_name, supervisor_user=None, supervisor_pin=None, reas
         frappe.throw(_("La cuenta u orden no existe."))
     frappe.db.sql("SELECT name FROM `tabRestaurant Order` WHERE name=%s FOR UPDATE", order_name)
     doc = frappe.get_doc("Restaurant Order", order_name)
+    _check_order_company(doc)
     doc.check_permission("write")
     if doc.status == "Facturada":
         frappe.throw(_("No puedes cancelar desde el POS una cuenta que ya tiene factura emitida."))
@@ -3520,6 +3671,7 @@ def unlock_waiter_order(order_name, pin):
     if not order_name or not frappe.db.exists("Restaurant Order", order_name):
         frappe.throw(_("La cuenta u orden solicitada no existe."), frappe.DoesNotExistError)
     doc = frappe.get_doc("Restaurant Order", order_name)
+    _check_order_company(doc)
     doc.check_permission("read")
     if not doc.waiter:
         mark_order_unlocked_for_session(doc.name)
@@ -3571,6 +3723,8 @@ def unlock_waiter_order(order_name, pin):
 def authorize_clear_order(order_name=None, supervisor_user=None, supervisor_pin=None, reason=""):
     """Verify supervisor authorization to empty/clear an active order in the POS."""
     _require_pos_user()
+    if order_name:
+        _check_order_company(frappe.get_doc("Restaurant Order", order_name))
     if is_supervisor():
         log_restaurant_audit(
             "Vaciar orden",
@@ -3594,6 +3748,7 @@ def authorize_reprint_command(order_name, supervisor_user=None, supervisor_pin=N
     _require_pos_user()
     if not order_name or not frappe.db.exists("Restaurant Order", order_name):
         frappe.throw(_("La cuenta u orden no existe."), frappe.DoesNotExistError)
+    _check_order_company(frappe.get_doc("Restaurant Order", order_name))
     if is_supervisor():
         log_restaurant_audit(
             "Reimprimir comandas",
@@ -3687,7 +3842,7 @@ def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None, email_i
 def get_emitted_commands(limit=40):
     """Return orders that already have emitted kitchen commands for reprinting."""
     _require_pos_user()
-    cmd_filters = {"status": ["in", ["En curso", "Facturada"]]}
+    cmd_filters = {"status": ["in", ["En curso", "Facturada"]], "company": _get_order_company()}
     active_branch = _get_active_user_branch()
     if active_branch and frappe.get_meta("Restaurant Order").has_field("branch"):
         cmd_filters["branch"] = active_branch
@@ -4111,12 +4266,7 @@ def _get_default_warehouse(company=None):
 
 @frappe.whitelist(methods=["GET", "POST"])
 def get_restaurant_stock_status(warehouse=None):
-    """Analyze stock status for all restaurant sales items.
-
-    Returns the item list, whether each item is a stock item, its bin quantity in the warehouse,
-    and whether restaurant billing can proceed without stock (which is always true in LEAF because
-    Sales Invoices are issued with update_stock=0).
-    """
+    """Report available stock for Restaurant sales items in the selected warehouse."""
     _require_pos_user()
     company = _get_default_company()
     target_wh = warehouse or _get_default_warehouse(company)
@@ -4166,7 +4316,7 @@ def get_restaurant_stock_status(warehouse=None):
             "stock_uom": it.stock_uom,
             "is_stock_item": is_stock,
             "actual_qty": qty,
-            "billing_allowed": True,
+            "billing_allowed": not is_stock or qty > 0,
             "note": "Inventariable en almacén" if is_stock else "Platillo / No inventariable (Facturación libre)",
         })
 
@@ -4177,7 +4327,7 @@ def get_restaurant_stock_status(warehouse=None):
         "stock_items_count": stock_items_count,
         "non_stock_items_count": non_stock_items_count,
         "total_stock_units": total_stock_units,
-        "billing_requires_stock": False,
+        "billing_requires_stock": True,
         "items": report,
     }
 

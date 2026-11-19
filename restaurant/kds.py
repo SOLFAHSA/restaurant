@@ -8,7 +8,7 @@ from frappe import _
 from frappe.permissions import get_doc_permissions, get_role_permissions
 from frappe.utils import cint, cstr, get_datetime, now_datetime
 
-from restaurant.pos import _require_pos_user, _row_stations, _serialize_order
+from restaurant.pos import _check_order_company, _get_order_company, _require_pos_user, _row_stations, _serialize_order
 
 DISPLAY = "Restaurant Preparation Display"
 STAGE = "Restaurant Preparation Stage"
@@ -320,6 +320,7 @@ def get_kds_state(display_name=None, station=None):
 
     now = now_datetime()
     order_filters = {
+        "company": _get_order_company(),
         "status": ["in", ["En curso", "Facturada"]],
         "docstatus": ["!=", 2],
         "kds_status": ["in", ["En preparación", "Listo", "Entregado"]],
@@ -469,6 +470,7 @@ def _locked_context(display_name, order_name, ticket_id=None):
     if not frappe.db.get_value(ORDER, order_name, "name", for_update=True):
         frappe.throw(_("La orden seleccionada no existe."), frappe.DoesNotExistError)
     doc = frappe.get_doc(ORDER, order_name, for_update=True)
+    _check_order_company(doc)
     doc.check_permission("read")
     doc.check_permission("write")
     eligible = _eligible_items(doc, display)
@@ -588,23 +590,11 @@ def _sync_legacy_status(doc):
 
 
 def publish_kds_realtime_update(doc=None, method=None, order_name=None, source="order_event", ticket_name=None):
-    """Push lightweight KDS/POS realtime sync events after DB commit without polling storms."""
+    """Invalidate KDS/POS after commit; shared events must not identify orders."""
     if getattr(frappe.flags, "in_install", False) or getattr(frappe.flags, "in_migrate", False) or getattr(frappe.flags, "in_patch", False):
         return
     try:
-        resolved_order = order_name or getattr(doc, "name", None) or ""
-        branch = getattr(doc, "branch", None) or ""
-        if not branch and getattr(doc, "restaurant_area", None):
-            branch = frappe.db.get_value("Restaurant Area", doc.restaurant_area, "branch") or ""
         payload = {
-            "order_name": cstr(resolved_order),
-            "status": cstr(getattr(doc, "status", "") or ""),
-            "kds_status": cstr(getattr(doc, "kds_status", "") or ""),
-            "restaurant_table": cstr(getattr(doc, "restaurant_table", "") or ""),
-            "restaurant_area": cstr(getattr(doc, "restaurant_area", "") or ""),
-            "branch": cstr(branch),
-            "pos_profile": cstr(getattr(doc, "pos_profile", "") or ""),
-            "ticket_name": cstr(ticket_name or ""),
             "source": cstr(method or source or "order_event"),
             "ts": cstr(now_datetime()),
         }

@@ -9,7 +9,7 @@ from frappe.utils import add_to_date, now_datetime
 
 from restaurant import kds
 from restaurant.pos import (
-    _serialize_order, pay_and_invoice_order, save_pos_order, send_order_to_kitchen,
+    _get_order_company, _serialize_order, pay_and_invoice_order, save_pos_order, send_order_to_kitchen,
     split_order, transfer_order_table,
 )
 
@@ -75,6 +75,7 @@ class TestPreparationDisplay(FrappeTestCase):
     def make_order(self, sent=True, groups=(0, 0), **values):
         payload = {
             "doctype": "Restaurant Order", "order_name": "Prueba KDS " + self.suffix,
+            "company": _get_order_company(),
             "service_type": "Comer en el local", "status": "En curso", "guests": 2,
             "kds_status": "En preparación" if sent else "Sin enviar",
             "sent_to_kitchen_at": now_datetime() if sent else None,
@@ -219,7 +220,7 @@ class TestPreparationDisplay(FrappeTestCase):
         self.assertEqual(self.order_state(order, display)["stage_index"], 1)
 
     def test_pos_profile_filter_is_applied_on_server(self):
-        profile = frappe.db.get_value("POS Profile", {"disabled": 0}, "name")
+        profile = frappe.db.get_value("POS Profile", {"disabled": 0, "company": _get_order_company()}, "name")
         self.assertTrue(profile, "Development must provide a native POS Profile")
         display = self.make_display(pos_profiles=[profile])
         included = self.make_order(pos_profile=profile)
@@ -424,7 +425,8 @@ class TestPreparationDisplay(FrappeTestCase):
                 after = self.order_state(order)
                 self.assertEqual(after["stage_index"], before["stage_index"])
                 self.assertEqual(after["completed_item_names"], before["completed_item_names"])
-                fake_invoice.calculate_taxes_and_totals.assert_called_once()
+                fake_invoice.calculate_taxes_and_totals.assert_called()
+                self.assertEqual(fake_invoice.payments[0].amount, fake_invoice.grand_total)
                 fake_invoice.insert.assert_called_once()
                 fake_invoice.submit.assert_called_once()
 

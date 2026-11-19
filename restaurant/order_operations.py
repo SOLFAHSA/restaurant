@@ -9,7 +9,14 @@ import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, get_datetime
 
-from restaurant.pos import _get_areas_with_live_tables, _require_pos_user, _serialize_order, validate_order
+from restaurant.pos import (
+    _check_order_company,
+    _get_areas_with_live_tables,
+    _get_order_company,
+    _require_pos_user,
+    _serialize_order,
+    validate_order,
+)
 
 ORDER = "Restaurant Order"
 TABLE = "Restaurant Table"
@@ -80,6 +87,7 @@ def _order_branch(doc):
 
 
 def _check_open_order(doc, require_items=True):
+    _check_order_company(doc)
     doc.check_permission("read")
     doc.check_permission("write")
     if doc.status != "En curso" or int(doc.docstatus) != 0 or doc.sales_invoice:
@@ -259,7 +267,7 @@ def get_context(order_name):
     source_branch = _order_branch(source)
     area_cache = {}
     account_rows = frappe.get_list(
-        ORDER, filters={"status": "En curso", "docstatus": 0, "name": ["!=", source.name]},
+        ORDER, filters={"company": source.company, "status": "En curso", "docstatus": 0, "name": ["!=", source.name]},
         fields=["name"], order_by="modified desc", limit_page_length=0,
     )
     accounts = []
@@ -288,7 +296,7 @@ def get_context(order_name):
             continue
         occupants = frappe.get_all(
             ORDER,
-            filters={"restaurant_table": table.name, "status": "En curso", "docstatus": 0, "name": ["!=", source.name]},
+            filters={"company": source.company, "restaurant_table": table.name, "status": "En curso", "docstatus": 0, "name": ["!=", source.name]},
             pluck="name",
         )
         visible_occupants = [account for account in accounts if account["restaurant_table"] == table.name]
@@ -298,7 +306,7 @@ def get_context(order_name):
         area_name = frappe.db.get_value("Restaurant Area", table.restaurant_area, "area_name") or table.restaurant_area
         tables.append({
             "name": table.name, "table_number": table.table_number, "area_name": area_name,
-            "restaurant_area": table.restaurant_area, "status": table.status,
+            "restaurant_area": table.restaurant_area, "status": "Ocupada" if occupants else "Disponible",
             "orders": visible_occupants, "available": not bool(occupants),
         })
     return {
@@ -392,7 +400,7 @@ def transfer_account(order_name, target_table=None, target_order=None, expected_
             frappe.throw(_("Selecciona una mesa, una cuenta de destino o indica el nombre de la nueva cuenta."))
         if table:
             occupied = frappe.db.get_values(
-                ORDER, {"restaurant_table": table.name, "status": "En curso", "docstatus": 0, "name": ["!=", source_name]},
+                ORDER, {"company": _get_order_company(), "restaurant_table": table.name, "status": "En curso", "docstatus": 0, "name": ["!=", source_name]},
                 ["name"], as_dict=True, for_update=True,
             )
             names = {row.name for row in occupied}

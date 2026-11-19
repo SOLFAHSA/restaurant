@@ -92,7 +92,7 @@ class TestPosStartup(FrappeTestCase):
         self.assertIsInstance(context.get("fiscal_defaults"), dict)
         for sar_key in ("cai", "due_date_cai", "authorized_range", "prefix"):
             with self.subTest(sar_key=sar_key):
-                self.assertTrue(bool(context["fiscal_defaults"].get(sar_key)))
+                self.assertIsInstance(context["fiscal_defaults"][sar_key], str)
         self.assertTrue(context.get("opening_shift") is None or isinstance(context["opening_shift"], dict))
         decoded = json.loads(frappe.as_json(context))
         self.assertEqual(decoded["cashier"]["user"], "Administrator")

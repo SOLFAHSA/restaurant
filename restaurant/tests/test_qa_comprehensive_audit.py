@@ -79,7 +79,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
         }).insert(ignore_permissions=True).name
 
     def _make_pos_profile(self, label, warehouse, update_stock=0, tax_category="Contribuyente"):
-        src_name = frappe.db.get_value("POS Profile", {"disabled": 0}, "name")
+        src_name = frappe.db.get_value("POS Profile", {"disabled": 0, "company": self.company}, "name")
         src = frappe.get_doc("POS Profile", src_name)
         doc = frappe.copy_doc(src)
         new_name = f"{label}-{self.suffix}"
@@ -471,7 +471,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
                     "ms": round((time.perf_counter() - t0) * 1000.0, 2),
                 }
 
-            prof = frappe.db.get_value("POS Profile", {"disabled": 0}, "name")
+            prof = frappe.db.get_value("POS Profile", {"disabled": 0, "company": self.company}, "name")
             item_p = self._make_item("PROFITEM", rate=90.0, tax_pct=15.0)
             wh_p = self._make_warehouse("ProfWh")
             prof_p = self._make_pos_profile("ProfPOS", wh_p, update_stock=0)
@@ -531,7 +531,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
         waiter = self._make_user_and_employee("secw", "Mesero (Salón)", ["Restaurant User"], self._make_branch("SecBr"))
         frappe.set_user(waiter["user"])
         with self.assertRaises(frappe.PermissionError):
-            pos.save_restaurant_pos_config(frappe.db.get_value("POS Profile", {}, "name"), {})
+            pos.save_restaurant_pos_config(frappe.db.get_value("POS Profile", {"company": self.company}, "name"), {})
         with self.assertRaises(frappe.PermissionError):
             pos.ensure_restaurant_stock()
         with self.assertRaises(frappe.PermissionError):
@@ -958,7 +958,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
             rt_calls = [c for c in rt_mock.call_args_list if c.args and c.args[0] == "restaurant_kds_update"]
             self.assertTrue(rt_calls, "save_pos_order debe emitir evento restaurant_kds_update")
             self.assertTrue(rt_calls[-1].kwargs.get("after_commit"))
-            self.assertEqual(rt_calls[-1].args[1].get("branch"), branch)
+            self.assertEqual(set(rt_calls[-1].args[1]), {"source", "ts"})
 
             rt_mock.reset_mock()
             pos.send_order_to_kitchen(order_name)
@@ -987,7 +987,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
             )
             pay_calls = [c for c in rt_mock.call_args_list if c.args and c.args[0] == "restaurant_kds_update"]
             self.assertTrue(pay_calls, "pay_and_invoice_order debe emitir restaurant_kds_update")
-            self.assertEqual(pay_calls[-1].args[1].get("status"), "Facturada")
+            self.assertEqual(set(pay_calls[-1].args[1]), {"source", "ts"})
 
     def test_kds_state_and_pos_config_sql_budget(self):
         """Verify get_kds_state batching cuts N+1 queries and get_restaurant_pos_config is read-only."""

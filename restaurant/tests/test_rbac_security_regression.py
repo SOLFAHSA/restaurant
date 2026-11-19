@@ -125,9 +125,21 @@ class TestRBACSecurityRegression(FrappeTestCase):
         customer = frappe.db.get_value("Customer", {}, "name")
         if not customer:
             customer = frappe.get_doc({"doctype": "Customer", "customer_name": f"Cliente QA {self.suffix}"}).insert(ignore_permissions=True).name
-        company = frappe.defaults.get_global_default("company") or frappe.db.get_value("Company", {}, "name")
-        pos_profile = frappe.db.get_value("POS Profile", {"company": company}, "name")
-        mode_of_payment = frappe.db.get_value("Mode of Payment", {}, "name") or "Cash"
+        active_shift = pos._get_active_opening_shift(frappe.session.user)
+        company = active_shift["company"] if active_shift else (
+            frappe.defaults.get_global_default("company") or frappe.db.get_value("Company", {}, "name")
+        )
+        pos_profile = (
+            active_shift["pos_profile"]
+            if active_shift and active_shift.get("pos_profile")
+            else frappe.db.get_value("POS Profile", {"company": company, "disabled": 0}, "name")
+        )
+        mode_of_payment = (
+            frappe.db.get_value("POS Payment Method", {"parent": pos_profile, "parenttype": "POS Profile"}, "mode_of_payment")
+            or frappe.db.get_value("Mode of Payment", {"name": "Efectivo"}, "name")
+            or frappe.db.get_value("Mode of Payment", {}, "name")
+            or "Cash"
+        )
 
         order = frappe.get_doc({
             "doctype": "Restaurant Order",

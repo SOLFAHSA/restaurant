@@ -280,6 +280,9 @@ doc_events = {
         "on_trash": "restaurant.kds.publish_kds_realtime_update",
     },
     "Sales Invoice": {
-        "validate": "restaurant.pos.preserve_restaurant_invoice_taxes",
+        "validate": [
+            "restaurant.pos.preserve_restaurant_invoice_taxes",
+            "restaurant.pos.validate_restaurant_invoice_stock",
+        ],
     },
 }
