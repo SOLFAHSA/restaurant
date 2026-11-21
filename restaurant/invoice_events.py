@@ -24,6 +24,19 @@ def reopen_order_after_invoice_cancel(invoice, method=None):
         updates["status"] = "En curso"
     frappe.db.set_value("Restaurant Order", order_name, updates)
     reopened = frappe.get_doc("Restaurant Order", order_name)
+    _restore_order_totals(reopened)
     sync_table_status_for_order(reopened)
     publish_kds_realtime_update(reopened, method)
 
+
+def _restore_order_totals(order):
+    """Drop the cancelled invoice's discounted totals by recomputing them from the order lines."""
+    from restaurant.pos import validate_order
+
+    try:
+        validate_order(order)
+    except frappe.ValidationError:
+        # Never block the native cancellation; the next save of the order reports the problem.
+        frappe.clear_messages()
+        return
+    order.db_update()
