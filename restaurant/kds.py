@@ -147,10 +147,6 @@ def _read_displays_batch(stage_by_name=None, active_branch=None):
     return displays
 
 
-def _read_displays():
-    return _read_displays_batch()
-
-
 def _eligible_items(doc, display, station=None):
     if (
         doc.status not in ("En curso", "Facturada")
