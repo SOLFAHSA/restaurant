@@ -96,12 +96,10 @@ class TestRestaurantPOSAuth(FrappeTestCase):
 
         frappe.set_user(waiter_user)
         with self.assertRaises(frappe.PermissionError):
-            pos.authorize_clear_order(supervisor_user=sup_user, supervisor_pin="0000", reason="Prueba")
+            pos_auth.verify_supervisor_authorization(sup_user, "0000", "Vaciar orden", reason="Prueba")
 
-        res = pos.authorize_clear_order(
-            supervisor_user=sup_user,
-            supervisor_pin="9999",
-            reason="Corrección autorizada",
+        res = pos_auth.verify_supervisor_authorization(
+            sup_user, "9999", "Vaciar orden", reason="Corrección autorizada",
         )
         self.assertTrue(res["authorized"])
         self.assertEqual(res["supervisor"], sup_user)

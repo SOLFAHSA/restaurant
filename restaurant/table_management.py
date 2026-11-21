@@ -255,13 +255,6 @@ def get_area_tables_list(area_name):
     )
 
 
-@frappe.whitelist()
-def get_area_tables(area_name):
-    """Return the linked tables for a Restaurant Area."""
-    _require_authenticated_user()
-    return get_area_tables_list(area_name)
-
-
 @frappe.whitelist(methods=["POST"])
 def save_table(document):
     """Create or update a Restaurant Table using native Frappe permissions."""

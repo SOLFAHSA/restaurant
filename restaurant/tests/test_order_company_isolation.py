@@ -163,8 +163,6 @@ class TestOrderCompanyIsolation(FrappeTestCase):
                 with self.assertRaises(frappe.PermissionError):
                     pos.unlock_waiter_order(order.name, "0000")
                 with self.assertRaises(frappe.PermissionError):
-                    pos.authorize_clear_order(order_name=order.name, reason="QA")
-                with self.assertRaises(frappe.PermissionError):
                     pos.authorize_reprint_command(order_name=order.name, reason="QA")
 
     def test_table_occupancy_is_isolated_by_company(self):
