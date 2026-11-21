@@ -32,8 +32,6 @@ class LeafRestaurantKDS {
         this.counts = {
             "Todas": 0,
         };
-        this.inProgressCount = 0;
-        this.avgWaitMinutes = 0;
         this.serverClockOffsetMs = 0;
         this.undoStack = [];
         this.loading = false;
@@ -254,22 +252,14 @@ class LeafRestaurantKDS {
     recalculateCounts() {
         const counts = { "Todas": 0 };
         this.stageConfigs.forEach(stage => { counts[stage.name] = 0; });
-        const cookWaitTimes = [];
         this.orders.forEach(ord => {
             const st = ord.kds_stage || this.stageConfigs[0]?.name || "";
             counts["Todas"] += 1;
             if (counts[st] !== undefined) {
                 counts[st] += 1;
             }
-            if (Number(ord.stage_index) < (ord.stages || this.stageConfigs).length - 1) {
-                cookWaitTimes.push(this.computeElapsedMinutes(ord));
-            }
         });
         this.counts = counts;
-        this.inProgressCount = cookWaitTimes.length;
-        this.avgWaitMinutes = cookWaitTimes.length
-            ? Math.round(cookWaitTimes.reduce((acc, m) => acc + m, 0) / cookWaitTimes.length)
-            : 0;
     }
 
     formatCardTitle(ord) {
