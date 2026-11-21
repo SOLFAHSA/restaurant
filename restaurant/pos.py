@@ -240,6 +240,20 @@ def _load_item_tax_template_rates(template_names):
     return {template: rate for template, rate in rates.items() if rate in (0.0, 15.0, 18.0)}
 
 
+def _get_item_tax_rates(item_codes, company):
+    """Resolve each item's rate with ERPNext's lookup: item templates first, then its item groups."""
+    from erpnext.stock.get_item_details import get_item_tax_template
+
+    args = frappe._dict(company=company, doctype="Sales Invoice", tax_category=None, transaction_date=nowdate())
+    templates = {}
+    for item_code in set(item_codes or []):
+        out = {}
+        get_item_tax_template(args, frappe.get_cached_doc("Item", item_code), out)
+        templates[item_code] = out.get("item_tax_template")
+    rates = _load_item_tax_template_rates({name for name in templates.values() if name})
+    return {item_code: rates.get(template) for item_code, template in templates.items()}
+
+
 def validate_order(doc):
     """Validate and compute server-side totals for a Restaurant Order."""
     doc.order_name = cstr(doc.order_name).strip()
@@ -404,8 +418,7 @@ def validate_order(doc):
 
     item_codes = list({row.item_code for row in (doc.items or []) if row.item_code})
     items_by_code = {}
-    taxes_by_item = {}
-    template_rates = {}
+    tax_rate_by_item = {}
     catalog_price_by_item = {}
     option_price_by_item = {}
     if item_codes:
@@ -417,16 +430,7 @@ def validate_order(doc):
             items_by_code[item_row.name] = item_row
             if flt(item_row.standard_rate) > 0:
                 catalog_price_by_item[item_row.name] = flt(item_row.standard_rate, 2)
-        for tax_row in frappe.get_all(
-            "Item Tax",
-            filters={"parent": ["in", item_codes], "parenttype": "Item"},
-            fields=["parent", "item_tax_template"],
-            order_by="idx asc",
-        ):
-            taxes_by_item.setdefault(tax_row.parent, []).append(tax_row.item_tax_template)
-        template_rates = _load_item_tax_template_rates(
-            {name for templates in taxes_by_item.values() for name in templates if name}
-        )
+        tax_rate_by_item = _get_item_tax_rates(item_codes, doc.company)
         selling_pl = cstr(getattr(doc, "selling_price_list", "") or "").strip()
         for price_row in frappe.get_all(
             "Item Price",
@@ -462,6 +466,7 @@ def validate_order(doc):
         allow_rate_change = cint(frappe.db.get_value("POS Profile", doc.pos_profile, "allow_rate_change") or 0)
     can_override_rate = user_can_invoice() and bool(allow_rate_change)
 
+    missing_tax_items = []
     for row in (doc.items or []):
         if not row.item_code or row.item_code not in items_by_code:
             frappe.throw(_("Selecciona un producto o platillo válido en cada línea de la orden."))
@@ -520,10 +525,8 @@ def validate_order(doc):
         row.rate = flt(gross_unit * (1.0 - (row.discount_percentage / 100.0)), 2)
         row.amount = flt(row.qty * row.rate, 2)
 
-        row.tax_rate = next(
-            (template_rates[name] for name in taxes_by_item.get(row.item_code, []) if name in template_rates),
-            15.0,
-        )
+        tax_rate = tax_rate_by_item.get(row.item_code)
+        row.tax_rate = flt(tax_rate)
 
         row.note = cstr(row.note).strip()[:300]
         row.options_summary = cstr(row.options_summary).strip()[:500]
@@ -538,6 +541,9 @@ def validate_order(doc):
             row.kds_status = "Cancelado"
             row.amount = 0.0
             continue
+        if tax_rate is None:
+            missing_tax_items.append(row.item_name or row.item_code)
+            continue
 
         subtotal += row.amount
         if abs(row.tax_rate - 15.0) < 0.01:
@@ -546,6 +552,13 @@ def validate_order(doc):
             taxed_18 += row.amount
         else:
             exempt += row.amount
+
+    if missing_tax_items:
+        frappe.throw(
+            _("Estos productos no tienen una plantilla de impuesto para la empresa {0}: {1}. Asígnala en el producto o en su grupo de productos.").format(
+                doc.company, ", ".join(sorted(set(missing_tax_items)))
+            )
+        )
 
     doc.subtotal = flt(subtotal, 2)
     doc.taxed_amount_15 = flt(taxed_15, 2)
@@ -922,7 +935,7 @@ def _get_effective_rpos_config(pos_profile=None):
     return cfg
 
 
-def _get_catalog_for_pos(selling_price_list=None, allowed_categories=None):
+def _get_catalog_for_pos(selling_price_list=None, allowed_categories=None, company=None):
     """Return categories (Item Group) and products (Item) with photos, colors, prices, and options."""
     has_item_color = frappe.get_meta("Item").has_field("restaurant_color")
     has_group_color = frappe.get_meta("Item Group").has_field("restaurant_color")
@@ -1031,26 +1044,9 @@ def _get_catalog_for_pos(selling_price_list=None, allowed_categories=None):
 
     command_map = _resolve_command_map()
 
-    tax_rate_by_item = {}
-    item_codes = [item.name for item in raw_items]
-    if item_codes:
-        tax_rows = frappe.get_all(
-            "Item Tax",
-            filters={"parent": ["in", item_codes], "parenttype": "Item"},
-            fields=["parent", "item_tax_template"],
-            order_by="idx asc",
-            limit_page_length=1000,
-        )
-        for row in tax_rows:
-            if row.parent in tax_rate_by_item:
-                continue
-            tpl_name = (row.item_tax_template or "").upper()
-            if "EXENTO" in tpl_name or "0%" in tpl_name:
-                tax_rate_by_item[row.parent] = 0.0
-            elif "18%" in tpl_name or "18" in tpl_name:
-                tax_rate_by_item[row.parent] = 18.0
-            elif "15%" in tpl_name or "15" in tpl_name:
-                tax_rate_by_item[row.parent] = 15.0
+    tax_rate_by_item = _get_item_tax_rates(
+        [item.name for item in raw_items], company or _get_default_company()
+    )
 
     used_group_names = []
     for item in raw_items:
@@ -1112,7 +1108,7 @@ def _get_catalog_for_pos(selling_price_list=None, allowed_categories=None):
             "image": item.image or "",
             "color": item_color,
             "price": flt(base_price, 2),
-            "tax_rate": tax_rate_by_item.get(item.name, 15.0),
+            "tax_rate": tax_rate_by_item.get(item.name),
             "restaurant_recipe_enabled": cint(item.restaurant_recipe_enabled),
             "restaurant_options_enabled": cint(item.restaurant_options_enabled),
             "is_combo": bool(is_combo),
@@ -1374,7 +1370,7 @@ def get_pos_bootstrap(area_name=None):
     active_price_list = (
         default_profile.selling_price_list if default_profile else "Venta estándar"
     )
-    categories, items = _get_catalog_for_pos(active_price_list, allowed_categories=allowed_cats)
+    categories, items = _get_catalog_for_pos(active_price_list, allowed_categories=allowed_cats, company=company)
     areas = _get_areas_with_live_tables(branch=active_branch, company=company)
 
     waiter_filters = {"designation": "Mesero", "status": "Active"}
