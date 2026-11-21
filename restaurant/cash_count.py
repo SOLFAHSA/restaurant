@@ -149,67 +149,6 @@ def _get_profile_payment_methods(pos_profile):
     return [row.mode_of_payment for row in rows if row.mode_of_payment]
 
 
-def _compute_fallback_shift_reconciliation(opening_doc, cash_movements):
-    """Fallback reconciliation when POS Closing Shift DocType is unavailable."""
-    invoices = frappe.get_all(
-        "Sales Invoice",
-        filters={"posa_pos_opening_shift": opening_doc.name, "docstatus": 1},
-        fields=["name", "grand_total", "change_amount"],
-    )
-    invoice_names = [inv.name for inv in invoices]
-    paid_by_mop = {}
-    if invoice_names:
-        payment_rows = frappe.get_all(
-            "Sales Invoice Payment",
-            filters={"parent": ["in", invoice_names], "parenttype": "Sales Invoice"},
-            fields=["parent", "mode_of_payment", "amount"],
-        )
-        change_by_inv = {inv.name: flt(inv.change_amount, 2) for inv in invoices}
-        for prow in payment_rows:
-            amt = flt(prow.amount, 2)
-            if "efectivo" in prow.mode_of_payment.lower() or "cash" in prow.mode_of_payment.lower():
-                amt -= flt(change_by_inv.get(prow.parent, 0.0), 2)
-                change_by_inv[prow.parent] = 0.0
-            paid_by_mop[prow.mode_of_payment] = flt(
-                paid_by_mop.get(prow.mode_of_payment, 0.0) + amt, 2
-            )
-
-    rows = []
-    seen = set()
-    for detail in (opening_doc.balance_details or []):
-        mop = detail.mode_of_payment
-        seen.add(mop)
-        opening_amt = flt(detail.amount, 2)
-        sales_amt = flt(paid_by_mop.get(mop, 0.0), 2)
-        rows.append({
-            "mode_of_payment": mop,
-            "opening_amount": opening_amt,
-            "expected_amount": flt(opening_amt + sales_amt, 2),
-        })
-
-    for mop, sales_amt in paid_by_mop.items():
-        if mop not in seen:
-            rows.append({
-                "mode_of_payment": mop,
-                "opening_amount": 0.0,
-                "expected_amount": flt(sales_amt, 2),
-            })
-
-    cash_mop = _resolve_cash_mode_of_payment(opening_doc.pos_profile, [r["mode_of_payment"] for r in rows])
-    for row in rows:
-        if row["mode_of_payment"] == cash_mop:
-            row["expected_amount"] = flt(
-                row["expected_amount"] + flt(cash_movements.get("net_cash_movement"), 2), 2
-            )
-            break
-
-    return {
-        "invoice_count": len(invoices),
-        "total_sales": flt(sum(flt(inv.grand_total, 2) for inv in invoices), 2),
-        "rows": rows,
-    }
-
-
 def _assert_shift_access(opening_doc):
     """Ensure only the shift cashier owner or a supervisor in the same branch can read or submit audits."""
     from restaurant.pos import _get_active_user_branch
@@ -263,27 +202,24 @@ def build_cash_count_snapshot(pos_opening_shift=None):
     )
     hide_expected_amount = cint(getattr(prof_doc, "hide_expected_amount", 0))
 
-    if frappe.db.exists("DocType", "POS Closing Shift"):
-        from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
-            make_closing_shift_from_opening,
-        )
+    if not frappe.db.exists("DocType", "POS Closing Shift"):
+        frappe.throw(_("Instala POS Awesome para realizar el arqueo."))
 
-        closing_doc = make_closing_shift_from_opening(frappe.as_json(opening_doc.as_dict()))
-        invoice_count = len(closing_doc.pos_transactions or [])
-        total_sales = flt(closing_doc.grand_total, 2)
-        reconciliation_rows = [
-            {
-                "mode_of_payment": row.mode_of_payment,
-                "opening_amount": flt(row.opening_amount, 2),
-                "expected_amount": flt(row.expected_amount, 2),
-            }
-            for row in (closing_doc.payment_reconciliation or [])
-        ]
-    else:
-        fallback = _compute_fallback_shift_reconciliation(opening_doc, cash_movements)
-        invoice_count = fallback["invoice_count"]
-        total_sales = fallback["total_sales"]
-        reconciliation_rows = fallback["rows"]
+    from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
+        make_closing_shift_from_opening,
+    )
+
+    closing_doc = make_closing_shift_from_opening(frappe.as_json(opening_doc.as_dict()))
+    invoice_count = len(closing_doc.pos_transactions or [])
+    total_sales = flt(closing_doc.grand_total, 2)
+    reconciliation_rows = [
+        {
+            "mode_of_payment": row.mode_of_payment,
+            "opening_amount": flt(row.opening_amount, 2),
+            "expected_amount": flt(row.expected_amount, 2),
+        }
+        for row in (closing_doc.payment_reconciliation or [])
+    ]
 
     profile_methods = _get_profile_payment_methods(opening_doc.pos_profile)
     system_methods = _get_system_enabled_payment_methods()
@@ -298,13 +234,6 @@ def build_cash_count_snapshot(pos_opening_shift=None):
         mop = row.get("mode_of_payment")
         if mop and mop not in combined_mops:
             combined_mops.append(mop)
-    for sys_m in system_methods:
-        mop = sys_m.get("name")
-        if mop and mop not in combined_mops:
-            combined_mops.append(mop)
-    if not combined_mops:
-        combined_mops = ["Efectivo"]
-
     cash_mop = _resolve_cash_mode_of_payment(opening_doc.pos_profile, combined_mops)
     kind_order = {"cash": 0, "card": 1, "transfer": 2, "other": 3}
     ordered_mops = sorted(
