@@ -80,48 +80,43 @@ La [visión inicial](vision.md), sección 6, dejó las métricas por definir. Su
 
 La decisión se emitirá con los resultados observados y la métrica acordada antes de las siguientes pruebas. Para las sesiones históricas, recuperar la evidencia disponible con su fecha real.
 
-### 5.3. Nuevos hallazgos y verificaciones de semana 6
+### 5.3. Seguimiento posterior
 
-| Referencia | Origen | Evidencia disponible | Aceptación pendiente |
-|---|---|---|---|
-| M6-01 | Auditoría técnica de stock directo | VERIFIED en pruebas previas de esta sesión. Integración y restricciones al facturar, con suite test_invoice_stock. | Revalidación operativa del alcance habilitado. El consumo de recetas se evalúa por separado según alcance. |
-| M6-02 | Auditoría técnica de CAI | VERIFIED en pruebas previas de esta sesión. Suite test_fiscal_numbering, 11 casos, y revisión de facturas. | Aceptación y configuración del entorno que se vaya a publicar. |
-| M6-03 | Desglose de descuentos del Ticket SAR | VERIFIED en comprobaciones previas de tickets renderizados. Descuentos de línea de L 0.26 y L 0.77 conciliados con facturas. | Descuento global y salida física en los escenarios aplicables. |
-| M6-04 | Reporte de Manuel sobre la precuenta | VERIFIED en comprobaciones previas. Tres pruebas de interfaz, guardas de versiones y flujo temporal en Frappe. Posterior orden ORD-00097 terminó en una sola factura. | VERIFIED. Manuel confirmó “Sí, terminé sin actualizar”. Quedan la revalidación desde Órdenes y con mesero, y el enlace al commit o PR, según el issue. |
-| M6-05 | RTN del emisor vacío | VERIFIED en revisión previa de tickets. | Revisión de configuración por responsable autorizado y comprobación posterior. |
-| M6-06 | Cobertura pendiente de cobro y cierre | ANALYZED a partir de la última ronda manual. | Casos faltantes y nuevos issues por defectos confirmados. |
-| M6-07 | Integridad del registro académico | ANALYZED en esta revisión documental. | Fichas de 3 a 5 personas, frecuencia y citas reales. |
+Las verificaciones técnicas, el seguimiento de issues y la configuración fiscal realizados durante la semana 6 se registran en la [bitácora de la semana 6](bitacora/semana-6.md), para no mezclar el trabajo de esa semana con la evidencia de la semana 5.
 
-La prueba comunicada por Manuel se registra como actividad del desarrollador. Los participantes reales del segmento se identificarán como Participante 1, Participante 2 y sucesivos, con rol y fecha de sesión.
+---
 
-### 5.4. Seguimiento y programación
+## 6. Participantes del segmento — semana 5 (9 al 15 de noviembre de 2026)
 
-El [backlog de mejoras](backlog-mejoras.md) contiene las fichas y enlaces de los 13 issues publicados con origen, severidad propuesta, estado, procedimiento y criterio de cierre, junto con el plan de semanas 6 a 9 y la plantilla de nuevas incidencias.
+Registro reconstruido el 20/11/2026 a partir de las sesiones y observaciones recibidas durante la semana 5. Las citas son paráfrasis del desarrollador a partir de la conversación, no transcripciones textuales: no se grabó audio. Los participantes se identifican sin nombre.
 
-Para cada issue se conservará la relación con el hallazgo, el cambio real, la evidencia de prueba y la aceptación de la persona usuaria o responsable. Se registrarán tanto los defectos ya corregidos como las mejoras pendientes con su fecha real.
+| Participante | Perfil | Fecha | Modalidad |
+| :--- | :--- | :--- | :--- |
+| **Participante 1** | Responsable de la empresa receptora; uso del POS como encargado de restaurante | 12 y 13 de noviembre | Uso directo del punto de venta y de Inventario, varias repeticiones |
+| **Participante 2** | Dueño de restaurante interesado en adoptar el módulo | 11 de noviembre | Reunión y uso del sistema en facturación y configuración |
 
-**VERIFIED. Publicación autorizada por Manuel.** Se crearon y comprobaron los [issues #1 a #13](https://github.com/SOLFAHSA/restaurant/issues), con coincidencia exacta frente a los borradores aprobados. El registro de publicación y los enlaces individuales están en el backlog. Todos continúan abiertos con su aceptación pendiente.
+### 6.1. Hallazgos con la escala del curso
 
-**VERIFIED. Aceptación del recorrido sin recarga.** Manuel confirmó en el seguimiento de esta sesión que pudo generar la precuenta, continuar y facturar sin actualizar la página ni presionar F5. La confirmación está registrada en el [issue #10](https://github.com/SOLFAHSA/restaurant/issues/10), que continúa en validación final por los demás criterios de cierre.
+| Ref. | Participante | Hallazgo | Paráfrasis | Tipo | Severidad | Frecuencia | Estado |
+| :--- | :---: | :--- | :--- | :--- | :--- | :--- | :--- |
+| **S5-P1-01** | 1 | Al facturar un platillo configurado como combo ("Menú combinado de hamburguesa"), el Kardex no descuenta los componentes. | "Facturé el combo y en inventario no rebajó la existencia de lo que lleva." | Defecto | **Grave** | 1 de 2 participantes; reproducido en varias pruebas | Pendiente. Candidato a reutilizar *Product Bundle* nativo. |
+| **S5-P1-02** | 1 | La pantalla de cocina (KDS) y la de estado de órdenes no se actualizan en tiempo real al pasar a *Listo* o *Completado*; hay que recargar con F5. | "Cuando pasa a listo no se actualiza, tengo que darle F5." | Defecto | **Grave** | 1 de 2; repetido en varias órdenes | Corrección de tiempo real en el commit `8c69600` (17/11, semana 6). Pendiente verificar en producción que el servicio de tiempo real esté activo. |
+| **S5-P1-03** | 1 | Registrar una **cortesía de la casa**: orden que el restaurante absorbe, sin cobro al cliente, con descarga de inventario. | "Si hay un inconveniente con un cliente, que el restaurante lo pueda dar como cortesía y se rebaje el inventario." | Mejora (`mejora`) | — | 1 de 2 | Pendiente para una próxima fase. Requiere definición contable. |
+| **S5-P2-01** | 2 | El mesero debe pedir el PIN del supervisor o gerente para eliminar una orden o un producto ya enviado a cocina. | "Que el mesero le pida el código al supervisor que está de turno." | Mejora (`mejora`) | — | 1 de 2 | Implementado en el commit `ebf96a8` (14/11). Pendiente confirmar si debe limitarse al supervisor del turno activo. |
+| **S5-P2-02** | 2 | Cada rol debe ver solo las opciones que le corresponden. | "Que el mesero no tenga todos los accesos." | Mejora (`mejora`) | — | 1 de 2 | Implementado con perfiles de módulo por rol (ver H-02). |
+| **S5-P2-03** | 2 | Propina con monto libre además del 10 % sugerido. | "Hay clientes que dejan un monto que no es el 10 %." | Mejora (`mejora`) | — | 1 de 2 | Implementado: porcentaje o monto fijo. |
+| **S5-P2-04** | 2 | Seleccionar en la configuración los medios de pago (tarjeta de crédito, transferencia), no solo efectivo. | "Que salga tarjeta y transferencia, no solo efectivo." | Mejora (`mejora`) | — | 1 de 2 | Implementado en la configuración del POS (commit `5443ae1`, 14/11). |
+| **S5-P2-05** | 2 | Arqueo de caja con denominaciones para cuadrar faltantes y sobrantes. | "Que el cajero pueda cuadrar su caja con lo que contó." | Mejora (`mejora`) | — | 1 de 2 | Implementado en el commit `1502ec2` (14/11). |
+| **S5-P2-06** | 2 | Enviar facturas por WhatsApp. | "Mandar algunas facturas por WhatsApp." | Mejora (`mejora`) | — | 1 de 2 | Parcial: opción en la configuración y enlace para compartir la factura; sin envío automático. |
+| **S5-P2-07** | 2 | Fondo de pantalla cuando el POS queda inactivo un tiempo configurable. | "Que aparezca un wallpaper si no se usa el punto de venta." | Mejora (`mejora`) | — | 1 de 2 | Implementado en Restaurant Settings. |
 
-**VERIFIED. Avance técnico del issue #12.** La matriz de cobro y cierre temporal aprobó seis casos y detectó un fallo en descuento global del 100%, DEF-2026-017. Los resultados y la restauración del entorno están en el [informe de aceptación](qa/aceptacion-cobro-caja-2026-11-18.md). La aceptación con participantes operativos sigue pendiente.
+**Resumen de severidad:** 0 bloqueantes, 2 graves (S5-P1-01 y S5-P1-02), 0 menores, 0 cosméticos y 8 mejoras solicitadas.
 
-**VERIFIED. Corrección posterior del issue #12.** Tras la autorización de Manuel, DEF-2026-017 se corrigió en development. Se aprobaron 17 casos de aceptación y 51 pruebas distintas entre las suites ejecutadas. Se comprobó la preservación de las 17 facturas existentes y sus GL/SLE. El [informe actualizado](qa/aceptacion-cobro-caja-2026-11-18.md) conserva la evidencia inicial y la posterior. La aceptación con perfiles operativos y la impresión física continúan pendientes.
+### 6.2. Decisión sobre la hipótesis
 
-**VERIFIED. Configuración del emisor recibida del responsable.** Se creó una Company independiente y una Address principal vinculada mediante Dynamic Link en development. Se guardaron los datos proporcionados por el usuario y se conservaron los ceros iniciales del RTN. Una vista previa sin emisión del Ticket verificó razón social, RTN, dirección, ciudad y teléfono. La nueva empresa tiene cuentas, almacenes, centros de costos y cuenta de efectivo nativos. El aviso del generador de departamentos por diferencia de idioma se resolvió ejecutando el generador nativo con la traducción existente.
+**Decisión de Manuel (20/11/2026).** La muestra es de 2 participantes, por debajo de los 3 a 5 que pide el curso, y la visión inicial no fijó métrica ni umbral (ver sección 5.2). Con esa limitación, la decisión es:
 
-La huella de las 17 facturas existentes y sus GL/SLE coincidió antes y después. El perfil y los turnos de demostración continúan asociados a su empresa histórica.
+- **H1 (coordinar salón, cocina y caja): se ajusta.** El problema existe y los dos participantes usaron el flujo completo, pero dos defectos graves afectan la operación (inventario de combos y actualización en tiempo real de cocina). Se mantiene el *qué* y se corrige el *cómo*.
+- **H2 (integración sobre ERPNext): se sostiene con condiciones.** La facturación, el arqueo y los medios de pago operan sobre los documentos nativos; los combos deben pasar por el mecanismo nativo de inventario.
 
-**Pendiente** Recibir el CAI, prefijo fiscal, número inicial, número final y fecha límite de emisión para completar un perfil POS propio. El campo prefix es obligatorio en POS Profile. Después corresponde comprobar la factura emitida y su ticket desde ese perfil.
-
-**Tratamiento de evidencia** Los datos concretos del emisor están guardados en development. El seguimiento público conserva esta verificación sin reproducir esos datos.
-
-**VERIFIED. Configuración fiscal completada el 19/11/2026.** El responsable proporcionó los datos complementarios de declaración y recepción. Se guardó el CAI nativo y se comprobó estado Active, fechas y rango contra los datos recibidos. Se registró la serie en Document Naming Settings y se creó el perfil POS propio de la empresa con cuentas, centro de costos, almacén y dirección de esa empresa.
-
-La verificación en una conexión nueva confirmó que el perfil está activo y aparece en get_pos_bootstrap. Se habilitó Efectivo como medio inicial con cuenta propia. Se configuraron alertas preventivas a 30 días y 100 folios disponibles. La vista previa del Ticket mostró emisor, CAI, rango y vencimiento correctos.
-
-La lógica nativa confirmó el primer folio esperado. La serie sigue sin contador ni facturas y conserva su rango completo de 2,000 folios en development. Las 17 facturas existentes y sus GL/SLE conservaron la huella previa.
-
-**Pendiente de aceptación operativa** Abrir un turno del perfil de la nueva empresa y comprobar la factura emitida y su impresión en el flujo operativo. Los turnos abiertos actuales pertenecen a la empresa demostrativa.
-
-Los valores concretos de la autorización fiscal están almacenados en development. El seguimiento público contiene esta evidencia técnica.
+La siguiente ronda (issue #13) completará de 3 a 5 participantes con la métrica de la sección 5.2.

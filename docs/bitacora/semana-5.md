@@ -66,3 +66,14 @@ Probar el sistema con perfiles reales (`Mesero` y `Cajero`) evidenció fallos qu
 ## 8. Conclusión
 
 Al cierre de la semana 5, el MVP del módulo Restaurante cuenta con un flujo operativo probado con perfiles reales, documentación de hallazgos en [`docs/pruebas-usuarios.md`](../pruebas-usuarios.md), controles de seguridad y concurrencia reforzados en servidor, y una suite de **177 pruebas automatizadas** aprobada, publicado bajo la etiqueta `semana-5`.
+
+## 9. Registro complementario (agregado el 20/11/2026)
+
+Esta sección completa la evidencia de la semana 5 con las observaciones de dos participantes del segmento que no habían quedado registradas. No modifica las secciones anteriores. El detalle, la escala de severidad y la decisión sobre la hipótesis están en [`docs/pruebas-usuarios.md`, sección 6](../pruebas-usuarios.md).
+
+| Participante | Fecha | Observaciones |
+| :--- | :--- | :--- |
+| **Participante 1**, responsable de la empresa receptora | 12 y 13 de noviembre | Los combos no descargan del inventario sus componentes (grave). La pantalla de cocina y la de estado de órdenes no se actualizan en tiempo real; hay que recargar con F5 (grave). Solicitó registrar cortesías de la casa (mejora). |
+| **Participante 2**, dueño de restaurante interesado en el módulo | 11 de noviembre | Solicitó PIN del supervisor para eliminar órdenes o productos enviados a cocina, accesos limitados por rol, propina con monto libre, medios de pago seleccionables, arqueo de caja con denominaciones, facturas por WhatsApp y fondo de pantalla por inactividad. Todo quedó implementado en la semana 5, salvo WhatsApp, que es parcial. |
+
+**Resumen:** 0 bloqueantes, 2 graves y 8 mejoras. **Decisión sobre H1:** se ajusta. Los dos defectos graves reordenan el backlog de las semanas 6 y 7.
