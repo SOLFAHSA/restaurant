@@ -99,3 +99,29 @@ test("waiters can open precuenta without payment permission and real version con
     assert.deepEqual(conflicts, [{ name: "ORDER-A", modified: expected }]);
 });
 
+
+test("checkout asks for supervisor approval only when the server requests it", async () => {
+    const args = { order_name: "ORDER-A", global_discount_percentage: 20, payments: [] };
+    const frappe = {
+        pages: { "restaurant-pos": {} },
+        async call(request) {
+            assert.equal(request.method, "restaurant.pos.pay_and_invoice_order");
+            assert.equal(request.args, args);
+            throw { responseJSON: { exc_type: "DiscountApprovalRequired" } };
+        },
+    };
+    const POS = vm.runInNewContext(source + "\nLeafRestaurantPOS;", { frappe });
+    const pos = Object.create(POS.prototype);
+    pos.requiresSupervisorAuth = () => false;
+    pos.requestSupervisorAuthModal = async (action, method, sameArgs, options) => {
+        assert.equal(action, "Descuento sobre el límite");
+        assert.equal(method, "restaurant.pos.pay_and_invoice_order");
+        assert.equal(sameArgs, args);
+        assert.equal(options.requirePin, false);
+        return { invoice: { name: "QA" } };
+    };
+    assert.equal((await pos.submitCheckout(args)).message.invoice.name, "QA");
+
+    pos.requestSupervisorAuthModal = async () => null;
+    assert.equal(await pos.submitCheckout(args), null);
+});

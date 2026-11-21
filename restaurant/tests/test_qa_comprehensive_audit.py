@@ -534,8 +534,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
         frappe.set_user(waiter["user"])
         with self.assertRaises(frappe.PermissionError):
             pos.save_restaurant_pos_config(frappe.db.get_value("POS Profile", {"company": self.company}, "name"), {})
-        with self.assertRaises(frappe.PermissionError):
-            pos.ensure_restaurant_stock()
+        self.assertFalse(hasattr(pos, "ensure_restaurant_stock"))
         with self.assertRaises(frappe.PermissionError):
             pos.create_pos_product({"item_name": "Hack Item", "standard_rate": 1})
 
@@ -677,22 +676,24 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
         self.assertIn("displays", state)
 
     def test_def_qa_10_gift_card_redemption_deducts_from_invoice_cash_due(self):
-        """DEF-QA-10: Redeeming a Gift Card deducts balance without reducing paid_amount required in si.payments."""
+        """DEF-QA-10: A native certificate reduces the required cash payment."""
         branch = self._make_branch("GC")
         wh = self._make_warehouse("GCWh")
         prof = self._make_pos_profile("GCPOS", wh, update_stock=0)
         item = self._make_item("GCITEM", rate=100.0, tax_pct=15.0)
         frappe.set_user("Administrator")
         frappe.db.set_value("Restaurant Settings", None, "enable_gift_cards", 1)
+        from frappe.utils.password import decrypt
+
         gc = frappe.get_doc({
-            "doctype": "Restaurant Gift Card",
-            "card_code": f"GC-{self.suffix}".upper(),
+            "doctype": "Certificado de Regalo",
             "company": self.company,
-            "customer": self.customer,
-            "initial_amount": 50.0,
-            "balance": 50.0,
-            "enabled": 1,
+            "comprador": self.customer,
+            "monto_inicial": 50.0,
+            "es_saldo_inicial": 1,
         }).insert(ignore_permissions=True)
+        gc.submit()
+        code = decrypt(gc.codigo_cifrado)
         frappe.get_doc({
             "doctype": "POS Opening Shift",
             "period_start_date": now_datetime(),
@@ -711,7 +712,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
         res = pos.pay_and_invoice_order(
             order_name=ord_res["order"]["name"],
             payments=[{"mode_of_payment": self.cash_mop, "amount": flt(grand - 50.0, 2)}],
-            gift_card_code=gc.name,
+            gift_card_code=code,
             gift_card_amount=50.0,
         )
         self.assertTrue(res["invoice"]["name"])

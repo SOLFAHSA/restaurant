@@ -1,4 +1,4 @@
-"""Controller for Restaurant Gift Card balance and expiry validation."""
+"""Retain legacy gift card records for reconciliation."""
 
 import frappe
 from frappe import _
@@ -7,6 +7,10 @@ from frappe.utils import flt, getdate, today
 
 
 class RestaurantGiftCard(Document):
+    def before_insert(self):
+        frappe.throw(_("Usa Certificado de Regalo para emitir tarjetas nuevas."))
+
+
     def validate(self):
         self.card_code = (self.card_code or "").strip().upper()
         if not self.card_code:

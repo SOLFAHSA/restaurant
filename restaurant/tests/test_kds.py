@@ -7,12 +7,30 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import add_to_date, now_datetime
 
-from restaurant import kds
+from restaurant import kds, pos
 from restaurant.pos import (
     _get_order_company, _serialize_order, pay_and_invoice_order, save_pos_order, send_order_to_kitchen,
     split_order, transfer_order_table,
 )
 from restaurant.tests.fixtures import ensure_restaurant_test_baseline
+
+
+def checkout_payment(order):
+    shift = pos._get_active_opening_shift()
+    profile_name = order.pos_profile or (shift["pos_profile"] if shift else None)
+    if not profile_name:
+        profile_name = pos._get_default_pos_profile(order.company).name
+    profile = frappe.get_doc("POS Profile", profile_name)
+    return [{"mode_of_payment": profile.payments[0].mode_of_payment, "amount": order.grand_total}]
+
+
+def mock_invoice_lifecycle(invoice):
+    def initialize_payment_rows():
+        invoice.payments = [frappe._dict(row) for row in invoice.payments]
+
+    for method in ("set_missing_values", "insert", "submit"):
+        invoice[method] = Mock()
+    invoice.calculate_taxes_and_totals = Mock(side_effect=initialize_payment_rows)
 
 
 class TestPreparationDisplay(FrappeTestCase):
@@ -404,8 +422,7 @@ class TestPreparationDisplay(FrappeTestCase):
                     "paid_amount": order.grand_total, "change_amount": 0,
                     "payments": [frappe._dict(amount=order.grand_total)],
                 })
-                for method in ("set_missing_values", "calculate_taxes_and_totals", "insert", "submit"):
-                    fake_invoice[method] = Mock()
+                mock_invoice_lifecycle(fake_invoice)
                 real_get_doc = frappe.get_doc
 
                 def get_doc(*args, **kwargs):
@@ -418,10 +435,9 @@ class TestPreparationDisplay(FrappeTestCase):
                     "authorized_range": "", "company_tax_id": "", "prefix": "",
                 }
                 with patch("restaurant.pos.frappe.get_doc", side_effect=get_doc), \
-                        patch("restaurant.pos._resolve_tax_account", return_value=None), \
                         patch("restaurant.pos._resolve_payment_account", return_value=None), \
                         patch("restaurant.pos._resolve_sar_fiscal_info", return_value=fiscal_info):
-                    response = pay_and_invoice_order(order.name)
+                    response = pay_and_invoice_order(order.name, payments=checkout_payment(order))
                 self.assertEqual(response["order"]["status"], "Facturada")
                 self.assertEqual(response["order"]["kds_status"], "En preparación")
                 after = self.order_state(order)

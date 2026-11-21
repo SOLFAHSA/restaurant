@@ -3,6 +3,8 @@
 from copy import deepcopy
 from uuid import uuid4
 
+from restaurant.tax_configuration import _account, get_native_tax_configuration
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
@@ -56,6 +58,33 @@ class TestItemConfiguration(FrappeTestCase):
             frappe.db.rollback(save_point=self.savepoint)
             frappe.clear_cache()
             frappe.set_user(self.original_user)
+
+    def test_order_uses_configured_native_tax_rate_even_when_template_title_differs(self):
+        from restaurant import pos
+
+        company = pos._get_order_company()
+        account = _account(company, 15)
+        self.assertTrue(account)
+        items = []
+        for label, rate in (("ISV15", 18), ("ISV18", 0), ("EXENTO", 15)):
+            template = frappe.get_doc({
+                "doctype": "Item Tax Template",
+                "title": f"QA {label} {self.suffix}",
+                "company": company,
+                "taxes": [{"tax_type": account, "tax_rate": rate}],
+            }).insert()
+            item = self.make_item(label, taxes=[{"item_tax_template": template.name}])
+            items.append({"item_code": item.name, "qty": 1, "base_rate": 100})
+
+        order = frappe.get_doc({
+            "doctype": "Restaurant Order",
+            "company": company,
+            "order_name": f"QA Native Tax Rates {self.suffix}",
+            "items": items,
+        })
+        pos.validate_order(order)
+
+        self.assertEqual([row.tax_rate for row in order.items], [18.0, 0.0, 15.0])
 
     def make_uom(self, label, whole=False):
         return frappe.get_doc({
