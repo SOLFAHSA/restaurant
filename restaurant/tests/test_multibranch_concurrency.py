@@ -8,6 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from restaurant import kds, order_operations, pos
 from restaurant.setup import ensure_link_permissions, ensure_restaurant_roles
+from restaurant.tests.fixtures import item_tax_rows
 
 
 class TestQAMultiBranchConcurrency(FrappeTestCase):
@@ -57,6 +58,7 @@ class TestQAMultiBranchConcurrency(FrappeTestCase):
             "stock_uom": uom,
             "is_stock_item": 0,
             "standard_rate": 120.0,
+            "taxes": item_tax_rows(),
         }).insert(ignore_permissions=True).name
 
     def _make_customer(self):

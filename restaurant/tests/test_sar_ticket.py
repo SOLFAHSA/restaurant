@@ -6,6 +6,7 @@ from frappe.utils import flt
 
 from restaurant.pos import _get_effective_rpos_config, pay_and_invoice_order
 from restaurant.sar_format import format_lempiras_in_words, get_sar_ticket_context
+from restaurant.tests.fixtures import ensure_item_tax, item_tax_rows
 
 
 class TestSarTicket(FrappeTestCase):
@@ -130,8 +131,10 @@ class TestSarTicket(FrappeTestCase):
                 "is_stock_item": 0,
                 "is_sales_item": 1,
                 "standard_rate": 15.50,
+                "taxes": item_tax_rows(),
             }).insert(ignore_permissions=True)
         else:
+            ensure_item_tax(test_item_code)
             item = frappe.get_doc("Item", test_item_code)
 
         if not active_shift:
@@ -149,6 +152,7 @@ class TestSarTicket(FrappeTestCase):
 
     def _ensure_non_stock_item(self, item_code, item_name, rate):
         if frappe.db.exists("Item", item_code):
+            ensure_item_tax(item_code)
             return frappe.get_doc("Item", item_code)
         item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
         uom = frappe.db.get_value("UOM", {}, "name") or "Unidad"
@@ -161,6 +165,7 @@ class TestSarTicket(FrappeTestCase):
             "is_stock_item": 0,
             "is_sales_item": 1,
             "standard_rate": rate,
+            "taxes": item_tax_rows(),
         }).insert(ignore_permissions=True)
 
     def test_pay_and_invoice_order_disables_rounding_and_renders_ticket(self):

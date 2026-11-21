@@ -12,7 +12,7 @@ from restaurant.pos import (
     _get_order_company, _serialize_order, pay_and_invoice_order, save_pos_order, send_order_to_kitchen,
     split_order, transfer_order_table,
 )
-from restaurant.tests.fixtures import ensure_restaurant_test_baseline
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline, item_tax_rows
 
 
 def checkout_payment(order):
@@ -60,7 +60,7 @@ class TestPreparationDisplay(FrappeTestCase):
         self.items = [frappe.get_doc({
             "doctype": "Item", "item_code": "_Test-KDS-" + str(index) + self.suffix,
             "item_name": "Platillo de prueba " + str(index), "item_group": group,
-            "stock_uom": stock_uom, "is_stock_item": 0, "is_sales_item": 1,
+            "stock_uom": stock_uom, "is_stock_item": 0, "is_sales_item": 1, "taxes": item_tax_rows(),
         }).insert().name for index, group in enumerate(self.groups)]
         self.stages = [kds.save_stage({
             "stage_name": label + " " + self.suffix, "color": color, "alert_minutes": minutes,
