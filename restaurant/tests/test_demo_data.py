@@ -32,6 +32,7 @@ class TestDemoData(FrappeTestCase):
         frappe.db.rollback(save_point=self.savepoint)
         frappe.set_user(self.original_user)
 
+    @patch.object(demo_data, "_check_environment", new=lambda: None)
     def test_repeat_execution_preserves_records_and_native_links(self):
         native_items = frappe.get_all("Item", fields=["name", "item_name", "item_group", "stock_uom", "modified"])
         native_prices = frappe.get_all("Item Price", fields=["name", "item_code", "price_list", "price_list_rate", "modified"])
@@ -59,6 +60,7 @@ class TestDemoData(FrappeTestCase):
         self.assertEqual(frappe.db.count("Item", {"name": ["not like", demo_data.PREFIX + "%"]}), self.counts["Item"])
         self.assertFalse(frappe.db.exists("Item", {"name": ["like", demo_data.PREFIX + "%"], "is_stock_item": 1}))
 
+    @patch.object(demo_data, "_check_environment", new=lambda: None)
     def test_existing_modified_demo_record_is_not_overwritten(self):
         initial = demo_data.seed()
         area_name = initial["records"]["Restaurant Area"][0]
@@ -69,6 +71,7 @@ class TestDemoData(FrappeTestCase):
             demo_data.seed()
         self.assertEqual(frappe.db.get_value("Restaurant Area", area_name, "capacity"), 99)
 
+    @patch.object(demo_data, "_check_environment", new=lambda: None)
     def test_failed_run_rolls_back_new_records(self):
         original_ensure = demo_data._ensure
         calls = 0
