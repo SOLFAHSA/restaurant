@@ -991,19 +991,19 @@ def _get_catalog_for_pos(selling_price_list=None, allowed_categories=None, compa
         limit_page_length=300,
     )
 
+    # Selling prices are menu data for every POS user; buying prices stay private.
     price_map = {}
-    if frappe.has_permission("Item Price", "read"):
-        price_rows = frappe.get_all(
-            "Item Price",
-            filters={"selling": 1},
-            fields=["item_code", "price_list", "price_list_rate"],
-            order_by="modified desc",
-        )
-        for row in price_rows:
-            if selling_price_list and row.price_list == selling_price_list:
-                price_map[row.item_code] = flt(row.price_list_rate, 2)
-            elif row.item_code not in price_map:
-                price_map[row.item_code] = flt(row.price_list_rate, 2)
+    price_rows = frappe.get_all(
+        "Item Price",
+        filters={"selling": 1},
+        fields=["item_code", "price_list", "price_list_rate"],
+        order_by="modified desc",
+    )
+    for row in price_rows:
+        if selling_price_list and row.price_list == selling_price_list:
+            price_map[row.item_code] = flt(row.price_list_rate, 2)
+        elif row.item_code not in price_map:
+            price_map[row.item_code] = flt(row.price_list_rate, 2)
 
     option_groups_by_item = {}
     if frappe.db.exists("DocType", "Restaurant Option Group"):
