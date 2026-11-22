@@ -276,15 +276,3 @@ class TestRestaurantInvoiceStock(FrappeTestCase):
             {"item_code": item, "warehouse": self.warehouse, "actual_qty": -1},
         ])
 
-    def test_stock_report_distinguishes_available_empty_and_nonstock(self):
-        available = self.make_item("AVAILABLE")
-        empty = self.make_item("OUT")
-        dish = self.make_item("DISH", is_stock_item=0)
-        self.receive_stock(available, 1)
-
-        report = pos.get_restaurant_stock_status(self.warehouse)
-        by_code = {row["item_code"]: row for row in report["items"]}
-        self.assertTrue(report["billing_requires_stock"])
-        self.assertTrue(by_code[available]["billing_allowed"])
-        self.assertFalse(by_code[empty]["billing_allowed"])
-        self.assertTrue(by_code[dish]["billing_allowed"])

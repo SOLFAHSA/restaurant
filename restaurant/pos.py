@@ -2469,13 +2469,6 @@ def _set_doc_field(doc, fieldname, value):
         setattr(doc, fieldname, value)
 
 
-def _get_doc_items(doc):
-    getter = getattr(doc, "get", None)
-    if callable(getter):
-        return getter("items") or []
-    return getattr(doc, "items", []) or []
-
-
 def _invoice_has_stock_items(items):
     return bool(frappe.db.exists("Item", {
         "name": ["in", [item.get("item_code") for item in items]],
@@ -3390,29 +3383,6 @@ def unlock_waiter_order(order_name, pin):
 
 
 @frappe.whitelist(methods=["POST"])
-def authorize_clear_order(order_name=None, supervisor_user=None, supervisor_pin=None, reason=""):
-    """Verify supervisor authorization to empty/clear an active order in the POS."""
-    _require_pos_user()
-    if order_name:
-        _check_order_company(frappe.get_doc("Restaurant Order", order_name))
-    if is_supervisor():
-        log_restaurant_audit(
-            "Vaciar orden",
-            f"Supervisor {frappe.session.user} vació la orden directamente.",
-            order_name=order_name,
-            supervisor_user=frappe.session.user,
-        )
-        return {"authorized": True, "supervisor": frappe.session.user}
-    return verify_supervisor_authorization(
-        supervisor_user,
-        supervisor_pin,
-        "Vaciar orden",
-        order_name=order_name,
-        reason=reason,
-    )
-
-
-@frappe.whitelist(methods=["POST"])
 def authorize_reprint_command(order_name, supervisor_user=None, supervisor_pin=None, reason=""):
     """Verify supervisor authorization to reprint kitchen commands for an order."""
     _require_pos_user()
@@ -3553,109 +3523,6 @@ def get_emitted_commands(limit=40):
     return {
         "commands": emitted,
         "command_stations": get_command_stations(),
-    }
-
-
-@frappe.whitelist(methods=["POST"])
-def create_pos_product(product):
-    """Create a product/dish using native Item, Item Price, and Restaurant Item Configuration."""
-    _require_manager_user()
-    payload = frappe.parse_json(product) if isinstance(product, str) else product
-    if not isinstance(payload, dict):
-        frappe.throw(_("Los datos del producto no tienen un formato válido."))
-
-    item_name = cstr(payload.get("item_name") or "").strip()
-    if not item_name:
-        frappe.throw(_("El nombre del producto o platillo es obligatorio."))
-
-    item_code = cstr(payload.get("item_code") or "").strip() or item_name
-    item_group = cstr(payload.get("item_group") or "").strip()
-    if not item_group or not frappe.db.exists("Item Group", item_group):
-        fallback_grp = frappe.db.get_value(
-            "Item Group",
-            {"is_group": 0, "name": ["not in", ["Servicios", "Sub-ensambles", "Materia prima"]]},
-            "name",
-        ) or frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
-        item_group = fallback_grp
-
-    stock_uom = cstr(payload.get("stock_uom") or "Nos").strip()
-    if not frappe.db.exists("UOM", stock_uom):
-        stock_uom = frappe.db.get_value("UOM", {}, "name") or "Nos"
-
-    price = max(0.0, flt(payload.get("price"), 2))
-    recipe_enabled = cint(payload.get("restaurant_recipe_enabled"))
-    options_enabled = cint(payload.get("restaurant_options_enabled"))
-    is_stock_item = 0 if recipe_enabled else cint(payload.get("is_stock_item", 0))
-    color = cstr(payload.get("restaurant_color") or "#1898e8").strip()
-
-    if frappe.db.exists("Item", item_code):
-        item_doc = frappe.get_doc("Item", item_code)
-    else:
-        item_doc = frappe.new_doc("Item")
-        item_doc.item_code = item_code
-
-    item_doc.item_name = item_name
-    item_doc.item_group = item_group
-    item_doc.stock_uom = stock_uom
-    item_doc.is_sales_item = 1
-    item_doc.is_stock_item = is_stock_item
-    item_doc.standard_rate = price
-    item_doc.description = cstr(payload.get("description") or item_name).strip()
-
-    item_meta = frappe.get_meta("Item")
-    if item_meta.has_field("restaurant_color") and color:
-        item_doc.set("restaurant_color", color)
-    if item_meta.has_field("restaurant_recipe_enabled"):
-        item_doc.set("restaurant_recipe_enabled", recipe_enabled)
-    if item_meta.has_field("restaurant_options_enabled"):
-        item_doc.set("restaurant_options_enabled", options_enabled)
-
-    if item_doc.is_new():
-        item_doc.insert(ignore_permissions=True)
-    else:
-        item_doc.save(ignore_permissions=True)
-
-    selling_price_list = cstr(payload.get("selling_price_list") or "").strip()
-    if not selling_price_list:
-        default_prof = _get_default_pos_profile()
-        selling_price_list = (
-            default_prof.selling_price_list
-            if default_prof and default_prof.selling_price_list
-            else (frappe.db.get_value("Price List", {"selling": 1, "enabled": 1}, "name") or "Standard Selling")
-        )
-
-    if selling_price_list and frappe.db.exists("Price List", selling_price_list):
-        existing_price = frappe.db.get_value(
-            "Item Price",
-            {"item_code": item_doc.name, "price_list": selling_price_list, "selling": 1},
-            "name",
-        )
-        if existing_price:
-            frappe.db.set_value("Item Price", existing_price, "price_list_rate", price)
-        else:
-            ip_doc = frappe.get_doc({
-                "doctype": "Item Price",
-                "item_code": item_doc.name,
-                "price_list": selling_price_list,
-                "selling": 1,
-                "price_list_rate": price,
-            })
-            ip_doc.insert(ignore_permissions=True)
-
-    option_group = payload.get("option_group")
-    if options_enabled and isinstance(option_group, dict) and option_group.get("group_name") and option_group.get("options"):
-        from restaurant.item_configuration import save_option_group
-
-        item_doc.reload()
-        save_option_group(item_doc.name, option_group, str(item_doc.modified))
-
-    categories, items = _get_catalog_for_pos(selling_price_list)
-    created_entry = next((it for it in items if it["item_code"] == item_doc.name), None)
-    return {
-        "item_code": item_doc.name,
-        "item": created_entry,
-        "categories": categories,
-        "items": items,
     }
 
 
@@ -3920,87 +3787,6 @@ def save_restaurant_pos_config(pos_profile, config):
 
     frappe.clear_cache()
     return get_restaurant_pos_config(pos_profile)
-
-
-def _get_default_warehouse(company=None):
-    """Resolve default active warehouse for restaurant operations."""
-    if not company:
-        company = _get_default_company()
-    pos_p = _get_default_pos_profile(company)
-    if pos_p and getattr(pos_p, "warehouse", None):
-        return pos_p.warehouse
-    wh = frappe.db.get_value("Warehouse", {"company": company, "is_group": 0, "disabled": 0}, "name")
-    if not wh:
-        wh = frappe.db.get_value("Warehouse", {"is_group": 0, "disabled": 0}, "name")
-    return wh
-
-
-@frappe.whitelist(methods=["GET", "POST"])
-def get_restaurant_stock_status(warehouse=None):
-    """Report available stock for Restaurant sales items in the selected warehouse."""
-    _require_pos_user()
-    company = _get_default_company()
-    target_wh = warehouse or _get_default_warehouse(company)
-
-    items = frappe.get_all(
-        "Item",
-        filters={
-            "disabled": 0,
-            "is_sales_item": 1,
-            "has_variants": 0,
-            "is_fixed_asset": 0,
-            "item_group": ["not in", ["Servicios", "Sub-ensambles", "Materia prima"]],
-        },
-        fields=["name", "item_name", "item_group", "stock_uom", "is_stock_item", "standard_rate"],
-        order_by="item_name asc",
-        limit_page_length=500,
-    )
-
-    bin_map = {}
-    if target_wh and frappe.db.table_exists("Bin"):
-        bins = frappe.get_all(
-            "Bin",
-            filters={"warehouse": target_wh},
-            fields=["item_code", "actual_qty"],
-        )
-        for b in bins:
-            bin_map[b.item_code] = flt(b.actual_qty)
-
-    report = []
-    stock_items_count = 0
-    non_stock_items_count = 0
-    total_stock_units = 0.0
-
-    for it in items:
-        is_stock = cint(it.is_stock_item)
-        qty = bin_map.get(it.name, 0.0) if is_stock else 0.0
-        if is_stock:
-            stock_items_count += 1
-            total_stock_units += qty
-        else:
-            non_stock_items_count += 1
-
-        report.append({
-            "item_code": it.name,
-            "item_name": it.item_name,
-            "item_group": it.item_group,
-            "stock_uom": it.stock_uom,
-            "is_stock_item": is_stock,
-            "actual_qty": qty,
-            "billing_allowed": not is_stock or qty > 0,
-            "note": "Inventariable en almacén" if is_stock else "Platillo / No inventariable (Facturación libre)",
-        })
-
-    return {
-        "company": company,
-        "warehouse": target_wh,
-        "total_items": len(items),
-        "stock_items_count": stock_items_count,
-        "non_stock_items_count": non_stock_items_count,
-        "total_stock_units": total_stock_units,
-        "billing_requires_stock": True,
-        "items": report,
-    }
 
 
 @frappe.whitelist()

@@ -529,14 +529,13 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
 
     def test_03_negative_and_security_controls_passing(self):
         """Verify security controls that ALREADY hold in backend."""
-        # Waiter cannot call save_restaurant_pos_config / create_pos_product / ensure_restaurant_stock
+        # Waiter cannot call save_restaurant_pos_config; removed helper endpoints must stay absent
         waiter = self._make_user_and_employee("secw", "Mesero (Salón)", ["Restaurant User"], self._make_branch("SecBr"))
         frappe.set_user(waiter["user"])
         with self.assertRaises(frappe.PermissionError):
             pos.save_restaurant_pos_config(frappe.db.get_value("POS Profile", {"company": self.company}, "name"), {})
-        self.assertFalse(hasattr(pos, "ensure_restaurant_stock"))
-        with self.assertRaises(frappe.PermissionError):
-            pos.create_pos_product({"item_name": "Hack Item", "standard_rate": 1})
+        for removed in ("ensure_restaurant_stock", "create_pos_product", "get_restaurant_stock_status", "authorize_clear_order"):
+            self.assertFalse(hasattr(pos, removed), removed)
 
         # Rate limit locks waiter PIN after 5 wrong attempts
         target_emp = self._make_user_and_employee("pinw", "Mesero (Salón)", ["Restaurant User"], self._make_branch("PinBr"), pin="7788")

@@ -1802,7 +1802,7 @@ class LeafRestaurantPOS {
         if (action === "open-payment-modal") return this.openPaymentModal();
         if (action === "clear-current-order") return this.clearCurrentOrderContents();
         if (action === "open-command-modal") return this.openCommandModal();
-        if (action === "send-kds" || action === "send-kitchen") return this.sendToKdsOnly();
+        if (action === "send-kds") return this.sendToKdsOnly();
         if (action === "open-kds") {
             frappe.set_route("restaurant-kds");
             return;
@@ -4388,10 +4388,6 @@ class LeafRestaurantPOS {
         });
     }
 
-    async sendToKitchen() {
-        return this.sendToKdsOnly();
-    }
-
     printCommandTickets(stations, sentAt, orderOverride = null) {
         const order = orderOverride || this.currentOrder;
         const tickets = Object.entries(stations).map(([station, lines]) => `
@@ -4418,21 +4414,6 @@ class LeafRestaurantPOS {
     }
 
     /* Acciones adicionales: Dividir, Transferir, Nota cliente, Cancelar, Menú POS */
-    async prepareOrderOperation() {
-        if (this.currentOrder.status !== "En curso" || !this.currentOrder.items?.length) {
-            frappe.msgprint("Selecciona una cuenta en curso con platillos.");
-            return null;
-        }
-        const saved = await frappe.call({ method: "restaurant.pos.save_pos_order", type: "POST", args: { order: this.currentOrder }, freeze: true, freeze_message: "Guardando la cuenta…" });
-        if (!saved.message?.order) return null;
-        this.currentOrder = saved.message.order;
-        this.upsertOrderInBootstrap(this.currentOrder);
-        const result = await frappe.call({ method: "restaurant.pos.get_order_operation_context", args: { order_name: this.currentOrder.name } });
-        this.operationContext = result.message;
-        this.currentOrder = result.message.order;
-        return this.operationContext;
-    }
-
     async openSplitOrderModal() {
         if (this.operationBusy) return;
         if (this.currentOrder.status !== "En curso" || !this.currentOrder.items?.length) {
@@ -5154,214 +5135,7 @@ class LeafRestaurantPOS {
             logo_url: bootstrapIdle.logo_url || rposCfg.idle_wallpaper_logo_url || this.bootstrap?.company?.company_logo || "",
             show_clock: bootstrapIdle.show_clock !== undefined ? Boolean(bootstrapIdle.show_clock) : (rposCfg.idle_wallpaper_show_clock !== undefined ? Boolean(rposCfg.idle_wallpaper_show_clock) : true),
         };
-        try {
-            const raw = window.localStorage?.getItem("rpos_wallpaper_settings");
-            if (raw) {
-                const parsed = JSON.parse(raw);
-                return Object.assign({}, defaults, parsed);
-            }
-        } catch (e) {
-            // Use defaults on storage access restriction
-        }
         return defaults;
-    }
-
-    openSettingsModal() {
-        const settings = this.getWallpaperSettings();
-        const companyName = this.bootstrap?.company?.name || "LEAF RESTAURANT";
-        const defaultLogo = this.bootstrap?.company?.company_logo || "";
-
-        const bodyHtml = `
-            <div class="rpos-settings-container">
-                <div class="rpos-settings-card">
-                    <div class="rpos-settings-card-header">
-                        <div class="rpos-settings-card-icon">
-                            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                                <circle cx="8.5" cy="8.5" r="1.5"/>
-                                <polyline points="21 15 16 10 5 21"/>
-                            </svg>
-                        </div>
-                        <div>
-                            <h4 style="margin:0;font-size:16px;font-weight:700;color:#0f172a;">Wallpaper / Protector por Inactividad</h4>
-                            <p style="margin:2px 0 0;font-size:12.5px;color:#64748b;">Configura el tiempo sin manipulación, la imagen de fondo y el logotipo corporativo centrado.</p>
-                        </div>
-                    </div>
-
-                    <div class="rpos-settings-body" style="display:flex;flex-direction:column;gap:16px;margin-top:16px;">
-                        <!-- Switch Activar -->
-                        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;">
-                            <div>
-                                <label style="margin:0;font-weight:600;font-size:14px;color:#1e293b;cursor:pointer;" for="rpos-set-wp-enabled">Activar protector de pantalla por inactividad</label>
-                                <div style="font-size:12px;color:#64748b;">Muestra el wallpaper cuando el POS no reciba manipulación del usuario.</div>
-                            </div>
-                            <input type="checkbox" id="rpos-set-wp-enabled" style="width:20px;height:20px;cursor:pointer;accent-color:#714b67;" ${settings.enabled ? "checked" : ""}>
-                        </div>
-
-                        <!-- Tiempo de inactividad -->
-                        <div class="rpos-form-group">
-                            <label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:6px;">Tiempo de inactividad antes de activarse</label>
-                            <div style="display:flex;align-items:center;gap:10px;">
-                                <input type="number" id="rpos-set-wp-minutes" min="0.5" max="180" step="0.5" value="${settings.idle_minutes || 2}" style="width:100px;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:14px;font-weight:700;color:#0f172a;">
-                                <span style="font-size:13.5px;font-weight:500;color:#475569;">minuto(s) sin manipulación</span>
-                            </div>
-                            <div style="font-size:11.5px;color:#64748b;margin-top:4px;">Define cuánto tiempo puede estar el punto de venta sin tocarse (ej. 2 min = 120s).</div>
-                        </div>
-
-                        <!-- Imagen de Fondo -->
-                        <div class="rpos-form-group">
-                            <label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:6px;">Imagen de Fondo del Wallpaper</label>
-                            <div style="display:flex;gap:10px;align-items:center;">
-                                <input type="text" id="rpos-set-wp-bg" value="${this.escape(settings.background_url || "/assets/restaurant/images/background-light.svg")}" placeholder="/assets/restaurant/images/background-light.svg" style="flex:1;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">
-                                <button type="button" class="rpos-btn-soft" data-action="upload-wp-bg" style="white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-size:13px;">
-                                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                                    Adjuntar imagen
-                                </button>
-                            </div>
-                            <div style="font-size:11.5px;color:#64748b;margin-top:4px;">Ruta estática (ej. /assets/restaurant/images/background-light.svg) o haz clic en "Adjuntar imagen" para subir tu propio SVG o foto.</div>
-                        </div>
-
-                        <!-- Logotipo centrado -->
-                        <div class="rpos-form-group">
-                            <label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:6px;">Logotipo de la Empresa (Centrado)</label>
-                            <div style="display:flex;gap:10px;align-items:center;">
-                                <input type="text" id="rpos-set-wp-logo" value="${this.escape(settings.logo_url || defaultLogo)}" placeholder="URL o archivo del logotipo corporativo" style="flex:1;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;">
-                                <button type="button" class="rpos-btn-soft" data-action="upload-wp-logo" style="white-space:nowrap;display:inline-flex;align-items:center;gap:6px;font-size:13px;">
-                                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                                    Subir logo
-                                </button>
-                            </div>
-                            <div style="font-size:11.5px;color:#64748b;margin-top:4px;">Este logotipo aparecerá centrado en la pantalla de wallpaper mientras el POS esté en reposo.</div>
-                        </div>
-
-                        <!-- Vista previa -->
-                        <div class="rpos-form-group">
-                            <label style="display:block;font-size:13px;font-weight:600;color:#334155;margin-bottom:6px;">Vista previa del Wallpaper</label>
-                            <div id="rpos-wp-preview-box" style="height:160px;border-radius:8px;border:1px solid #cbd5e1;overflow:hidden;position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f1f5f9;background-size:cover;background-position:center;transition:background 0.2s ease;">
-                                <img id="rpos-wp-preview-logo-img" src="" alt="Logo" style="max-width:180px;max-height:80px;object-fit:contain;filter:drop-shadow(0 4px 10px rgba(0,0,0,0.18));display:none;">
-                                <div id="rpos-wp-preview-fallback-badge" style="display:flex;align-items:center;gap:8px;padding:8px 18px;background:rgba(255,255,255,0.9);border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.08);display:none;">
-                                    <span class="rpos-brand-leaf" aria-hidden="true" style="display:inline-flex;width:24px;height:24px;">${this.brandLeafLogoHtml()}</span>
-                                    <span style="font-weight:800;font-size:15px;color:#1e293b;">${this.escape(companyName)}</span>
-                                </div>
-                                <div style="position:absolute;bottom:8px;padding:3px 12px;background:rgba(255,255,255,0.85);backdrop-filter:blur(4px);border-radius:12px;font-size:11px;font-weight:600;color:#475569;">Vista previa en miniatura</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        `;
-
-        const footerHtml = `
-            <div style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:10px;flex-wrap:wrap;">
-                <button type="button" class="rpos-btn-soft" data-action="test-wallpaper-now" style="display:inline-flex;align-items:center;gap:6px;">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-                    Probar protector ahora
-                </button>
-                <div style="display:flex;align-items:center;gap:10px;">
-                    <button type="button" class="rpos-btn-soft" data-modal-close>Descartar</button>
-                    <button type="button" class="rpos-btn-primary" data-action="save-wallpaper-settings" style="background:#714b67;border-color:#714b67;">Guardar configuración</button>
-                </div>
-            </div>
-        `;
-
-        const backdrop = this.createModal("Configuraciones del Punto de Venta", bodyHtml, footerHtml, "740px");
-
-        const updatePreview = () => {
-            const bgVal = backdrop.querySelector("#rpos-set-wp-bg")?.value?.trim() || "";
-            const logoVal = backdrop.querySelector("#rpos-set-wp-logo")?.value?.trim() || "";
-            const previewBox = backdrop.querySelector("#rpos-wp-preview-box");
-            const previewLogo = backdrop.querySelector("#rpos-wp-preview-logo-img");
-            const fallbackBadge = backdrop.querySelector("#rpos-wp-preview-fallback-badge");
-
-            if (previewBox) {
-                if (bgVal) {
-                    previewBox.style.backgroundImage = `url("${bgVal}")`;
-                } else {
-                    previewBox.style.backgroundImage = "none";
-                    previewBox.style.backgroundColor = "#f1f5f9";
-                }
-            }
-
-            if (logoVal) {
-                if (previewLogo) {
-                    previewLogo.src = logoVal;
-                    previewLogo.style.display = "block";
-                }
-                if (fallbackBadge) fallbackBadge.style.display = "none";
-            } else {
-                if (previewLogo) previewLogo.style.display = "none";
-                if (fallbackBadge) fallbackBadge.style.display = "flex";
-            }
-        };
-
-        updatePreview();
-
-        backdrop.querySelector("#rpos-set-wp-bg")?.addEventListener("input", updatePreview);
-        backdrop.querySelector("#rpos-set-wp-logo")?.addEventListener("input", updatePreview);
-
-        // Upload background image via native Frappe FileUploader
-        backdrop.querySelector('[data-action="upload-wp-bg"]')?.addEventListener("click", () => {
-            new frappe.ui.FileUploader({
-                make_attachments_public: 1,
-                on_success: (file_doc) => {
-                    if (file_doc && file_doc.file_url) {
-                        const bgInput = backdrop.querySelector("#rpos-set-wp-bg");
-                        if (bgInput) {
-                            bgInput.value = file_doc.file_url;
-                            updatePreview();
-                        }
-                    }
-                }
-            });
-        });
-
-        // Upload logo image via native Frappe FileUploader
-        backdrop.querySelector('[data-action="upload-wp-logo"]')?.addEventListener("click", () => {
-            new frappe.ui.FileUploader({
-                make_attachments_public: 1,
-                on_success: (file_doc) => {
-                    if (file_doc && file_doc.file_url) {
-                        const logoInput = backdrop.querySelector("#rpos-set-wp-logo");
-                        if (logoInput) {
-                            logoInput.value = file_doc.file_url;
-                            updatePreview();
-                        }
-                    }
-                }
-            });
-        });
-
-        // Test screensaver now
-        backdrop.querySelector('[data-action="test-wallpaper-now"]')?.addEventListener("click", () => {
-            const tempSettings = {
-                enabled: true,
-                idle_minutes: Number(backdrop.querySelector("#rpos-set-wp-minutes")?.value || 2),
-                background_url: backdrop.querySelector("#rpos-set-wp-bg")?.value?.trim() || "/assets/restaurant/images/background-light.svg",
-                logo_url: backdrop.querySelector("#rpos-set-wp-logo")?.value?.trim() || "",
-            };
-            this.showIdleWallpaper(tempSettings);
-        });
-
-        // Save settings
-        backdrop.querySelector('[data-action="save-wallpaper-settings"]')?.addEventListener("click", () => {
-            const newSettings = {
-                enabled: Boolean(backdrop.querySelector("#rpos-set-wp-enabled")?.checked),
-                idle_minutes: Math.max(0.1, Number(backdrop.querySelector("#rpos-set-wp-minutes")?.value || 2)),
-                background_url: backdrop.querySelector("#rpos-set-wp-bg")?.value?.trim() || "/assets/restaurant/images/background-light.svg",
-                logo_url: backdrop.querySelector("#rpos-set-wp-logo")?.value?.trim() || "",
-            };
-            try {
-                window.localStorage?.setItem("rpos_wallpaper_settings", JSON.stringify(newSettings));
-            } catch (e) {
-                // Ignore storage limits
-            }
-            this.resetIdleTimer();
-            backdrop.remove();
-            frappe.show_alert({
-                message: "Configuración de wallpaper guardada exitosamente",
-                indicator: "green",
-            }, 4);
-        });
     }
 
     setupIdleWallpaperManager() {

@@ -8,7 +8,7 @@ from frappe.tests.utils import FrappeTestCase
 from restaurant.location import get_editor_context, save_location
 from restaurant.table_management import (
     delete_table,
-    get_area_tables,
+    get_area_tables_list,
     get_map_context,
     save_area_map,
     save_table,
@@ -189,7 +189,7 @@ class TestRestaurantTable(FrappeTestCase):
         # Deleting a table detaches it from the floor map
         delete_table(t1["name"])
         reloaded = get_map_context(self.area)
-        self.assertEqual(len(get_area_tables(self.area)), 1)
+        self.assertEqual(len(get_area_tables_list(self.area)), 1)
         el1 = next(item for item in reloaded["elements"] if item["id"] == "el_table_1")
         self.assertNotIn("table_name", el1)
 

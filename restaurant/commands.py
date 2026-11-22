@@ -3,7 +3,7 @@
 import frappe
 from frappe import _
 from frappe.permissions import get_doc_permissions, get_role_permissions
-from frappe.utils import cint, cstr
+from frappe.utils import cstr
 
 from restaurant.utils import (
     check_readable_link as _check_readable_link,

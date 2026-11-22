@@ -1,7 +1,6 @@
 """Role-based POS authorization, waiter PIN verification, supervisor approval, and audit logging."""
 
 import hmac
-import json
 import uuid
 import frappe
 from frappe import _
@@ -10,7 +9,6 @@ from frappe.utils.password import check_password, get_decrypted_password
 
 MAX_SUPERVISOR_PIN_ATTEMPTS = 5
 SUPERVISOR_PIN_LOCKOUT_SEC = 300
-SUPERVISOR_TOKEN_TTL_SEC = 120
 
 
 INVOICE_ALLOWED_ROLES = {
@@ -194,54 +192,6 @@ def _supervisor_fail_key(supervisor_user):
     return f"rpos_sup_fail:{frappe.session.user}:{supervisor_user}"
 
 
-def _supervisor_token_key(token):
-    return f"rpos_sup_tok:{token}"
-
-
-def issue_supervisor_auth_token(supervisor_user, action, order_name=None, target="", reason=""):
-    """Issue a short-lived, single-use authorization token bound to a specific operation."""
-    token = uuid.uuid4().hex
-    payload = {
-        "user": frappe.session.user,
-        "supervisor": cstr(supervisor_user).strip(),
-        "action": cstr(action).strip(),
-        "order_name": cstr(order_name or "").strip(),
-        "target": cstr(target or "").strip(),
-        "reason": cstr(reason or "").strip(),
-    }
-    frappe.cache().set_value(
-        _supervisor_token_key(token),
-        json.dumps(payload, ensure_ascii=False),
-        expires_in_sec=SUPERVISOR_TOKEN_TTL_SEC,
-    )
-    return token
-
-
-def consume_supervisor_auth_token(token, action, order_name=None, target=""):
-    """Consume and validate a single-use supervisor authorization token for the exact operation."""
-    clean_token = cstr(token or "").strip()
-    if not clean_token:
-        return None
-    cache = frappe.cache()
-    key = _supervisor_token_key(clean_token)
-    raw = cache.get_value(key, expires=True)
-    if not raw:
-        return None
-    cache.delete_value(key)
-    try:
-        data = json.loads(raw) if isinstance(raw, str) else raw
-    except Exception:
-        return None
-    if (
-        data.get("user") != frappe.session.user
-        or data.get("action") != cstr(action).strip()
-        or data.get("order_name") != cstr(order_name or "").strip()
-        or data.get("target") != cstr(target or "").strip()
-    ):
-        return None
-    return data
-
-
 def _resolve_supervisor_by_pin(raw_secret):
     """Find the active supervisor User whose linked Employee PIN matches raw_secret."""
     for sup in get_supervisors_for_pos():
@@ -259,8 +209,6 @@ def verify_supervisor_authorization(
     order_name=None,
     reason="",
     require_reason=False,
-    issue_token=False,
-    token_target="",
     log_success=True,
 ):
     """Validate supervisor role + encrypted PIN (resolving supervisor by PIN if omitted), rate-limit failures, and log audit."""
@@ -381,12 +329,7 @@ def verify_supervisor_authorization(
             reason=clean_reason,
         )
 
-    result = {"authorized": True, "supervisor": sup_user, "operation_id": op_id}
-    if issue_token:
-        result["auth_token"] = issue_supervisor_auth_token(
-            sup_user, action, order_name=order_name, target=token_target, reason=clean_reason
-        )
-    return result
+    return {"authorized": True, "supervisor": sup_user, "operation_id": op_id}
 
 
 def is_order_unlocked_for_session(order_name):
