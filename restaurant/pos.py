@@ -240,6 +240,22 @@ def _load_item_tax_template_rates(template_names):
     return {template: rate for template, rate in rates.items() if rate in (0.0, 15.0, 18.0)}
 
 
+def _sync_order_totals_from_invoice(order, invoice):
+    """The issued invoice is the source of truth: show its discounted totals on the order."""
+    isv_15 = flt(invoice.get("isv_15"), 2)
+    isv_18 = flt(invoice.get("isv_18"), 2)
+    order.db_set({
+        "subtotal": flt(invoice.net_total, 2),
+        "taxed_amount_15": flt(invoice.get("taxed_amount_15"), 2),
+        "isv_15": isv_15,
+        "taxed_amount_18": flt(invoice.get("taxed_amount_18"), 2),
+        "isv_18": isv_18,
+        "exempt_amount": flt(flt(invoice.get("exempt_amount")) + flt(invoice.get("exonerated_amount")), 2),
+        "tax_amount": flt(isv_15 + isv_18, 2),
+        "grand_total": flt(invoice.grand_total, 2),
+    })
+
+
 def _get_item_tax_rates(item_codes, company):
     """Resolve each item's rate with ERPNext's lookup: item templates first, then its item groups."""
     from erpnext.stock.get_item_details import get_item_tax_template
@@ -2925,6 +2941,8 @@ def pay_and_invoice_order(
     doc.due_date_cai = si.due_date_cai
     doc.status = "Facturada" if invoice_finalized else "En curso"
     doc.save()
+    if invoice_finalized:
+        _sync_order_totals_from_invoice(doc, si)
 
     from restaurant.sar_format import format_lempiras_in_words
 
