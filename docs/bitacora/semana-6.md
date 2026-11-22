@@ -30,6 +30,7 @@ Documentar la arquitectura del sistema y sus decisiones principales, corregir lo
 | 18/11 | Revisión de la entrega frente al Módulo 5, publicación de los issues #1 a #13 y aceptación de la matriz de cobro y caja | Sección 4 de esta bitácora; `docs/qa/aceptacion-cobro-caja-2026-11-18.md` |
 | 19/11 | Línea base de pruebas en un sitio limpio (de 119 a 228 de 246 aprobadas); corrección del permiso del cajero para la primera factura de una serie SAR nueva; pruebas que reproducen los defectos de cobro; configuración fiscal de la empresa | Commits `263b6ae` a `38eaa6b`; `docs/qa/linea-base-2026-11-19.md` |
 | 20/11 | Impuestos con plantillas nativas por producto y grupo; anulación que reabre la orden; descuentos con autorización de supervisor; la orden igual a la factura; precios del menú para mesero y cajero; limpieza de código sin uso; pruebas autosuficientes; pruebas manuales con usuarios mesero y cajero; arquitectura y decisiones registradas | `docs/arquitectura.md`, `docs/decisiones/001` y `002`; suite de 263 pruebas aprobada |
+| 21/11 | Publicación en GitHub con el ciclo del módulo: issues #14 a #27 con su semana asignada, 9 ramas y 9 pull requests (#28 a #36), cada uno con su lista de autorrevisión, mezclados en orden en la rama principal; revalidación de los issues #1 a #13 | [Pull requests #28 a #36](https://github.com/SOLFAHSA/restaurant/pulls?q=is%3Apr+is%3Amerged); sección 4.3 |
 
 ### 3.2. Arquitectura y decisiones
 
@@ -103,6 +104,32 @@ La lógica nativa confirmó el primer folio esperado. La serie sigue sin contado
 
 Los valores concretos de la autorización fiscal están almacenados en development. El seguimiento público contiene esta evidencia técnica.
 
+### 4.3. Publicación y cierre de issues (21/11/2026)
+
+Publiqué el trabajo de la semana en 9 pull requests pequeños, uno por objetivo. Cada uno enlaza su issue con *Closes*, explica qué cambia, por qué, cómo lo verifiqué y qué hizo la IA, y trae la lista de autorrevisión del módulo. Las ramas estaban encadenadas (cada una construida sobre la anterior), así que antes de mezclar cada pull request cambié su base a la rama principal.
+
+| Pull request | Objetivo | Issues que cerró |
+| :--- | :--- | :--- |
+| #28 | Evidencia de la semana 5 (registro complementario) | — |
+| #29 | Cobro integrado con los documentos nativos de ERPNext | — |
+| #30 | Impuesto obligatorio por producto (segundo flujo, parte 1) | #20 |
+| #31 | La orden muestra los totales de la factura (segundo flujo, parte 2) | #21 |
+| #32 | Precios del menú para mesero y cajero | #19 |
+| #33 | Botón de nuevo producto en la lista de Item | #22 |
+| #34 | Eliminación de código sin uso | #25 |
+| #35 | Suite de pruebas en un sitio limpio | #26 |
+| #36 | Arquitectura, decisiones y bitácora | — |
+
+Comprobé que la rama principal en GitHub quedó idéntica a la versión con la que pasaron las 263 pruebas.
+
+Revalidación de los issues #1 a #13:
+
+- **Cerrados con evidencia:** #1 (caja cobra las cuentas del mesero), #3 (descuentos por rol), #4 (protección de precios, impuestos y funciones), #7 (inventario al facturar) y #10 (cobro sin presionar F5). Cada cierre tiene un comentario con la prueba que lo respalda.
+- **Pendientes de una prueba manual mía (semana 6):** #2 (cajero en cocina, comandas y reportes), #5 (precuenta del mesero) y #6 (indicador de carga).
+- **Reprogramados:** #8, #9, #11 y #13 a la semana 7, y #12 a la semana 8. El #8 y el #9 dependen de la corrección en el ERPNext de Grintsys (issue #24) y de la verificación en producción.
+- **Combos (#14):** pasó a la semana 7. Preferí entregar la semana con lo que ya estaba probado antes que agregar un cambio de inventario sin tiempo para verificarlo.
+- **Tarjeta y transferencia (#23):** corregido en la configuración de development; queda abierto hasta comprobarlo en producción.
+
 ## 5. Pruebas ejecutadas y verificación
 
 - **Pruebas automatizadas (unitarias y de integración):** ejecuté la suite completa en un sitio de pruebas limpio (`bench --site test_restaurant run-tests --app restaurant --skip-test-records`): **263 pruebas, 0 fallos y 0 errores** (`OK`, 10 omitidas por diseño). Las unitarias comprueban funciones aisladas, como la tasa de impuesto de un producto; las de integración recorren la orden, la factura nativa, la contabilidad y el inventario. Procedimiento en [`docs/qa/como-ejecutar-pruebas.md`](../qa/como-ejecutar-pruebas.md).
@@ -119,6 +146,7 @@ Se usaron dos asistentes: **Claude Code** (Anthropic) y **Codex** (OpenAI). Las 
 | Diagnóstico de defectos (Claude Code) | Revisar mis facturas de prueba y explicar cada error | Causas y correcciones del ISV duplicado, precios ocultos y cuenta de tarjeta | Decidí qué corregir ahora y qué dejar para otra fase | Topar la propina: no aplica al negocio en Honduras | Pruebas automáticas nuevas y repetición manual con mesero y cajero |
 | Limpieza de código (Claude Code) | Encontrar código sin uso o duplicado | Las eliminaciones con evidencia de que nadie las usaba | Elegí qué eliminar y qué conservar | Eliminar los certificados de regalo y el autopedido: se conservan para el kiosco y las cortesías | Búsqueda de referencias y suite completa |
 | Documentación (Claude Code) | Borradores de arquitectura, decisiones y bitácora | La estructura de los documentos | Confirmé las fechas, la decisión sobre la hipótesis y el segundo flujo | — | Revisión propia de cada documento |
+| Publicación en GitHub (Claude Code) | Borradores de los issues y de las descripciones de los pull requests; guía paso a paso de cada comando | Los borradores, que reescribí en primera persona | Publiqué los issues y las ramas, revisé y mezclé yo los pull requests #28 a #32 con la lista de autorrevisión; a mi pedido, el asistente cambió la base y mezcló del #33 al #36 después de comprobar que no tenían conflictos, y cerró los issues #1, #3, #4, #7 y #10 con la evidencia que acordamos | Mover el combo (#14) a esta semana sin tiempo para probarlo | La rama principal en GitHub es idéntica a la versión probada; los issues enlazados se cerraron al mezclar |
 
 No se compartieron con los asistentes contraseñas ni datos reales de clientes.
 
@@ -126,14 +154,18 @@ No se compartieron con los asistentes contraseñas ni datos reales de clientes.
 
 - Separar lo que corresponde al módulo Restaurante de lo que corresponde al ERPNext de Grintsys: dos defectos (permiso de series SAR e ISV duplicado en el ticket) estaban en el código de la empresa y requieren su aprobación.
 - Mantener un sitio de pruebas limpio: el entorno exigió configurar SSL del cliente de base de datos y evitar un ciclo de datos de prueba causado por POS Awesome.
+- Publicar pull requests encadenados: me costó entender por qué había que cambiar la base de cada uno antes de mezclarlo. Además, el comando `gh pr edit --base` falla en la versión de GitHub CLI instalada (2.45), y lo reemplacé por `gh api -X PATCH repos/SOLFAHSA/restaurant/pulls/<número> -f base=feature/modulo-restaurante`.
 
 ## 8. Aprendizajes de la semana
 
 Una regla de negocio repetida en dos lugares termina dando dos resultados: el impuesto se deducía en el menú y se calculaba en la factura, y la orden y la factura calculaban su total por separado. Dejar cada regla en un solo lugar, y reutilizar el mecanismo que ERPNext ya tiene, eliminó defectos en vez de agregar código.
 
+También aprendí para qué sirve la base de un pull request: define contra qué se compara. Mientras las ramas están encadenadas, cada pull request apunta a la rama anterior para mostrar solo sus propios cambios. Al mezclarlo, debe apuntar a la rama principal para que el cambio llegue a ella.
+
 ## 9. Próximas actividades
 
-- Pasar los cambios por el ciclo issue → rama → commits pequeños → pull request → revisión → merge, publicar y verificar en producción; release `semana-6`.
-- Verificar en producción el servicio de tiempo real de la pantalla de cocina (S5-P1-02).
-- Corregir el inventario de los combos con el mecanismo nativo de paquetes de productos (S5-P1-01), semana 7.
+- Pedir a mi supervisor de práctica que publique esta versión en el entorno en línea y verificar ahí el flujo fiscal y el servicio de tiempo real de la pantalla de cocina (S5-P1-02).
+- Hacer las pruebas manuales de los issues #2, #5 y #6 y cerrarlos con su evidencia.
+- Corregir el inventario de los combos con el mecanismo nativo de paquetes de productos (issue #14), semana 7.
+- Separar `pos.py` por funcionalidad (issue #27), semana 7.
 - Completar la ronda de 3 a 5 participantes del segmento (issue #13).
