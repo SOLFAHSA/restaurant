@@ -7,6 +7,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from restaurant import order_operations, pos
 from restaurant.setup import ensure_link_permissions, ensure_restaurant_roles
+from restaurant.tests.fixtures import item_tax_rows
 
 
 class TestRBACSecurityRegression(FrappeTestCase):
@@ -45,6 +46,7 @@ class TestRBACSecurityRegression(FrappeTestCase):
             "stock_uom": uom,
             "is_stock_item": 0,
             "standard_rate": rate,
+            "taxes": item_tax_rows(),
         }).insert(ignore_permissions=True)
         return item.name
 

@@ -195,3 +195,33 @@ def _ensure_stages():
         }).insert(ignore_permissions=True)
         created.append("Restaurant Preparation Stage")
     return created
+
+
+def item_tax_rows(rate=15):
+    """Item Tax rows that give a test item an explicit native template for every company."""
+    from restaurant.tax_configuration import get_item_tax_template
+
+    rows = []
+    for company in frappe.get_all("Company", pluck="name"):
+        try:
+            rows.append({"item_tax_template": get_item_tax_template(company, rate, create=True)})
+        except frappe.ValidationError:
+            # Companies without Honduras ISV accounts cannot sell restaurant items.
+            frappe.clear_messages()
+    return rows
+
+
+def ensure_item_tax(item_code, rate=15):
+    """Attach a template to a reused test item only when neither it nor its group provides one."""
+    from restaurant.pos import _get_item_tax_rates
+
+    companies = frappe.get_all("Company", pluck="name")
+    if all(_get_item_tax_rates([item_code], company).get(item_code) is not None for company in companies):
+        return
+    item = frappe.get_doc("Item", item_code)
+    current = {row.item_tax_template for row in item.taxes}
+    for row in item_tax_rows(rate):
+        if row["item_tax_template"] not in current:
+            item.append("taxes", row)
+    item.save(ignore_permissions=True)
+

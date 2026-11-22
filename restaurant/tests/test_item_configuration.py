@@ -13,6 +13,7 @@ from restaurant.item_configuration import (
     save_option_group,
     save_recipe,
 )
+from restaurant.tests.fixtures import item_tax_rows
 
 
 class TestItemConfiguration(FrappeTestCase):
@@ -103,6 +104,7 @@ class TestItemConfiguration(FrappeTestCase):
             "is_stock_item": 0, "is_sales_item": 1, "is_purchase_item": 0,
             "include_item_in_manufacturing": 0,
             "restaurant_recipe_enabled": 0, "restaurant_options_enabled": 0,
+            "taxes": item_tax_rows(),
         }
         payload.update(values)
         return frappe.get_doc(payload).insert()

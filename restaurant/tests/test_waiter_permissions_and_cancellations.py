@@ -11,6 +11,7 @@ from restaurant.pos import (
     send_order_to_kitchen,
 )
 from restaurant.setup import ensure_employee_pos_fields, ensure_restaurant_roles
+from restaurant.tests.fixtures import ensure_item_tax, item_tax_rows
 
 
 class TestWaiterPermissionsAndCancellations(FrappeTestCase):
@@ -42,8 +43,10 @@ class TestWaiterPermissionsAndCancellations(FrappeTestCase):
                 "stock_uom": frappe.db.get_value("UOM", {}, "name") or "Nos",
                 "is_sales_item": 1,
                 "is_stock_item": 0,
+                "taxes": item_tax_rows(),
             }).insert(ignore_permissions=True)
             cls.item_code = item.name
+        ensure_item_tax(cls.item_code)
 
         cls.waiter_user = "qa.mesero.rbac@leaf.local"
         cls.supervisor_user = "qa.supervisor.rbac@leaf.local"

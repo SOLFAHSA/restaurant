@@ -9,7 +9,7 @@ from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt, now_datetime
 
 from restaurant import pos
-from restaurant.tests.fixtures import ensure_restaurant_test_baseline
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline, item_tax_rows
 
 
 class TestRestaurantInvoiceStock(FrappeTestCase):
@@ -71,6 +71,7 @@ class TestRestaurantInvoiceStock(FrappeTestCase):
             "stock_uom": self.uom,
             "is_sales_item": 1,
             "is_stock_item": is_stock_item,
+            "taxes": item_tax_rows(),
             **fields,
         }).insert(ignore_permissions=True).name
 
