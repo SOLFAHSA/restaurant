@@ -2,7 +2,7 @@
 
 import json
 from collections import defaultdict
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
@@ -660,8 +660,7 @@ class TestOrderOperations(FrappeTestCase):
             "net_total": created.subtotal, "paid_amount": created.grand_total, "change_amount": 0,
             "payments": [frappe._dict(amount=created.grand_total)],
         })
-        for method in ("set_missing_values", "calculate_taxes_and_totals", "insert", "submit"):
-            fake_invoice[method] = Mock()
+        preparation_fixtures.mock_invoice_lifecycle(fake_invoice)
         real_get_doc = frappe.get_doc
         invoice_payloads = []
 
@@ -676,10 +675,9 @@ class TestOrderOperations(FrappeTestCase):
             "authorized_range": "", "company_tax_id": "", "prefix": "",
         }
         with patch("restaurant.pos.frappe.get_doc", side_effect=get_doc), \
-                patch("restaurant.pos._resolve_tax_account", return_value=None), \
                 patch("restaurant.pos._resolve_payment_account", return_value=None), \
                 patch("restaurant.pos._resolve_sar_fiscal_info", return_value=fiscal_info):
-            paid = pos.pay_and_invoice_order(created.name)
+            paid = pos.pay_and_invoice_order(created.name, payments=preparation_fixtures.checkout_payment(created))
         self.assertEqual(len(invoice_payloads), 1)
         self.assertEqual(invoice_payloads[0]["items"][0]["qty"], 0.001)
         fake_invoice.calculate_taxes_and_totals.assert_called()

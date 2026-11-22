@@ -230,7 +230,6 @@ fixtures = [
         "dt": "Custom Field",
         "filters": [
             ["name", "in", [
-                "Location-restaurant_area", "Location-restaurant_branch",
                 "Item-restaurant_tab", "Item-restaurant_recipe_enabled",
                 "Item-restaurant_options_enabled", "Item-restaurant_color",
                 "Item-restaurant_configuration",
@@ -280,8 +279,8 @@ doc_events = {
         "on_trash": "restaurant.kds.publish_kds_realtime_update",
     },
     "Sales Invoice": {
+        "on_cancel": "restaurant.invoice_events.reopen_order_after_invoice_cancel",
         "validate": [
-            "restaurant.pos.preserve_restaurant_invoice_taxes",
             "restaurant.pos.validate_restaurant_invoice_stock",
         ],
     },

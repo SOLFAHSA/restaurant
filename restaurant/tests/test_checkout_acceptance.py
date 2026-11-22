@@ -4,6 +4,8 @@ import json
 import re
 from uuid import uuid4
 
+from restaurant.tax_configuration import _account, get_native_tax_configuration
+
 import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
@@ -20,6 +22,7 @@ class TestCheckoutAcceptance(FrappeTestCase):
         self.fiscal.setUp()
         self.fiscal.make_cai(41, 100)
         self.sale = self.fiscal.sale
+        get_native_tax_configuration(self.sale.company, create=True)
         self.cash = self.sale.mode_of_payment
         self.assertEqual(frappe.db.get_value("Mode of Payment", self.cash, "type"), "Cash")
         self.bank = next(
@@ -51,7 +54,7 @@ class TestCheckoutAcceptance(FrappeTestCase):
         )
 
     def make_item(self, rate):
-        account = pos._resolve_tax_account(self.sale.company, rate or 15)
+        account = _account(self.sale.company, rate or 15)
         letters = uuid4().hex.translate(str.maketrans("0123456789", "ghijklmnop"))
         label = "EXENTO" if rate == 0 else f"ISV {rate}%"
         template = frappe.get_doc({
@@ -198,24 +201,13 @@ class TestCheckoutAcceptance(FrappeTestCase):
         cash = next(row for row in snapshot["payment_methods"] if row["mode_of_payment"] == self.cash)
         self.assertEqual(cash["expected_amount"], 115)
 
-    def test_sar_summary_preserves_zero_and_legacy_missing_net_amount(self):
-        for raw_item, expected in (({"amount": 100, "net_amount": 0}, 0), ({"amount": 100}, 100)):
-            with self.subTest(item=raw_item):
-                invoice = {"items": [raw_item]}
-                pos._sync_sar_tax_summary(
-                    invoice, saved_rates=[json.dumps({"ISV": 15})],
-                    si_meta=frappe.get_meta("Sales Invoice"),
-                )
-                self.assertEqual(invoice["taxed_amount_15"], expected)
-                self.assertEqual(invoice["isv_15"], flt(expected * 0.15, 2))
-
-    def test_default_payment_uses_discounted_total_for_omitted_empty_and_zero_rows(self):
+    def test_positive_total_requires_explicit_payment(self):
         for payments in (None, [], [{"mode_of_payment": self.cash, "amount": 0}]):
             with self.subTest(payments=payments):
-                invoice = self.invoice(self.make_order(), payments, global_discount_percentage=10)
-                self.assertEqual(flt(invoice.grand_total, 2), 103.50)
-                self.assertEqual(flt(invoice.paid_amount, 2), 103.50)
-                self.assertEqual(flt(invoice.change_amount, 2), 0)
+                order = self.make_order()
+                with self.assertRaisesRegex(frappe.ValidationError, "menor al total por cobrar"):
+                    pos.pay_and_invoice_order(order["name"], payments=payments, global_discount_percentage=10)
+                self.assertFalse(frappe.db.get_value("Restaurant Order", order["name"], "sales_invoice"))
 
     def test_full_global_discount_zeroes_mixed_tax_bases(self):
         order = self.sale.make_order(
@@ -248,43 +240,51 @@ class TestCheckoutAcceptance(FrappeTestCase):
         self.assertEqual(self.ticket_amount(invoice, "TOTAL PAGADO L."), 200)
         self.assertEqual(self.ticket_amount(invoice, "CAMBIO L."), 96.50)
 
-    def make_gift_card(self):
-        return frappe.get_doc({
-            "doctype": "Restaurant Gift Card",
-            "card_code": f"QA-CHECKOUT-{uuid4().hex}".upper(),
-            "company": self.sale.company,
-            "customer": self.sale.customer,
-            "initial_amount": 50,
-            "balance": 50,
-            "enabled": 1,
-        }).insert(ignore_permissions=True)
+    def make_gift_certificate(self):
+        from frappe.utils.password import decrypt
 
-    def test_gift_card_reduces_default_payment_after_discount(self):
-        card = self.make_gift_card()
+        certificate = frappe.get_doc({
+            "doctype": "Certificado de Regalo",
+            "company": self.sale.company,
+            "comprador": self.sale.customer,
+            "monto_inicial": 50,
+            "es_saldo_inicial": 1,
+        }).insert(ignore_permissions=True)
+        certificate.submit()
+        return certificate, decrypt(certificate.codigo_cifrado)
+
+    def test_certificate_uses_native_liability_payment_after_discount(self):
+        certificate, code = self.make_gift_certificate()
         invoice = self.invoice(
-            self.make_order(), [{"mode_of_payment": self.cash, "amount": 0}],
-            global_discount_percentage=10, gift_card_code=card.name, gift_card_amount=50,
+            self.make_order(), [{"mode_of_payment": self.cash, "amount": 53.50}],
+            global_discount_percentage=10, gift_card_code=code, gift_card_amount=50,
         )
         self.assertEqual(flt(invoice.grand_total, 2), 103.50)
-        cash = sum(row.amount for row in invoice.payments if row.mode_of_payment == self.cash)
-        self.assertEqual(flt(cash, 2), 53.50)
+        payments = {row.mode_of_payment: row for row in invoice.payments}
+        self.assertEqual(flt(payments[self.cash].amount, 2), 53.50)
+        self.assertEqual(flt(payments["Certificado de Regalo"].amount, 2), 50)
+        self.assertEqual(payments["Certificado de Regalo"].account, certificate.cuenta_pasivo)
+        self.assertEqual(invoice.certificados_de_regalo[0].certificado_de_regalo, certificate.name)
+        self.assertEqual(flt(invoice.write_off_amount, 2), 0)
         self.assertEqual(flt(invoice.change_amount, 2), 0)
-        self.assertEqual(frappe.db.get_value("Restaurant Gift Card", card.name, "balance"), 0)
+        certificate.reload()
+        self.assertEqual(flt(certificate.saldo_disponible, 2), 0)
+        self.assertEqual(certificate.historial[-1].documento_referencia, invoice.name)
 
-    def test_zero_total_does_not_redeem_gift_card(self):
-        card = self.make_gift_card()
-        invoice = self.invoice(
-            self.make_order(), [{"mode_of_payment": self.cash, "amount": 0}],
-            global_discount_percentage=100, gift_card_code=card.name, gift_card_amount=50,
-        )
-        self.assertEqual(flt(invoice.grand_total, 2), 0)
-        self.assertEqual(flt(invoice.paid_amount, 2), 0)
-        self.assertEqual(flt(invoice.change_amount, 2), 0)
-        self.assertEqual(frappe.db.get_value("Restaurant Gift Card", card.name, "balance"), 50)
+    def test_zero_total_cannot_redeem_certificate(self):
+        certificate, code = self.make_gift_certificate()
+        order = self.make_order()
+        with self.assertRaisesRegex(frappe.ValidationError, "no superar el saldo ni el total por cobrar"):
+            pos.pay_and_invoice_order(
+                order["name"], payments=[], global_discount_percentage=100,
+                gift_card_code=code, gift_card_amount=50,
+            )
+        self.assertEqual(flt(certificate.reload().saldo_disponible, 2), 50)
+        self.assertFalse(frappe.db.get_value("Restaurant Order", order["name"], "sales_invoice"))
 
-    def test_default_payment_includes_native_discounted_tip_total(self):
+    def test_explicit_payment_includes_native_discounted_tip_total(self):
         invoice = self.invoice(
-            self.make_order(), None, global_discount_percentage=10, tip_amount=10,
+            self.make_order(), [{"mode_of_payment": self.cash, "amount": 112.50}], global_discount_percentage=10, tip_amount=10,
         )
         self.assertEqual(flt(invoice.grand_total, 2), 112.50)
         self.assertEqual(flt(invoice.paid_amount, 2), 112.50)
@@ -309,44 +309,18 @@ class TestCheckoutAcceptance(FrappeTestCase):
         self.assertEqual(ledger[0].actual_qty, -1)
         invoice.cancel()
         self.assertEqual(self.sale.stock_qty(item.name), 1)
+        reopened = frappe.get_doc("Restaurant Order", order["name"])
+        self.assertEqual(reopened.status, "En curso")
+        self.assertFalse(reopened.sales_invoice)
+        self.assertFalse(reopened.cai)
 
-    def test_gift_card_with_payment_account_uses_discounted_cash_remainder(self):
-        account = frappe.get_doc({
-            "doctype": "Account",
-            "account_name": f"QA Checkout Gift {uuid4().hex[:8]}",
-            "company": self.sale.company,
-            "parent_account": frappe.db.get_value(
-                "Account", {"company": self.sale.company, "root_type": "Liability", "is_group": 1}, "name"
-            ),
-            "is_group": 0,
-        }).insert(ignore_permissions=True)
-        mode_name = "Tarjeta de Regalo"
-        if frappe.db.exists("Mode of Payment", mode_name):
-            mode = frappe.get_doc("Mode of Payment", mode_name)
-        else:
-            mode = frappe.new_doc("Mode of Payment")
-            mode.mode_of_payment = mode_name
-            mode.type = "General"
-        company_account = next(
-            (row for row in mode.accounts if row.company == self.sale.company), None
-        )
-        if company_account:
-            company_account.default_account = account.name
-        else:
-            mode.append("accounts", {"company": self.sale.company, "default_account": account.name})
-        mode.save(ignore_permissions=True)
-        card = self.make_gift_card()
-        invoice = self.invoice(
-            self.make_order(), [{"mode_of_payment": self.cash, "amount": 0}],
-            global_discount_percentage=10, gift_card_code=card.name, gift_card_amount=50,
-        )
-        amounts = {row.mode_of_payment: flt(row.amount, 2) for row in invoice.payments}
-        self.assertEqual(amounts[self.cash], 53.50)
-        self.assertEqual(amounts[mode_name], 50)
-        self.assertEqual(flt(invoice.paid_amount, 2), 103.50)
-        self.assertEqual(flt(invoice.write_off_amount, 2), 0)
-        self.assertEqual(flt(invoice.change_amount, 2), 0)
-        self.assertEqual(frappe.db.get_value("Restaurant Gift Card", card.name, "balance"), 0)
-
-
-
+    def test_certificate_does_not_silently_trim_tendered_cash(self):
+        certificate, code = self.make_gift_certificate()
+        order = self.make_order()
+        with self.assertRaisesRegex(frappe.ValidationError, "saldo restante exacto de 65"):
+            pos.pay_and_invoice_order(
+                order["name"], payments=[{"mode_of_payment": self.cash, "amount": 100}],
+                gift_card_code=code, gift_card_amount=50,
+            )
+        self.assertEqual(flt(certificate.reload().saldo_disponible, 2), 50)
+        self.assertFalse(frappe.db.get_value("Restaurant Order", order["name"], "sales_invoice"))

@@ -1,15 +1,5 @@
-"""Reproduction tests for the Phase 1 defects found on 2026-11-19.
+"""Verify payments, discounts, and cancellation against the native invoice lifecycle."""
 
-Every test asserts a rule that must hold no matter which pending business decision is
-taken (see docs/qa/linea-base-2026-11-19.md). They are marked ``expectedFailure`` because
-the current code still breaks those rules. When Phase 1 fixes a defect, unittest reports
-an "unexpected success": remove the decorator from that test at that moment.
-
-Not covered on purpose: the empty-payment default (full cash) is pending a business
-decision, so no expected behavior can be asserted yet.
-"""
-
-import unittest
 from uuid import uuid4
 
 import frappe
@@ -18,9 +8,6 @@ from frappe.utils import flt, now_datetime
 
 from restaurant import pos
 from restaurant.tests import test_checkout_acceptance
-
-DISCOUNT_ERROR = (frappe.ValidationError, frappe.PermissionError)
-
 
 class TestPhase1KnownDefects(FrappeTestCase):
     def setUp(self):
@@ -80,52 +67,72 @@ class TestPhase1KnownDefects(FrappeTestCase):
 
     # -- 1a: invoice cancellation ---------------------------------------------
 
-    @unittest.expectedFailure
     def test_cancelled_invoice_does_not_leave_the_order_billed(self):
         """DEF 1a: after cancelling, the order must not stay 'Facturada' linked to a cancelled invoice."""
         order = self.checkout.make_order()
-        invoice = self.checkout.invoice(order, [{"mode_of_payment": self.checkout.cash, "amount": 0}])
+        invoice = self.checkout.invoice(order, [{"mode_of_payment": self.checkout.cash, "amount": 115}])
         self.cancel(invoice)
 
         current = frappe.get_doc("Restaurant Order", order["name"])
         self.assertNotEqual(current.sales_invoice, invoice.name)
         self.assertNotEqual(current.status, "Facturada")
 
-    @unittest.expectedFailure
-    def test_cancelled_invoice_restores_the_gift_card_balance(self):
-        """DEF 1a: the redeemed gift card amount must return to the card when the invoice is cancelled."""
-        card = self.checkout.make_gift_card()
+    def test_cancelled_invoice_restores_native_certificate_balance(self):
+        certificate, code = self.checkout.make_gift_certificate()
+        order = self.checkout.make_order()
         invoice = self.checkout.invoice(
-            self.checkout.make_order(), [{"mode_of_payment": self.checkout.cash, "amount": 0}],
-            gift_card_code=card.name, gift_card_amount=50,
+            order, [{"mode_of_payment": self.checkout.cash, "amount": 65}],
+            gift_card_code=code, gift_card_amount=50,
         )
-        self.assertEqual(flt(frappe.db.get_value("Restaurant Gift Card", card.name, "balance"), 2), 0)
+        self.assertEqual(flt(certificate.reload().saldo_disponible, 2), 0)
 
         self.cancel(invoice)
-        self.assertEqual(flt(frappe.db.get_value("Restaurant Gift Card", card.name, "balance"), 2), 50)
+        certificate.reload()
+        self.assertEqual(flt(certificate.saldo_disponible, 2), 50)
+        self.assertEqual(certificate.historial[-1].documento_referencia, invoice.name)
+        self.assertEqual(certificate.historial[-1].tipo_movimiento, "Reversión por Anulación de Factura")
+
 
     # -- 1c: discount limits ---------------------------------------------------
 
-    @unittest.expectedFailure
-    def test_cashier_cannot_exceed_the_pos_profile_discount_limit_alone(self):
-        """DEF 1c: a cashier without supervisor approval must not exceed posa_max_discount_allowed."""
+    def test_cashier_cannot_invoice_above_the_pos_profile_discount_limit_alone(self):
         frappe.db.set_value("POS Profile", self.sale.profile, "posa_max_discount_allowed", 10)
         cashier = self.make_cashier()
         item = self.checkout.make_item(15)
+        order = self.save_order_as(cashier, item, 50)
 
-        # Sanity check: inside the limit the same cashier can save, so the setup is valid.
-        self.assertTrue(self.save_order_as(cashier, item, 5)["name"])
+        frappe.set_user(cashier)
+        try:
+            with self.assertRaises(pos.DiscountApprovalRequired):
+                pos.pay_and_invoice_order(
+                    order["name"], payments=[{"mode_of_payment": self.checkout.cash, "amount": 57.50}],
+                )
+        finally:
+            frappe.set_user("Administrator")
+        self.assertFalse(frappe.db.get_value("Restaurant Order", order["name"], "sales_invoice"))
 
-        with self.assertRaisesRegex(DISCOUNT_ERROR, "(?i)descuento"):
-            self.save_order_as(cashier, item, 50)
+    def test_pos_discount_limit_requires_reason_and_records_supervisor(self):
+        item = self.checkout.make_item(15)
+        frappe.db.set_value("POS Profile", self.sale.profile, "posa_max_discount_allowed", 10)
+        order = self.save_order_as("Administrator", item, 50)
+        payments = [{"mode_of_payment": self.checkout.cash, "amount": 57.50}]
 
-    @unittest.expectedFailure
-    def test_item_max_discount_is_enforced_when_the_order_is_saved(self):
-        """DEF 1c: the native Item.max_discount must be rejected on the order, not only at payment."""
+        with self.assertRaises(pos.DiscountApprovalRequired):
+            pos.pay_and_invoice_order(order["name"], payments=payments)
+        invoice = self.checkout.invoice(order, payments, reason="Descuento de cortesía autorizado")
+        self.assertEqual(flt(invoice.grand_total, 2), 57.50)
+        self.assertTrue(frappe.db.exists("Restaurant Audit Log", {
+            "restaurant_order": order["name"], "action": "Descuento sobre el límite",
+            "supervisor_user": "Administrator", "reason": "Descuento de cortesía autorizado",
+        }))
+
+    def test_supervisor_respects_native_item_discount_limit(self):
         item = self.checkout.make_item(15)
         frappe.db.set_value("Item", item, "max_discount", 10)
-
-        self.assertTrue(self.save_order_as("Administrator", item, 5)["name"])
-
-        with self.assertRaisesRegex(DISCOUNT_ERROR, "(?i)descuento"):
-            self.save_order_as("Administrator", item, 50)
+        order = self.save_order_as("Administrator", item, 5)
+        with self.assertRaisesRegex(frappe.ValidationError, "supera el máximo configurado"):
+            pos.pay_and_invoice_order(
+                order["name"], global_discount_percentage=10,
+                payments=[{"mode_of_payment": self.checkout.cash, "amount": 115}],
+                reason="Descuento de cortesía",
+            )

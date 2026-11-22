@@ -122,8 +122,35 @@ class LeafRestaurantPOS {
         return Boolean(line.kds_status && line.kds_status !== "Pendiente");
     }
 
+    getCheckoutPreviewTotal(state) {
+        const total = Number(this.currentOrder.grand_total || 0);
+        const discount = Math.min(100, Math.max(0, Number(state.globalDiscountPct || 0)));
+        return this.roundMoney(total * (1 - discount / 100));
+    }
+
+    async submitCheckout(args) {
+        const method = "restaurant.pos.pay_and_invoice_order";
+        try {
+            return await frappe.call({
+                method,
+                args,
+                freeze: true,
+                freeze_message: "Emitiendo la factura y registrando el pago...",
+            });
+        } catch (error) {
+            const errorType = error?.responseJSON?.exc_type || error?.exc_type;
+            if (errorType !== "DiscountApprovalRequired") throw error;
+            const result = await this.requestSupervisorAuthModal("Descuento sobre el límite", method, args, {
+                requirePin: this.requiresSupervisorAuth(),
+                reasonLabel: "Motivo del descuento",
+            });
+            return result ? { message: result } : null;
+        }
+    }
+
     requestSupervisorAuthModal(actionLabel, method, extraArgs = {}, options = {}) {
         const requireReason = options.requireReason !== false;
+        const requirePin = options.requirePin !== false;
         const orderLabel = options.orderLabel || this.currentOrder?.order_name || extraArgs.order_name || "Orden actual";
         const itemLabel = options.itemLabel || "";
         const requester = frappe.session.user || "";
@@ -149,7 +176,7 @@ class LeafRestaurantPOS {
                         <input type="password" data-sup-pin autocomplete="new-password" placeholder="Ingresa el PIN o código del supervisor">
                     </div>
                     <div class="rpos-field">
-                        <label>Motivo de cancelación ${requireReason ? "*" : "(opcional)"}</label>
+                        <label>${this.escape(options.reasonLabel || "Motivo de cancelación")} ${requireReason ? "*" : "(opcional)"}</label>
                         <input type="text" data-sup-reason maxlength="180" placeholder="Ej. Error de digitación, solicitud del cliente...">
                     </div>
                 `,
@@ -177,18 +204,19 @@ class LeafRestaurantPOS {
 
             const pinInput = backdrop.querySelector("[data-sup-pin]");
             const reasonInput = backdrop.querySelector("[data-sup-reason]");
+            if (!requirePin) pinInput.closest(".rpos-field").hidden = true;
             setTimeout(() => pinInput?.focus(), 60);
 
             backdrop.querySelector("[data-sup-confirm]").addEventListener("click", async () => {
                 const supervisorPin = pinInput.value;
                 const reason = reasonInput.value.trim();
-                if (!supervisorPin) {
+                if (requirePin && !supervisorPin) {
                     frappe.msgprint("Ingresa el PIN o código de seguridad del supervisor.");
                     pinInput.focus();
                     return;
                 }
                 if (requireReason && !reason) {
-                    frappe.msgprint("Debes ingresar el motivo obligatorio de la cancelación.");
+                    frappe.msgprint("Debes ingresar el motivo de la operación.");
                     reasonInput.focus();
                     return;
                 }
@@ -3584,9 +3612,10 @@ class LeafRestaurantPOS {
 
         const cfg = this.getRposConfig();
         this.recalculateLocalTotals();
-        const grand = Number(this.currentOrder.grand_total || 0);
-        const tenderedNum = st.tenderedBuffer ? Number(st.tenderedBuffer) : grand;
-        const change = Math.max(0, this.roundMoney(tenderedNum - grand));
+        const grand = this.getCheckoutPreviewTotal(st);
+        const remaining = Math.max(0, this.roundMoney(grand - (st.giftCardAmount || 0)));
+        const tenderedNum = st.tenderedBuffer ? Number(st.tenderedBuffer) : remaining;
+        const change = st.giftCardCode ? 0 : Math.max(0, this.roundMoney(tenderedNum - remaining));
         const [intPart, decPart] = grand.toFixed(2).split(".");
 
         const rawMops = this.bootstrap?.modes_of_payment || [];
@@ -3632,7 +3661,7 @@ class LeafRestaurantPOS {
                         ` : ""}
                         ${st.globalDiscountPct > 0 ? `<div style="padding:6px 10px;background:#effbe9;border:1px solid #a4ce87;border-radius:6px;font-size:12px;font-weight:700;color:#2f8500;">Descuento global: ${st.globalDiscountPct}%</div>` : ""}
                         ${st.couponCode ? `<div style="padding:6px 10px;background:#effbe9;border:1px solid #a4ce87;border-radius:6px;font-size:12px;font-weight:700;color:#2f8500;">Cupón: ${this.escape(st.couponCode)}</div>` : ""}
-                        ${st.giftCardCode ? `<div style="padding:6px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;font-weight:700;color:#002456;">Tarjeta Regalo: ${this.escape(st.giftCardCode)} (${this.formatMoney(st.giftCardAmount)})</div>` : ""}
+                        ${st.giftCardCode ? `<div style="padding:6px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;font-weight:700;color:#002456;">Certificado: ${this.escape(st.giftCardMaskedCode)} (${this.formatMoney(st.giftCardAmount)})</div>` : ""}
                     </div>
 
                     <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
@@ -3653,7 +3682,7 @@ class LeafRestaurantPOS {
                             <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
                                 ${cfg.allow_global_discount !== 0 ? `<button type="button" data-action="pay-screen-global-discount" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🏷 Desc. Global</button>` : ""}
                                 ${cfg.enable_promotions_coupons ? `<button type="button" data-action="pay-screen-coupon" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🎟 Cupón</button>` : ""}
-                                ${cfg.enable_gift_cards ? `<button type="button" data-action="pay-screen-gift-card" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🎁 Tarjeta Regalo</button>` : ""}
+                                ${cfg.enable_gift_cards ? `<button type="button" data-action="pay-screen-gift-card" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🎁 Certificado de Regalo</button>` : ""}
                                 ${cfg.enable_loyalty_program ? `<button type="button" data-action="pay-screen-loyalty" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">⭐ Puntos Lealtad</button>` : ""}
                             </div>
                         ` : ""}
@@ -3724,7 +3753,7 @@ class LeafRestaurantPOS {
         }
         if (action === "pay-screen-add") {
             const addVal = Number(el.dataset.add || 0);
-            const curVal = st.tenderedBuffer ? Number(st.tenderedBuffer) : Number(this.currentOrder.grand_total || 0);
+            const curVal = st.tenderedBuffer ? Number(st.tenderedBuffer) : Math.max(0, this.getCheckoutPreviewTotal(st) - (st.giftCardAmount || 0));
             st.tenderedBuffer = (curVal + addVal).toFixed(2);
             this.render();
             return;
@@ -3755,7 +3784,7 @@ class LeafRestaurantPOS {
         }
         if (action === "pay-screen-gift-card") {
             frappe.prompt([
-                { fieldname: "code", fieldtype: "Data", label: "Código de Tarjeta de Regalo", reqd: 1 },
+                { fieldname: "code", fieldtype: "Data", label: "Código de Certificado de Regalo", reqd: 1 },
                 { fieldname: "amount", fieldtype: "Currency", label: "Monto a redimir (L)", default: this.currentOrder.grand_total, reqd: 1 },
             ], async vals => {
                 const res = await frappe.call({
@@ -3763,12 +3792,18 @@ class LeafRestaurantPOS {
                     args: { card_code: vals.code },
                 });
                 const gc = res.message || {};
-                const redeem = Math.min(Number(vals.amount || 0), Number(gc.balance || 0), Number(this.currentOrder.grand_total || 0));
-                st.giftCardCode = gc.card_code;
+                const redeem = Math.min(Number(vals.amount || 0), Number(gc.balance || 0), this.getCheckoutPreviewTotal(st));
+                if (redeem <= 0) {
+                    frappe.msgprint("Ingresa un monto mayor que cero para aplicar el certificado.");
+                    return;
+                }
+                st.giftCardCode = vals.code;
+                st.giftCardMaskedCode = gc.masked_code;
+                st.tenderedBuffer = "";
                 st.giftCardAmount = redeem;
-                frappe.show_alert({ message: `Tarjeta ${gc.card_code} validada (${this.formatMoney(redeem)})`, indicator: "green" });
+                frappe.show_alert({ message: `Certificado ${gc.masked_code} validado (${this.formatMoney(redeem)})`, indicator: "green" });
                 this.render();
-            }, "Redimir Tarjeta de Regalo", "Validar");
+            }, "Canjear Certificado de Regalo", "Validar");
             return;
         }
         if (action === "pay-screen-loyalty") {
@@ -3790,26 +3825,23 @@ class LeafRestaurantPOS {
         }
         if (action === "pay-screen-validate") {
             this.recalculateLocalTotals();
-            const grand = Number(this.currentOrder.grand_total || 0);
-
-            const res = await frappe.call({
-                method: "restaurant.pos.pay_and_invoice_order",
-                args: {
-                    order_name: this.currentOrder.name,
-                    customer: this.currentOrder.customer,
-                    tax_id: this.currentOrder.tax_id || "",
-                    tip_percentage: this.currentOrder.tip_percentage || 0,
-                    tip_amount: this.currentOrder.tip_amount || 0,
-                    global_discount_percentage: st.globalDiscountPct || 0,
-                    coupon_code: st.couponCode || "",
-                    gift_card_code: st.giftCardCode || "",
-                    gift_card_amount: st.giftCardAmount || 0,
-                    loyalty_points: st.loyaltyPoints || 0,
-                    payments: [{ mode_of_payment: st.selectedMop || "Efectivo", amount: grand }],
-                },
-                freeze: true,
-                freeze_message: "Emitiendo Factura Fiscal SAR y registrando pago...",
+            const grand = this.getCheckoutPreviewTotal(st);
+            const remaining = Math.max(0, this.roundMoney(grand - (st.giftCardAmount || 0)));
+            const tendered = st.tenderedBuffer ? Number(st.tenderedBuffer) : remaining;
+            const res = await this.submitCheckout({
+                order_name: this.currentOrder.name,
+                customer: this.currentOrder.customer,
+                tax_id: this.currentOrder.tax_id || "",
+                tip_percentage: this.currentOrder.tip_percentage || 0,
+                tip_amount: this.currentOrder.tip_amount || 0,
+                global_discount_percentage: st.globalDiscountPct || 0,
+                coupon_code: st.couponCode || "",
+                gift_card_code: st.giftCardCode || "",
+                gift_card_amount: st.giftCardAmount || 0,
+                loyalty_points: st.loyaltyPoints || 0,
+                payments: tendered > 0 ? [{ mode_of_payment: st.selectedMop || "Efectivo", amount: tendered }] : [],
             });
+            if (!res) return;
 
             const invoice = res.message.invoice;
             const finishedOrder = res.message.order;
@@ -4053,24 +4085,20 @@ class LeafRestaurantPOS {
             this.payBusy = true;
             paySubmitBtn.disabled = true;
             try {
-                const res = await frappe.call({
-                    method: "restaurant.pos.pay_and_invoice_order",
-                    args: {
-                        order_name: this.currentOrder.name,
-                        customer: custSel.value,
-                        tax_id: rtnInp.value.trim(),
-                        tip_percentage: 0,
-                        tip_amount: tip,
-                        tax_category: exoChk.checked ? "Exonerado" : "Contribuyente",
-                        custom_orden_compra_exenta: exoChk.checked ? ocInp.value.trim() : "",
-                        custom_constancia_exonerado: exoChk.checked ? crInp.value.trim() : "",
-                        custom_registro_sag: exoChk.checked ? sagInp.value.trim() : "",
-                        custom_carnet_diplomatico: exoChk.checked ? carnetInp.value.trim() : "",
-                        payments: [{ mode_of_payment: mop, amount: grand }],
-                    },
-                    freeze: true,
-                    freeze_message: "Emitiendo Factura Fiscal SAR y registrando pago...",
+                const res = await this.submitCheckout({
+                    order_name: this.currentOrder.name,
+                    customer: custSel.value,
+                    tax_id: rtnInp.value.trim(),
+                    tip_percentage: 0,
+                    tip_amount: tip,
+                    tax_category: exoChk.checked ? "Exonerado" : "Contribuyente",
+                    custom_orden_compra_exenta: exoChk.checked ? ocInp.value.trim() : "",
+                    custom_constancia_exonerado: exoChk.checked ? crInp.value.trim() : "",
+                    custom_registro_sag: exoChk.checked ? sagInp.value.trim() : "",
+                    custom_carnet_diplomatico: exoChk.checked ? carnetInp.value.trim() : "",
+                    payments: tendered > 0 ? [{ mode_of_payment: mop, amount: tendered }] : [],
                 });
+                if (!res) return;
 
                 backdrop.remove();
                 const invoice = res.message.invoice;

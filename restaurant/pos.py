@@ -219,26 +219,25 @@ def _resolve_command_map():
     return {k: list(v) for k, v in mapping.items()}
 
 
-def _tax_rate_from_templates(template_names):
-    for tpl in template_names:
-        tpl_name = (tpl or "").upper()
-        if "EXENTO" in tpl_name or "0%" in tpl_name:
-            return 0.0
-        if "18%" in tpl_name or "18" in tpl_name:
-            return 18.0
-        if "15%" in tpl_name or "15" in tpl_name:
-            return 15.0
-    return 15.0
-
-
-def _resolve_item_tax_rate(item_code):
-    """Return applicable Honduras ISV rate (15, 18, or 0) for an Item."""
-    taxes = frappe.get_all(
-        "Item Tax",
-        filters={"parent": item_code, "parenttype": "Item"},
-        fields=["item_tax_template"],
+def _load_item_tax_template_rates(template_names):
+    """Read configured rates for the order preview from enabled native Item Tax Templates."""
+    if not template_names:
+        return {}
+    enabled_templates = frappe.get_all(
+        "Item Tax Template",
+        filters={"name": ["in", list(template_names)], "disabled": 0},
+        pluck="name",
     )
-    return _tax_rate_from_templates([row.item_tax_template for row in taxes])
+    if not enabled_templates:
+        return {}
+    rates = {}
+    for row in frappe.get_all(
+        "Item Tax Template Detail",
+        filters={"parent": ["in", enabled_templates], "parenttype": "Item Tax Template"},
+        fields=["parent", "tax_rate"],
+    ):
+        rates[row.parent] = rates.get(row.parent, 0.0) + flt(row.tax_rate)
+    return {template: rate for template, rate in rates.items() if rate in (0.0, 15.0, 18.0)}
 
 
 def validate_order(doc):
@@ -406,6 +405,7 @@ def validate_order(doc):
     item_codes = list({row.item_code for row in (doc.items or []) if row.item_code})
     items_by_code = {}
     taxes_by_item = {}
+    template_rates = {}
     catalog_price_by_item = {}
     option_price_by_item = {}
     if item_codes:
@@ -421,8 +421,12 @@ def validate_order(doc):
             "Item Tax",
             filters={"parent": ["in", item_codes], "parenttype": "Item"},
             fields=["parent", "item_tax_template"],
+            order_by="idx asc",
         ):
             taxes_by_item.setdefault(tax_row.parent, []).append(tax_row.item_tax_template)
+        template_rates = _load_item_tax_template_rates(
+            {name for templates in taxes_by_item.values() for name in templates if name}
+        )
         selling_pl = cstr(getattr(doc, "selling_price_list", "") or "").strip()
         for price_row in frappe.get_all(
             "Item Price",
@@ -516,7 +520,10 @@ def validate_order(doc):
         row.rate = flt(gross_unit * (1.0 - (row.discount_percentage / 100.0)), 2)
         row.amount = flt(row.qty * row.rate, 2)
 
-        row.tax_rate = _tax_rate_from_templates(taxes_by_item.get(row.item_code, []))
+        row.tax_rate = next(
+            (template_rates[name] for name in taxes_by_item.get(row.item_code, []) if name in template_rates),
+            15.0,
+        )
 
         row.note = cstr(row.note).strip()[:300]
         row.options_summary = cstr(row.options_summary).strip()[:500]
@@ -885,10 +892,6 @@ def _get_effective_rpos_config(pos_profile=None):
                 cfg["idle_wallpaper_background_url"] = rs.idle_wallpaper_background
             if getattr(rs, "idle_wallpaper_logo", None):
                 cfg["idle_wallpaper_logo_url"] = rs.idle_wallpaper_logo
-            if getattr(rs, "payment_methods", None):
-                cfg["enabled_payments"] = [
-                    r.mode_of_payment for r in rs.payment_methods if cint(r.enabled) and r.mode_of_payment
-                ]
             if cint(cfg.get("restrict_categories")) and getattr(rs, "allowed_categories", None):
                 cfg["allowed_categories"] = [
                     r.item_group for r in rs.allowed_categories if r.item_group
@@ -902,7 +905,7 @@ def _get_effective_rpos_config(pos_profile=None):
             try:
                 pref = json.loads(raw_pref) if isinstance(raw_pref, str) else dict(raw_pref)
                 for k, v in pref.items():
-                    if v is not None:
+                    if k != "enabled_payments" and v is not None:
                         cfg[k] = v
             except Exception:
                 pass
@@ -914,8 +917,7 @@ def _get_effective_rpos_config(pos_profile=None):
                 if (cint(prof_doc.disable_rounded_total) or not cint(cfg.get("enable_rounded_total", 0)))
                 else 1
             )
-            if prof_doc.payments:
-                cfg["enabled_payments"] = [row.mode_of_payment for row in prof_doc.payments if row.mode_of_payment]
+            cfg["enabled_payments"] = [row.mode_of_payment for row in prof_doc.payments if row.mode_of_payment]
 
     return cfg
 
@@ -1714,121 +1716,45 @@ def get_closing_shift_preview(pos_opening_shift=None):
     hide_expected_amount = cint(getattr(prof_doc, "hide_expected_amount", 0))
     currency = getattr(prof_doc, "currency", None) or frappe.get_cached_value("Company", opening_doc.company, "default_currency") or "HNL"
 
-    if frappe.db.exists("DocType", "POS Closing Shift"):
-        from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
-            make_closing_shift_from_opening,
-        )
+    if not frappe.db.exists("DocType", "POS Closing Shift"):
+        frappe.throw(_("Instala POS Awesome para conciliar y cerrar el turno."))
 
-        closing_doc = make_closing_shift_from_opening(frappe.as_json(opening_doc.as_dict()))
-        configured_cash_mop = (
-            frappe.db.get_value("POS Profile", opening_doc.pos_profile, "posa_cash_mode_of_payment")
-            if frappe.get_meta("POS Profile").has_field("posa_cash_mode_of_payment")
-            else None
-        )
-        cash_net_total = flt(cash_movements.get("net_cash_movement"), 2)
-        cash_applied = False
-        payment_reconciliation = []
-        for row in (closing_doc.payment_reconciliation or []):
-            mop = row.mode_of_payment or ""
-            expected_amt = flt(row.expected_amount, 2)
-            opening_amt = flt(row.opening_amount, 2)
-            is_cash = (
-                (configured_cash_mop and mop == configured_cash_mop)
-                or "efectivo" in mop.lower()
-                or "cash" in mop.lower()
-            )
-            cash_net = cash_net_total if (is_cash and not cash_applied) else 0.0
-            if is_cash and not cash_applied:
-                cash_applied = True
-            payment_reconciliation.append({
-                "mode_of_payment": mop,
-                "is_cash": cint(is_cash),
-                "opening_amount": opening_amt,
-                "sales_amount": flt(expected_amt - opening_amt - cash_net, 2),
-                "cash_movement_net": cash_net,
-                "expected_amount": expected_amt,
-                "closing_amount": expected_amt,
-                "difference": 0.0,
-            })
-
-        return {
-            "pos_opening_shift": opening_doc.name,
-            "pos_profile": opening_doc.pos_profile,
-            "company": opening_doc.company,
-            "currency": currency,
-            "hide_expected_amount": hide_expected_amount,
-            "user": opening_doc.user,
-            "cashier_name": get_fullname(opening_doc.user),
-            "period_start_date": str(opening_doc.period_start_date),
-            "invoice_count": len(closing_doc.pos_transactions or []),
-            "total_sales": flt(closing_doc.grand_total, 2),
-            "cash_movements": cash_movements,
-            "payment_reconciliation": payment_reconciliation,
-        }
-
-    invoices = frappe.get_all(
-        "Sales Invoice",
-        filters={"posa_pos_opening_shift": opening_doc.name, "docstatus": 1},
-        fields=["name", "customer", "customer_name", "grand_total", "paid_amount", "change_amount", "posting_date"],
-        order_by="creation desc",
+    from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
+        make_closing_shift_from_opening,
     )
-    invoice_names = [inv.name for inv in invoices]
-    paid_by_mop = {}
-    if invoice_names:
-        payment_rows = frappe.get_all(
-            "Sales Invoice Payment",
-            filters={"parent": ["in", invoice_names], "parenttype": "Sales Invoice"},
-            fields=["parent", "mode_of_payment", "amount"],
-        )
-        change_by_inv = {inv.name: flt(inv.change_amount, 2) for inv in invoices}
-        for prow in payment_rows:
-            mop = prow.mode_of_payment
-            amt = flt(prow.amount, 2)
-            if "efectivo" in mop.lower() or "cash" in mop.lower():
-                amt -= flt(change_by_inv.get(prow.parent, 0.0), 2)
-                change_by_inv[prow.parent] = 0.0
-            paid_by_mop[mop] = flt(paid_by_mop.get(mop, 0.0) + amt, 2)
 
+    closing_doc = make_closing_shift_from_opening(frappe.as_json(opening_doc.as_dict()))
+    configured_cash_mop = (
+        frappe.db.get_value("POS Profile", opening_doc.pos_profile, "posa_cash_mode_of_payment")
+        if frappe.get_meta("POS Profile").has_field("posa_cash_mode_of_payment")
+        else None
+    )
+    cash_net_total = flt(cash_movements.get("net_cash_movement"), 2)
+    cash_applied = False
     payment_reconciliation = []
-    seen_mops = set()
-    cash_mop_applied = False
-    for b_row in (opening_doc.balance_details or []):
-        mop = b_row.mode_of_payment
-        seen_mops.add(mop)
-        opening_amt = flt(b_row.amount, 2)
-        sales_amt = flt(paid_by_mop.get(mop, 0.0), 2)
-        is_cash = "efectivo" in mop.lower() or "cash" in mop.lower() or not cash_mop_applied
-        cash_net = cash_movements["net_cash_movement"] if is_cash and not cash_mop_applied else 0.0
-        if is_cash and not cash_mop_applied:
-            cash_mop_applied = True
-        expected_amt = flt(opening_amt + sales_amt + cash_net, 2)
+    for row in (closing_doc.payment_reconciliation or []):
+        mop = row.mode_of_payment or ""
+        expected_amt = flt(row.expected_amount, 2)
+        opening_amt = flt(row.opening_amount, 2)
+        is_cash = (
+            (configured_cash_mop and mop == configured_cash_mop)
+            or "efectivo" in mop.lower()
+            or "cash" in mop.lower()
+        )
+        cash_net = cash_net_total if (is_cash and not cash_applied) else 0.0
+        if is_cash and not cash_applied:
+            cash_applied = True
         payment_reconciliation.append({
             "mode_of_payment": mop,
             "is_cash": cint(is_cash),
             "opening_amount": opening_amt,
-            "sales_amount": sales_amt,
-            "cash_movement_net": flt(cash_net, 2),
+            "sales_amount": flt(expected_amt - opening_amt - cash_net, 2),
+            "cash_movement_net": cash_net,
             "expected_amount": expected_amt,
             "closing_amount": expected_amt,
             "difference": 0.0,
         })
 
-    for mop, sales_amt in paid_by_mop.items():
-        if mop in seen_mops:
-            continue
-        is_cash = "efectivo" in mop.lower() or "cash" in mop.lower()
-        payment_reconciliation.append({
-            "mode_of_payment": mop,
-            "is_cash": cint(is_cash),
-            "opening_amount": 0.0,
-            "sales_amount": flt(sales_amt, 2),
-            "cash_movement_net": 0.0,
-            "expected_amount": flt(sales_amt, 2),
-            "closing_amount": flt(sales_amt, 2),
-            "difference": 0.0,
-        })
-
-    total_sales = sum(flt(inv.grand_total, 2) for inv in invoices)
     return {
         "pos_opening_shift": opening_doc.name,
         "pos_profile": opening_doc.pos_profile,
@@ -1838,8 +1764,8 @@ def get_closing_shift_preview(pos_opening_shift=None):
         "user": opening_doc.user,
         "cashier_name": get_fullname(opening_doc.user),
         "period_start_date": str(opening_doc.period_start_date),
-        "invoice_count": len(invoices),
-        "total_sales": flt(total_sales, 2),
+        "invoice_count": len(closing_doc.pos_transactions or []),
+        "total_sales": flt(closing_doc.grand_total, 2),
         "cash_movements": cash_movements,
         "payment_reconciliation": payment_reconciliation,
     }
@@ -1883,36 +1809,26 @@ def close_pos_shift(pos_opening_shift, closing_amounts=None, note=None):
             for k, v in raw_closing.items():
                 parsed_amounts[k] = flt(v, 2)
 
-    closing_shift_name = ""
-    if frappe.db.exists("DocType", "POS Closing Shift"):
-        from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
-            make_closing_shift_from_opening,
-        )
+    if not frappe.db.exists("DocType", "POS Closing Shift"):
+        frappe.throw(_("Instala POS Awesome para cerrar el turno."))
 
-        closing_doc = make_closing_shift_from_opening(frappe.as_json(doc.as_dict()))
-        for row in (closing_doc.payment_reconciliation or []):
-            if row.mode_of_payment in parsed_amounts:
-                row.closing_amount = flt(parsed_amounts[row.mode_of_payment], 2)
-            else:
-                row.closing_amount = flt(row.expected_amount, 2)
-            row.difference = flt(row.closing_amount - flt(row.expected_amount, 2), 2)
-        closing_doc.insert(ignore_permissions=True)
-        closing_doc.submit()
-        closing_shift_name = closing_doc.name
-        clean_note = cstr(note or "").strip()
-        if clean_note:
-            closing_doc.add_comment("Comment", text=_("Nota de cierre: {0}").format(clean_note))
-    else:
-        frappe.db.set_value("POS Opening Shift", doc.name, {
-            "status": "Closed",
-            "period_end_date": nowdate(),
-        })
+    from posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift import (
+        make_closing_shift_from_opening,
+    )
 
-    if frappe.db.get_value("POS Opening Shift", doc.name, "status") != "Closed":
-        frappe.db.set_value("POS Opening Shift", doc.name, {
-            "status": "Closed",
-            "period_end_date": nowdate(),
-        })
+    closing_doc = make_closing_shift_from_opening(frappe.as_json(doc.as_dict()))
+    for row in (closing_doc.payment_reconciliation or []):
+        if row.mode_of_payment in parsed_amounts:
+            row.closing_amount = flt(parsed_amounts[row.mode_of_payment], 2)
+        else:
+            row.closing_amount = flt(row.expected_amount, 2)
+        row.difference = flt(row.closing_amount - flt(row.expected_amount, 2), 2)
+    closing_doc.insert(ignore_permissions=True)
+    closing_doc.submit()
+    closing_shift_name = closing_doc.name
+    clean_note = cstr(note or "").strip()
+    if clean_note:
+        closing_doc.add_comment("Comment", text=_("Nota de cierre: {0}").format(clean_note))
 
     return {
         "closed": doc.name,
@@ -2503,55 +2419,15 @@ def get_precuenta_data(order_name, tip_percentage=None, tip_amount=None):
 
 
 def _resolve_payment_account(mode_of_payment, company):
-    """Ensure the chosen Mode of Payment has a valid ledger account for the company."""
+    """Read the payment account configured for this company's Mode of Payment."""
     account = frappe.db.get_value(
         "Mode of Payment Account",
         {"parent": mode_of_payment, "company": company},
         "default_account",
     )
-    if account:
-        return account
-    fallback = frappe.db.get_value(
-        "Account",
-        {"company": company, "account_type": ["in", ["Cash", "Bank"]], "is_group": 0},
-        "name",
-    )
-    if fallback and frappe.db.exists("Mode of Payment", mode_of_payment):
-        mop_doc = frappe.get_doc("Mode of Payment", mode_of_payment)
-        mop_doc.append("accounts", {"company": company, "default_account": fallback})
-        mop_doc.save(ignore_permissions=True)
-        return fallback
-    return fallback
-
-
-def _resolve_tax_account(company, rate=15.0):
-    """Return the native Honduras ISV tax account head for the company."""
-    search_token = "18%" if abs(rate - 18.0) < 0.01 else "15%"
-    acc = frappe.db.get_value(
-        "Account",
-        {"company": company, "name": ["like", f"%{search_token}%"], "is_group": 0},
-        "name",
-    )
-    if acc:
-        return acc
-    tpl = frappe.db.get_value(
-        "Sales Taxes and Charges Template",
-        {"company": company, "is_default": 1},
-        "name",
-    )
-    if tpl:
-        row_acc = frappe.db.get_value(
-            "Sales Taxes and Charges",
-            {"parent": tpl, "parenttype": "Sales Taxes and Charges Template"},
-            "account_head",
-        )
-        if row_acc:
-            return row_acc
-    return frappe.db.get_value(
-        "Account",
-        {"company": company, "account_type": "Tax", "is_group": 0},
-        "name",
-    )
+    if not account:
+        frappe.throw(_("Configura la cuenta de pago de {0} para {1}.").format(mode_of_payment, company))
+    return account
 
 
 def _resolve_service_income_account(company):
@@ -2586,141 +2462,6 @@ def _get_doc_items(doc):
     if callable(getter):
         return getter("items") or []
     return getattr(doc, "items", []) or []
-
-
-def _parse_item_tax_pct(raw_map):
-    if not raw_map:
-        return 0.0
-    if isinstance(raw_map, str):
-        try:
-            raw_map = json.loads(raw_map)
-        except Exception:
-            return 0.0
-    if isinstance(raw_map, dict):
-        return sum(flt(v) for v in raw_map.values())
-    return 0.0
-
-
-def _sync_sar_tax_summary(
-    doc,
-    saved_rates=None,
-    is_exonerated=False,
-    tax_acc_15=None,
-    tax_acc_18=None,
-    si_meta=None,
-):
-    """Synchronize Honduras SAR tax summary fields on Sales Invoice from restored item/tax rows."""
-    taxed_15 = 0.0
-    taxed_18 = 0.0
-    exempt = 0.0
-    exonerated = 0.0
-    for idx, si_item in enumerate(_get_doc_items(doc)):
-        net_amt = (
-            si_item.get("net_amount") if isinstance(si_item, dict) else getattr(si_item, "net_amount", None)
-        )
-        if net_amt is None:
-            net_amt = (
-                si_item.get("amount") if isinstance(si_item, dict) else getattr(si_item, "amount", 0)
-            )
-        net_amt = flt(net_amt)
-        if is_exonerated:
-            exonerated += net_amt
-            continue
-        raw_rate_map = (
-            saved_rates[idx]
-            if saved_rates is not None and idx < len(saved_rates)
-            else (
-                si_item.get("item_tax_rate")
-                if isinstance(si_item, dict)
-                else getattr(si_item, "item_tax_rate", None)
-            )
-        )
-        pct = _parse_item_tax_pct(raw_rate_map)
-        if abs(pct - 15.0) < 0.01:
-            taxed_15 += net_amt
-        elif abs(pct - 18.0) < 0.01:
-            taxed_18 += net_amt
-        else:
-            exempt += net_amt
-
-    isv_15 = 0.0
-    isv_18 = 0.0
-    if is_exonerated:
-        taxed_15 = 0.0
-        taxed_18 = 0.0
-        exempt = 0.0
-        exonerated = flt(exonerated, 2)
-    else:
-        taxed_15 = flt(taxed_15, 2)
-        taxed_18 = flt(taxed_18, 2)
-        exempt = flt(exempt, 2)
-        doc_taxes = doc.get("taxes") if callable(getattr(doc, "get", None)) else getattr(doc, "taxes", None)
-        if tax_acc_15 and tax_acc_18 and tax_acc_15 != tax_acc_18 and doc_taxes:
-            for trow in doc_taxes:
-                acc = trow.get("account_head") if isinstance(trow, dict) else getattr(trow, "account_head", None)
-                raw_tax_amt = (
-                    trow.get("tax_amount_after_discount_amount")
-                    if isinstance(trow, dict)
-                    else getattr(trow, "tax_amount_after_discount_amount", None)
-                )
-                if raw_tax_amt is None:
-                    raw_tax_amt = trow.get("tax_amount") if isinstance(trow, dict) else getattr(trow, "tax_amount", 0)
-                tax_amt = flt(raw_tax_amt, 2)
-                if acc == tax_acc_15 and taxed_15 > 0:
-                    isv_15 = tax_amt
-                elif acc == tax_acc_18 and taxed_18 > 0:
-                    isv_18 = tax_amt
-        if taxed_15 > 0 and isv_15 == 0.0:
-            isv_15 = flt(taxed_15 * 0.15, 2)
-        if taxed_18 > 0 and isv_18 == 0.0:
-            isv_18 = flt(taxed_18 * 0.18, 2)
-
-    meta = si_meta or getattr(doc, "meta", None) or frappe.get_meta("Sales Invoice")
-    for sar_field, sar_val in (
-        ("taxed_amount_15", flt(taxed_15, 2)),
-        ("isv_15", flt(isv_15, 2)),
-        ("taxed_amount_18", flt(taxed_18, 2)),
-        ("isv_18", flt(isv_18, 2)),
-        ("exempt_amount", flt(exempt, 2)),
-        ("exonerated_amount", flt(exonerated, 2)),
-    ):
-        if meta.has_field(sar_field):
-            _set_doc_field(doc, sar_field, sar_val)
-
-
-def preserve_restaurant_invoice_taxes(doc, method=None):
-    """Restore Restaurant POS mixed-ISV and exoneration tax maps overwritten during ERPNext validate()."""
-    override = getattr(doc.flags, "restaurant_tax_override", None)
-    if not override:
-        return
-    saved_rates = override.get("item_tax_rates") or []
-    is_exonerated = bool(override.get("is_exonerated"))
-    if "disable_rounded_total" in override:
-        doc.disable_rounded_total = override["disable_rounded_total"]
-    if doc.meta.has_field("tax_category") and override.get("tax_category"):
-        doc.tax_category = override["tax_category"]
-    if is_exonerated:
-        doc.taxes_and_charges = ""
-        _set_doc_field(doc, "taxes", [])
-        for si_item in _get_doc_items(doc):
-            _set_doc_field(si_item, "item_tax_rate", "{}")
-    else:
-        doc.taxes_and_charges = ""
-        if override.get("taxes") is not None:
-            _set_doc_field(doc, "taxes", [dict(row) for row in override["taxes"]])
-        for idx, si_item in enumerate(_get_doc_items(doc)):
-            if idx < len(saved_rates):
-                _set_doc_field(si_item, "item_tax_rate", saved_rates[idx])
-    doc.calculate_taxes_and_totals()
-    # Recompute SAR summary fields after restoring taxes; SalesInvoice.validate() ran get_itemised_tax_info() before this hook.
-    _sync_sar_tax_summary(
-        doc,
-        saved_rates=saved_rates,
-        is_exonerated=is_exonerated,
-        tax_acc_15=override.get("tax_acc_15"),
-        tax_acc_18=override.get("tax_acc_18"),
-        si_meta=getattr(doc, "meta", None),
-    )
 
 
 def _invoice_has_stock_items(items):
@@ -2779,6 +2520,49 @@ def validate_restaurant_invoice_stock(doc, method=None):
             ))
 
 
+class DiscountApprovalRequired(frappe.PermissionError):
+    pass
+
+
+def _approve_checkout_discounts(invoice, order, profile, supervisor_user=None, supervisor_pin=None, reason=""):
+    """Apply the POS Profile and Item discount limits before issuing an invoice."""
+    profile_limit = flt(profile.get("posa_max_discount_allowed"))
+    discount_base = flt(invoice.grand_total) + flt(invoice.discount_amount)
+    global_pct = (100 * flt(invoice.discount_amount) / discount_base) if discount_base > 0 else 0
+    item_codes = {row.item_code for row in order.items if not cint(row.is_cancelled)}
+    item_limits = {
+        row.name: flt(row.max_discount)
+        for row in frappe.get_all("Item", filters={"name": ["in", list(item_codes)]},
+                                   fields=["name", "max_discount"])
+    }
+    exceeds_limit = bool(profile_limit > 0 and flt(global_pct, 4) > profile_limit)
+    for row in order.items:
+        if cint(row.is_cancelled) or row.kds_status == "Cancelado":
+            continue
+        line_pct = flt(row.discount_percentage)
+        combined_pct = flt(line_pct + (100 - line_pct) * global_pct / 100, 4)
+        item_limit = item_limits.get(row.item_code, 0)
+        if item_limit > 0 and combined_pct > item_limit:
+            frappe.throw(_("El descuento de {0} supera el máximo configurado de {1}%.").format(
+                row.item_name or row.item_code, item_limit,
+            ))
+        if profile_limit > 0 and combined_pct > profile_limit:
+            exceeds_limit = True
+
+    if not exceeds_limit:
+        return
+    if not cstr(reason).strip() or (not is_supervisor() and not supervisor_pin):
+        frappe.throw(_("El descuento supera el límite configurado. Solicita autorización de un supervisor e indica el motivo."),
+                     DiscountApprovalRequired)
+    approval = _authorize_sensitive_operation(
+        "Descuento sobre el límite", order.name, supervisor_user, supervisor_pin, reason,
+    )
+    log_restaurant_audit(
+        "Descuento sobre el límite", _("Descuento autorizado para facturar la orden."),
+        order_name=order.name, supervisor_user=approval["supervisor"], reason=approval["reason"],
+    )
+
+
 @frappe.whitelist(methods=["POST"])
 def pay_and_invoice_order(
     order_name,
@@ -2801,6 +2585,9 @@ def pay_and_invoice_order(
     custom_constancia_exonerado=None,
     custom_carnet_diplomatico=None,
     custom_registro_sag=None,
+    supervisor_user=None,
+    supervisor_pin=None,
+    reason=None,
 ):
     """Emit and submit a native SAR Sales Invoice for a Restaurant Order and free its table."""
     _require_pos_user()
@@ -2825,7 +2612,7 @@ def pay_and_invoice_order(
 
     company = doc.company
     active_shift_info = _get_active_opening_shift(frappe.session.user)
-    pos_profile = doc.pos_profile or (active_shift_info.get("pos_profile") if active_shift_info else None)
+    pos_profile = active_shift_info.get("pos_profile") if active_shift_info else doc.pos_profile
     if not pos_profile:
         default_prof = _get_default_pos_profile(company)
         pos_profile = default_prof.name if default_prof else None
@@ -2855,7 +2642,7 @@ def pay_and_invoice_order(
     if coupon_code and not cint(rpos_cfg.get("enable_promotions_coupons", 0)):
         frappe.throw(_("Las promociones y cupones están deshabilitados en la configuración del POS."))
 
-    if gift_card_code and not cint(rpos_cfg.get("enable_gift_cards", 0)):
+    if (gift_card_code or flt(gift_card_amount)) and not cint(rpos_cfg.get("enable_gift_cards", 0)):
         frappe.throw(_("Las tarjetas de regalo están deshabilitadas en la configuración del POS."))
 
     if flt(loyalty_points) > 0 and not cint(rpos_cfg.get("enable_loyalty_program", 0)):
@@ -2895,8 +2682,7 @@ def pay_and_invoice_order(
         else frappe.db.get_value("Company", company, "cost_center")
     )
 
-    tax_acc_15 = _resolve_tax_account(company, 15.0)
-    tax_acc_18 = _resolve_tax_account(company, 18.0)
+    from restaurant.tax_configuration import get_native_tax_configuration, get_item_tax_template
 
     invoice_items = []
     for row in doc.items:
@@ -2907,26 +2693,6 @@ def pay_and_invoice_order(
             desc_parts.append(f"Opciones: {row.options_summary}")
         if row.note:
             desc_parts.append(f"Nota: {row.note}")
-        row_tax_pct = flt(row.tax_rate, 2)
-        item_tax_map = {}
-        if tax_acc_15 and tax_acc_18 and tax_acc_15 == tax_acc_18:
-            item_tax_map[tax_acc_15] = row_tax_pct
-        else:
-            if row_tax_pct == 15.0 and tax_acc_15:
-                item_tax_map[tax_acc_15] = 15.0
-                if tax_acc_18:
-                    item_tax_map[tax_acc_18] = 0.0
-            elif row_tax_pct == 18.0 and tax_acc_18:
-                item_tax_map[tax_acc_18] = 18.0
-                if tax_acc_15:
-                    item_tax_map[tax_acc_15] = 0.0
-            else:
-                if tax_acc_15:
-                    item_tax_map[tax_acc_15] = 0.0
-                if tax_acc_18:
-                    item_tax_map[tax_acc_18] = 0.0
-        item_tax_rate_json = json.dumps(item_tax_map) if item_tax_map else "{}"
-
         item_entry = {
             "item_code": row.item_code,
             "item_name": row.item_name,
@@ -2936,7 +2702,6 @@ def pay_and_invoice_order(
             "rate": flt(row.rate, 2),
             "price_list_rate": flt(row.base_rate + row.options_rate, 2),
             "discount_percentage": flt(row.discount_percentage, 2),
-            "item_tax_rate": item_tax_rate_json,
         }
         if warehouse:
             item_entry["warehouse"] = warehouse
@@ -2953,36 +2718,11 @@ def pay_and_invoice_order(
     if update_stock and (not warehouse or prof_doc.company != company):
         frappe.throw(_("Configura un almacén en un perfil POS de la misma empresa para facturar productos inventariables."))
 
-    taxes = []
-    if tax_acc_15 and tax_acc_18 and tax_acc_15 == tax_acc_18 and (doc.isv_15 > 0 or doc.isv_18 > 0):
-        taxes.append({
-            "charge_type": "On Net Total",
-            "account_head": tax_acc_15,
-            "description": "ISV",
-            "rate": 0.0,
-            "cost_center": cost_center,
-        })
-    else:
-        if tax_acc_15 and doc.isv_15 > 0:
-            taxes.append({
-                "charge_type": "On Net Total",
-                "account_head": tax_acc_15,
-                "description": "ISV 15%",
-                "rate": 0.0,
-                "cost_center": cost_center,
-            })
-        if tax_acc_18 and doc.isv_18 > 0 and tax_acc_18 != tax_acc_15:
-            taxes.append({
-                "charge_type": "On Net Total",
-                "account_head": tax_acc_18,
-                "description": "ISV 18%",
-                "rate": 0.0,
-                "cost_center": cost_center,
-            })
+    service_taxes = []
     if doc.tip_amount > 0:
         service_acc = _resolve_service_income_account(company)
         if service_acc:
-            taxes.append({
+            service_taxes.append({
                 "charge_type": "Actual",
                 "account_head": service_acc,
                 "description": "Servicio sugerido / Propina",
@@ -2990,14 +2730,18 @@ def pay_and_invoice_order(
                 "cost_center": cost_center,
             })
 
-    enabled_mops = set(rpos_cfg.get("enabled_payments") or [])
+    from restaurant.gift_certificates import GIFT_CERT_MOP_NAME
+
+    enabled_mops = {row.mode_of_payment for row in prof_doc.payments if row.mode_of_payment}
     parsed_payments = frappe.parse_json(payments) if isinstance(payments, str) else payments
     payment_rows = []
     if isinstance(parsed_payments, list):
         for p in parsed_payments:
             if isinstance(p, dict) and p.get("mode_of_payment") and flt(p.get("amount")) > 0:
                 mop = p["mode_of_payment"]
-                if enabled_mops and mop not in enabled_mops:
+                if mop == GIFT_CERT_MOP_NAME:
+                    frappe.throw(_("Escanea el código para aplicar un Certificado de Regalo."))
+                if mop not in enabled_mops:
                     frappe.throw(
                         _("El método de pago '{0}' no está habilitado para este Punto de Venta.").format(mop),
                         frappe.PermissionError,
@@ -3008,34 +2752,12 @@ def pay_and_invoice_order(
                     "amount": flt(p["amount"], 2),
                     "account": acc,
                 })
-    default_payment_used = not payment_rows
-    if default_payment_used:
-        default_mop = "Efectivo"
-        if prof_doc and prof_doc.payments:
-            default_mop = prof_doc.payments[0].mode_of_payment
-        acc = _resolve_payment_account(default_mop, company)
-        payment_rows.append({
-            "mode_of_payment": default_mop,
-            "amount": flt(doc.grand_total, 2),
-            "account": acc,
-        })
+    certificate = None
+    if gift_card_code or flt(gift_card_amount):
+        from restaurant.gift_certificates import get_certificate_for_redemption
 
-    gift_card_doc = None
-    redeemed_gift_amount = 0.0
-    if gift_card_code and flt(gift_card_amount) > 0:
-        clean_gc_code = cstr(gift_card_code).strip().upper()
-        if not frappe.db.exists("Restaurant Gift Card", clean_gc_code):
-            frappe.throw(_("La tarjeta de regalo '{0}' no existe.").format(clean_gc_code))
-        frappe.db.sql(
-            "SELECT name FROM `tabRestaurant Gift Card` WHERE name = %s FOR UPDATE",
-            (clean_gc_code,),
-        )
-        gift_card_doc = frappe.get_doc("Restaurant Gift Card", clean_gc_code)
-        if not cint(gift_card_doc.enabled):
-            frappe.throw(_("La tarjeta de regalo '{0}' está inactiva o vencida.").format(clean_gc_code))
-        if flt(gift_card_amount) > flt(gift_card_doc.balance):
-            frappe.throw(_("Saldo insuficiente en la tarjeta de regalo (disponible: {0}).").format(flt(gift_card_doc.balance, 2)))
-        redeemed_gift_amount = flt(gift_card_amount, 2)
+        certificate = get_certificate_for_redemption(gift_card_code, company)
+
 
     # Prefer the billing cashier's active open shift so orders from prior closed shifts bill cleanly
     # and reconcile in the current cashier's shift/closing count.
@@ -3072,7 +2794,6 @@ def pay_and_invoice_order(
         "naming_series": prof_doc.prefix,
         "posa_notes": f"Orden: {doc.order_name} | Mesa: {doc.table_label or 'N/A'} | Mesero: {doc.waiter_name or 'N/A'}",
         "items": invoice_items,
-        "taxes": taxes,
         "payments": payment_rows,
     }
     if update_stock:
@@ -3110,7 +2831,17 @@ def pay_and_invoice_order(
     if si_meta.has_field("tax_category"):
         si_payload["tax_category"] = resolved_tax_category
 
-    is_exonerated = resolved_tax_category == "Exonerado"
+    is_exonerated = resolved_tax_category.upper() == "EXONERADO"
+    native_taxes = get_native_tax_configuration(company)
+    si_payload["taxes_and_charges"] = native_taxes[
+        "exonerated_taxes_and_charges" if is_exonerated else "taxes_and_charges"
+    ]
+    for item_entry, order_row in zip(invoice_items, (
+        row for row in doc.items if not cint(row.is_cancelled) and row.kds_status != "Cancelado"
+    )):
+        item_entry["item_tax_template"] = get_item_tax_template(
+            company, 0 if is_exonerated else order_row.tax_rate,
+        )
     exo_values = {
         "custom_subtipo_exonerado": cstr(cust_info.get("custom_subtipo_exonerado") or "").strip() if is_exonerated else "",
         "custom_orden_compra_exenta": cstr(custom_orden_compra_exenta or "").strip() if is_exonerated else "",
@@ -3139,82 +2870,27 @@ def pay_and_invoice_order(
         si_payload["loyalty_points"] = cint(loyalty_points)
 
     si = frappe.get_doc(si_payload)
-    saved_item_tax_rates = [row.get("item_tax_rate") or "{}" for row in invoice_items]
     si.set_missing_values()
-    # Preserve Restaurant POS overrides against POS Profile / Customer defaults applied by set_missing_values()
+    _set_doc_field(si, "payments", payment_rows)
     si.update_stock = update_stock
     si.disable_rounded_total = si_payload["disable_rounded_total"]
-    if si_meta.has_field("tax_category"):
-        si.tax_category = resolved_tax_category
-    if is_exonerated:
-        si.taxes_and_charges = ""
-        _set_doc_field(si, "taxes", [])
-        for si_item in _get_doc_items(si):
-            _set_doc_field(si_item, "item_tax_rate", "{}")
-        for exo_field, exo_val in exo_values.items():
-            if si_meta.has_field(exo_field):
-                setattr(si, exo_field, exo_val)
-    else:
-        for exo_field in exo_values:
-            if si_meta.has_field(exo_field):
-                setattr(si, exo_field, "")
-        si.taxes_and_charges = ""
-        _set_doc_field(si, "taxes", taxes)
-        for idx, si_item in enumerate(_get_doc_items(si)):
-            if idx < len(saved_item_tax_rates):
-                _set_doc_field(si_item, "item_tax_rate", saved_item_tax_rates[idx])
+    si.tax_category = resolved_tax_category
+    si.taxes_and_charges = si_payload["taxes_and_charges"]
+    # Load the native tax master after POS defaults and preserve the service charge.
+    from erpnext.controllers.accounts_controller import get_taxes_and_charges
+
+    _set_doc_field(si, "taxes", get_taxes_and_charges(
+        "Sales Taxes and Charges Template", si.taxes_and_charges,
+    ) + service_taxes)
     si.calculate_taxes_and_totals()
 
+    _approve_checkout_discounts(si, doc, prof_doc, supervisor_user, supervisor_pin, reason)
     grand_total = flt(si.grand_total, 2)
-    if default_payment_used and si.payments:
-        si.payments[0].amount = grand_total
-        si.calculate_taxes_and_totals()
-    applied_gc_amount = 0.0
-    if gift_card_doc and redeemed_gift_amount > 0:
-        applied_gc_amount = min(flt(redeemed_gift_amount, 2), grand_total)
-        gc_mop = None
-        gc_acc = None
-        for candidate_mop in ("Tarjeta de Regalo", "Gift Card"):
-            if frappe.db.exists("Mode of Payment", candidate_mop):
-                cand_acc = frappe.db.get_value(
-                    "Mode of Payment Account",
-                    {"parent": candidate_mop, "company": company},
-                    "default_account",
-                )
-                if cand_acc:
-                    gc_mop = candidate_mop
-                    gc_acc = cand_acc
-                    break
+    if certificate:
+        from restaurant.gift_certificates import apply_certificate
 
-        cash_due = max(0.0, flt(grand_total - applied_gc_amount, 2))
-        if default_payment_used and si.payments:
-            si.payments[0].amount = cash_due
-
-        if gc_mop and gc_acc:
-            existing_gc_amt = sum(flt(p.amount) for p in si.payments if p.mode_of_payment == gc_mop)
-            if existing_gc_amt <= 0 and applied_gc_amount > 0:
-                si.append("payments", {
-                    "mode_of_payment": gc_mop,
-                    "amount": applied_gc_amount,
-                    "account": gc_acc,
-                })
-            expected_paid_due = grand_total
-        else:
-            write_off_acc = (
-                (getattr(prof_doc, "write_off_account", None) if prof_doc else None)
-                or frappe.db.get_value("Company", company, "write_off_account")
-                or frappe.db.get_value("Account", {"company": company, "root_type": "Expense", "is_group": 0}, "name")
-            )
-            si.write_off_amount = flt(applied_gc_amount, 2)
-            if write_off_acc:
-                si.write_off_account = write_off_acc
-            if cost_center:
-                si.write_off_cost_center = cost_center
-            expected_paid_due = cash_due
-            si.calculate_taxes_and_totals()
-    else:
-        expected_paid_due = grand_total
-
+        apply_certificate(si, certificate, gift_card_amount)
+    expected_paid_due = flt(si.rounded_total if not cint(si.disable_rounded_total) else grand_total, 2)
     total_paid = sum(flt(p.amount) for p in si.payments)
     total_paid_cents = round(flt(total_paid, 2) * 100)
     expected_due_cents = round(flt(expected_paid_due, 2) * 100)
@@ -3225,46 +2901,26 @@ def pay_and_invoice_order(
             )
         )
 
-    if _get_doc_items(si):
-        _sync_sar_tax_summary(
-            si,
-            saved_rates=saved_item_tax_rates,
-            is_exonerated=is_exonerated,
-            tax_acc_15=tax_acc_15,
-            tax_acc_18=tax_acc_18,
-            si_meta=si_meta,
-        )
-    else:
-        for sar_field, sar_val in (
-            ("taxed_amount_15", 0.0 if is_exonerated else flt(doc.taxed_amount_15, 2)),
-            ("isv_15", 0.0 if is_exonerated else flt(doc.isv_15, 2)),
-            ("taxed_amount_18", 0.0 if is_exonerated else flt(doc.taxed_amount_18, 2)),
-            ("isv_18", 0.0 if is_exonerated else flt(doc.isv_18, 2)),
-            ("exempt_amount", 0.0 if is_exonerated else flt(doc.exempt_amount, 2)),
-            ("exonerated_amount", flt(doc.subtotal, 2) if is_exonerated else 0.0),
-        ):
-            if si_meta.has_field(sar_field):
-                setattr(si, sar_field, sar_val)
+    if expected_due_cents == 0 and total_paid_cents > 0:
+        frappe.throw(_("Una factura con total cero no admite un importe recibido."))
+    if not si.payments and expected_due_cents == 0:
+        # ERPNext requires a payment row even when the invoice has no amount due.
+        zero_payment = next((row for row in prof_doc.payments if cint(row.default)), None)
+        zero_payment = zero_payment or next(iter(prof_doc.payments), None)
+        if not zero_payment:
+            frappe.throw(_("Configura un método de pago en el perfil de Punto de Venta."))
+        si.append("payments", {
+            "mode_of_payment": zero_payment.mode_of_payment,
+            "amount": 0,
+            "account": _resolve_payment_account(zero_payment.mode_of_payment, company),
+        })
 
-    if not isinstance(si, dict) and getattr(si, "flags", None) is not None:
-        si.flags.restaurant_tax_override = {
-            "item_tax_rates": saved_item_tax_rates,
-            "taxes": [dict(row) for row in taxes] if not is_exonerated else [],
-            "is_exonerated": is_exonerated,
-            "tax_category": resolved_tax_category,
-            "disable_rounded_total": si_payload["disable_rounded_total"],
-            "tax_acc_15": tax_acc_15,
-            "tax_acc_18": tax_acc_18,
-        }
     si.insert(ignore_permissions=True)
     auto_submit = bool(cint(rpos_cfg.get("auto_validate_orders", 1)))
     if auto_submit:
         si.submit()
 
     invoice_finalized = (cint(getattr(si, "docstatus", 0)) == 1) or auto_submit
-    if gift_card_doc and applied_gc_amount > 0 and invoice_finalized:
-        gift_card_doc.balance = flt(gift_card_doc.balance - applied_gc_amount, 2)
-        gift_card_doc.save(ignore_permissions=True)
 
     if active_opening_shift:
         doc.pos_opening_shift = active_opening_shift
@@ -4235,7 +3891,8 @@ def save_restaurant_pos_config(pos_profile, config):
 
     # 2. Persist extended profile configuration
     pref_key = f"rpos_cfg_{pos_profile}"
-    frappe.db.set_default(pref_key, json.dumps(config))
+    profile_preferences = {key: value for key, value in config.items() if key not in ("payments", "enabled_payments")}
+    frappe.db.set_default(pref_key, json.dumps(profile_preferences))
 
     # 3. Synchronize global wallpaper settings if provided
     if "idle_wallpaper_enabled" in config and "idle_wallpaper_timeout" in config:
@@ -4332,98 +3989,6 @@ def get_restaurant_stock_status(warehouse=None):
     }
 
 
-@frappe.whitelist(methods=["POST"])
-def ensure_restaurant_stock(target_qty=100, make_inventoriable=0, warehouse=None):
-    """Seed or replenish stock to target_qty (default 100) via a native Stock Entry.
-
-    If make_inventoriable=1, items without recipes will be updated to is_stock_item=1.
-    For all is_stock_item=1 items having less than target_qty, creates and submits a native
-    Stock Entry (Material Receipt).
-    """
-    _require_manager_user()
-    company = _get_default_company()
-    target_wh = warehouse or _get_default_warehouse(company)
-    target_qty = max(1.0, flt(target_qty or 100))
-    make_inv = cint(make_inventoriable)
-
-    if not target_wh or not frappe.db.exists("Warehouse", target_wh):
-        frappe.throw(_("No se encontró un almacén válido para registrar la entrada de stock."))
-
-    items = frappe.get_all(
-        "Item",
-        filters={
-            "disabled": 0,
-            "is_sales_item": 1,
-            "has_variants": 0,
-            "is_fixed_asset": 0,
-            "item_group": ["not in", ["Servicios", "Sub-ensambles", "Materia prima"]],
-        },
-        fields=["name", "item_name", "stock_uom", "is_stock_item", "standard_rate", "restaurant_recipe_enabled"],
-        limit_page_length=500,
-    )
-
-    items_to_receipt = []
-
-    for it in items:
-        if make_inv and not cint(it.is_stock_item) and not cint(it.get("restaurant_recipe_enabled")):
-            frappe.db.set_value("Item", it.name, "is_stock_item", 1, update_modified=False)
-            it.is_stock_item = 1
-
-        if not cint(it.is_stock_item):
-            continue
-
-        curr_qty = flt(frappe.db.get_value("Bin", {"item_code": it.name, "warehouse": target_wh}, "actual_qty") or 0)
-        needed = target_qty - curr_qty
-        if needed > 0:
-            rate = flt(it.standard_rate or 10.0)
-            if rate <= 0:
-                rate = 10.0
-            items_to_receipt.append({
-                "item_code": it.name,
-                "item_name": it.item_name,
-                "qty": needed,
-                "t_warehouse": target_wh,
-                "uom": it.stock_uom or "Nos",
-                "stock_uom": it.stock_uom or "Nos",
-                "conversion_factor": 1.0,
-                "basic_rate": rate,
-            })
-
-    if not items_to_receipt:
-        return {
-            "status": "up_to_date",
-            "message": _("Todos los productos inventariables ya cuentan con {0} o más unidades.").format(target_qty),
-            "warehouse": target_wh,
-            "stock_entry": None,
-        }
-
-    se = frappe.get_doc({
-        "doctype": "Stock Entry",
-        "stock_entry_type": "Material Receipt",
-        "purpose": "Material Receipt",
-        "company": company,
-        "posting_date": nowdate(),
-        "posting_time": nowtime(),
-        "to_warehouse": target_wh,
-        "items": items_to_receipt,
-    })
-    se.insert(ignore_permissions=True)
-    se.submit()
-
-    frappe.clear_cache(doctype="Item")
-    frappe.clear_cache(doctype="Bin")
-
-    return {
-        "status": "success",
-        "message": _("Se generó la Entrada de Stock {0} con {1} productos actualizados a {2} unidades.").format(
-            se.name, len(items_to_receipt), target_qty
-        ),
-        "stock_entry": se.name,
-        "warehouse": target_wh,
-        "items_updated": len(items_to_receipt),
-    }
-
-
 @frappe.whitelist()
 def get_self_order_config(pos_profile=None):
     """Return active self-order channels and status for mobile/kiosk clients."""
@@ -4504,31 +4069,25 @@ def validate_coupon_code(coupon_code, order_total=0, customer=None):
     }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def validate_gift_card(card_code):
-    """Validate a Restaurant Gift Card and return its available balance."""
+    """Validate a native gift certificate for the current company."""
     _require_pos_user()
+    if not user_can_invoice():
+        frappe.throw(_("Solo cajeros o supervisores pueden validar certificados de regalo."), frappe.PermissionError)
+
     active_shift = _get_active_opening_shift(frappe.session.user)
     cfg = _get_effective_rpos_config(active_shift["pos_profile"] if active_shift else None)
     if not cint(cfg.get("enable_gift_cards")):
-        frappe.throw(_("Las tarjetas de regalo están deshabilitadas en la configuración del POS."))
+        frappe.throw(_("Los certificados de regalo están deshabilitados en la configuración del POS."))
 
-    code = cstr(card_code or "").strip().upper()
-    if not code or not frappe.db.exists("Restaurant Gift Card", code):
-        frappe.throw(_("La tarjeta de regalo '{0}' no existe.").format(code))
+    from restaurant.gift_certificates import get_certificate_for_redemption
 
-    gc = frappe.get_doc("Restaurant Gift Card", code)
-    if not cint(gc.enabled):
-        frappe.throw(_("La tarjeta de regalo '{0}' se encuentra inactiva.").format(code))
-    if gc.expiry_date and frappe.utils.getdate(gc.expiry_date) < frappe.utils.getdate(nowdate()):
-        frappe.throw(_("La tarjeta de regalo '{0}' está vencida.").format(code))
-    if flt(gc.balance) <= 0:
-        frappe.throw(_("La tarjeta de regalo '{0}' no tiene saldo disponible.").format(code))
-
+    company = active_shift["company"] if active_shift else _get_order_company()
+    certificate = get_certificate_for_redemption(card_code, company)
     return {
-        "card_code": gc.card_code,
-        "balance": flt(gc.balance, 2),
-        "customer": gc.customer or "",
+        "masked_code": certificate["codigo_enmascarado"],
+        "balance": flt(certificate["saldo_disponible"], 2),
     }
 
 
