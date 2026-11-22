@@ -12,7 +12,7 @@ from restaurant.pos import (
     _get_order_company, _serialize_order, pay_and_invoice_order, save_pos_order, send_order_to_kitchen,
     split_order, transfer_order_table,
 )
-from restaurant.tests.fixtures import ensure_restaurant_test_baseline, item_tax_rows
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline, existing_invoice_name, item_tax_rows
 
 
 def checkout_payment(order):
@@ -405,7 +405,9 @@ class TestPreparationDisplay(FrappeTestCase):
         self.assertEqual(frappe.db.count("Restaurant Preparation Ticket"), before)
 
     def test_invoicing_preserves_virtual_and_materialized_kitchen_progress(self):
-        invoice_name = frappe.db.get_value("Sales Invoice", {}, "name")
+        invoice_name = existing_invoice_name()
+        # The link fixture is setup, not a side effect of the kitchen operation under test.
+        self.transaction_counts = {doctype: frappe.db.count(doctype) for doctype in self.transaction_doctypes}
         self.assertTrue(invoice_name, "Development must provide an existing invoice link for the mock")
         for marked in (False, True):
             with self.subTest(materialized=marked):

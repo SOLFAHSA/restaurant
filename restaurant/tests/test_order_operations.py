@@ -9,6 +9,7 @@ from frappe.tests.utils import FrappeTestCase
 
 from restaurant import kds, pos
 from restaurant.tests import test_kds as preparation_fixtures
+from restaurant.tests.fixtures import existing_invoice_name
 
 
 class TestOrderOperations(FrappeTestCase):
@@ -435,7 +436,7 @@ class TestOrderOperations(FrappeTestCase):
 
     def test_merge_with_different_currency_is_rejected_without_mutation(self):
         source = self.rich_order()
-        target = self.rich_order(currency="USD")
+        target = self.rich_order(currency="EUR" if source.currency == "USD" else "USD")
         self.assertNotEqual(source.currency, target.currency)
         before = self.operation_snapshot([source, target])
         with self.assertRaises(frappe.ValidationError):
@@ -583,7 +584,9 @@ class TestOrderOperations(FrappeTestCase):
         )
 
     def test_invoice_link_is_rejected_even_if_account_status_still_says_open(self):
-        invoice_name = frappe.db.get_value("Sales Invoice", {}, "name")
+        invoice_name = existing_invoice_name()
+        # The link fixture is setup, not a side effect of the kitchen operation under test.
+        self.transaction_counts = {doctype: frappe.db.count(doctype) for doctype in self.transaction_doctypes}
         self.assertTrue(invoice_name, "Development must provide an existing invoice link")
         source = self.rich_order()
         target = self.rich_order()
@@ -650,7 +653,9 @@ class TestOrderOperations(FrappeTestCase):
             source.name, self.selection(source, qty=0.001), expected_modified=self.token(source)
         )
         created = self.document(split["new_order"]["name"])
-        invoice_name = frappe.db.get_value("Sales Invoice", {}, "name")
+        invoice_name = existing_invoice_name()
+        # The link fixture is setup, not a side effect of the kitchen operation under test.
+        self.transaction_counts = {doctype: frappe.db.count(doctype) for doctype in self.transaction_doctypes}
         self.assertTrue(invoice_name, "Development must provide an existing invoice link for the mock")
         fake_invoice = frappe._dict({
             "name": invoice_name, "customer": created.customer, "customer_name": created.customer_name,

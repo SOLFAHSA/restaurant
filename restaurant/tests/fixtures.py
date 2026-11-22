@@ -225,3 +225,28 @@ def ensure_item_tax(item_code, rate=15):
             item.append("taxes", row)
     item.save(ignore_permissions=True)
 
+
+def existing_invoice_name():
+    """Return a Sales Invoice to use as a link target, creating a draft on a clean test site."""
+    name = frappe.db.get_value("Sales Invoice", {}, "name")
+    if name:
+        return name
+    ensure_restaurant_test_baseline()
+    company = _get_company()
+    item = frappe.get_doc({
+        "doctype": "Item",
+        "item_code": f"QA-LINK-{frappe.generate_hash(length=8)}",
+        "item_name": "Producto de enlace de prueba",
+        "item_group": _leaf("Item Group"),
+        "stock_uom": frappe.db.get_value("UOM", {}, "name"),
+        "is_stock_item": 0,
+        "is_sales_item": 1,
+        "taxes": item_tax_rows(),
+    }).insert(ignore_permissions=True)
+    return frappe.get_doc({
+        "doctype": "Sales Invoice",
+        "company": company,
+        "customer": frappe.db.get_value("Customer", {"disabled": 0}, "name"),
+        "naming_series": QA_SAR_PREFIX,
+        "items": [{"item_code": item.name, "qty": 1, "rate": 1}],
+    }).insert(ignore_permissions=True).name

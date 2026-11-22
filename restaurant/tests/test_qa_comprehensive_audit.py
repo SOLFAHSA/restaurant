@@ -60,7 +60,15 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
 
     def _ensure_base_accounts_and_modes(self):
         self.cash_mop = "Efectivo"
-        self.card_mop = frappe.db.get_value("Mode of Payment", {"type": "Bank", "enabled": 1}, "name") or "Tarjetas de credito"
+        bank_modes = [
+            row.parent for row in frappe.get_all(
+                "Mode of Payment Account",
+                filters={"company": self.company, "default_account": ["is", "set"]},
+                fields=["parent"],
+            )
+            if frappe.db.get_value("Mode of Payment", row.parent, "type") == "Bank"
+        ]
+        self.card_mop = bank_modes[0] if bank_modes else "Tarjetas de credito"
         self.transfer_mop = "Transferencia bancaria"
         if not frappe.db.exists("Mode of Payment", self.transfer_mop):
             self.transfer_mop = self.card_mop
@@ -92,6 +100,11 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
         doc.disable_rounded_total = 1
         doc.tax_category = tax_category
         doc.applicable_for_users = []
+        enabled = {row.mode_of_payment for row in doc.payments}
+        for mop in (self.cash_mop, self.card_mop, self.transfer_mop):
+            if mop not in enabled and frappe.db.exists("Mode of Payment", mop):
+                doc.append("payments", {"mode_of_payment": mop})
+                enabled.add(mop)
         if hasattr(doc, "posa_allow_user_to_edit_rate"):
             doc.allow_rate_change = 1
         doc.insert(ignore_permissions=True, set_name=new_name)
