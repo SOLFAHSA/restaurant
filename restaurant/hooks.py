@@ -9,7 +9,7 @@ app_license = "MIT"
 app_include_css = ["/assets/restaurant/css/restaurant_theme.css?v=20261113.1"]
 app_include_js = [
     "/assets/restaurant/js/restaurant_icons.js",
-    "/assets/restaurant/js/restaurant_theme.js?v=20261113.1",
+    "/assets/restaurant/js/restaurant_theme.js?v=20261122.1",
 ]
 
 # Includes in <head>
