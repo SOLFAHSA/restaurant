@@ -680,8 +680,8 @@ class TestOrderOperations(FrappeTestCase):
             "authorized_range": "", "company_tax_id": "", "prefix": "",
         }
         with patch("restaurant.pos.frappe.get_doc", side_effect=get_doc), \
-                patch("restaurant.pos._resolve_payment_account", return_value=None), \
-                patch("restaurant.pos._resolve_sar_fiscal_info", return_value=fiscal_info):
+                patch("restaurant.checkout.invoice._resolve_payment_account", return_value=None), \
+                patch("restaurant.checkout.accounts._resolve_sar_fiscal_info", return_value=fiscal_info):
             paid = pos.pay_and_invoice_order(created.name, payments=preparation_fixtures.checkout_payment(created))
         self.assertEqual(len(invoice_payloads), 1)
         self.assertEqual(invoice_payloads[0]["items"][0]["qty"], 0.001)
