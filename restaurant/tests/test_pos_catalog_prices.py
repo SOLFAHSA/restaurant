@@ -5,7 +5,7 @@ from uuid import uuid4
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from restaurant.pos import _get_catalog_for_pos
+from restaurant.catalog.menu import _get_catalog_for_pos
 
 
 class TestPosCatalogPrices(FrappeTestCase):

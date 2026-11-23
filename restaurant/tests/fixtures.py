@@ -213,7 +213,7 @@ def item_tax_rows(rate=15):
 
 def ensure_item_tax(item_code, rate=15):
     """Attach a template to a reused test item only when neither it nor its group provides one."""
-    from restaurant.pos import _get_item_tax_rates
+    from restaurant.catalog.taxes import _get_item_tax_rates
 
     companies = frappe.get_all("Company", pluck="name")
     if all(_get_item_tax_rates([item_code], company).get(item_code) is not None for company in companies):
