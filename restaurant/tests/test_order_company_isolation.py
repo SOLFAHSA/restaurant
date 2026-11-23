@@ -1,6 +1,7 @@
 """Regression checks for switching the restaurant register between two companies."""
 
-from contextlib import contextmanager
+import sys
+from contextlib import ExitStack, contextmanager
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -9,7 +10,15 @@ from erpnext.accounts.doctype.sales_invoice.sales_invoice import SalesInvoice
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import now_datetime, today
 
-from restaurant import kds, pos
+from restaurant import kds, pos, pos_context
+
+
+def modules_using(function):
+    """Every loaded restaurant module that imported this function, so a patch reaches all its callers."""
+    return [
+        module for name, module in list(sys.modules.items())
+        if name.startswith("restaurant") and getattr(module, function.__name__, None) is function
+    ]
 
 
 class TestOrderCompanyIsolation(FrappeTestCase):
@@ -58,10 +67,10 @@ class TestOrderCompanyIsolation(FrappeTestCase):
     @contextmanager
     def cashier_context(self, company, other_company):
         shift = self.shifts[company]
-        with (
-            patch.object(pos, "_get_active_opening_shift", return_value=shift.as_dict()),
-            patch.object(pos, "_get_default_company", return_value=other_company),
-        ):
+        with ExitStack() as stack:
+            for name, value in (("_get_active_opening_shift", shift.as_dict()), ("_get_default_company", other_company)):
+                for module in modules_using(getattr(pos_context, name)):
+                    stack.enter_context(patch.object(module, name, return_value=value))
             yield
 
     def company_pairs(self):
