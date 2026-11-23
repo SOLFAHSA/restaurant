@@ -3815,7 +3815,9 @@ class LeafRestaurantPOS {
                 return;
             }
             if (amount > remaining) {
-                frappe.msgprint("Este monto supera el saldo pendiente. Para dar cambio, cobra el último pago en efectivo con el botón verde.");
+                // Cash that covers the balance is the last payment: charge now and give change.
+                if (this.isCashMode(st.selectedMop)) return this.handlePaymentScreenAction("pay-screen-validate", el);
+                frappe.msgprint("Solo el efectivo puede dar cambio. Con tarjeta o transferencia cobra como máximo el saldo pendiente.");
                 return;
             }
             st.payments = [...(st.payments || []), {
