@@ -3719,6 +3719,11 @@ class LeafRestaurantPOS {
                             </div>
                         ` : ""}
 
+                        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;background:#ffffff;border:2px solid ${st.tenderedBuffer ? "#2F8500" : "#cbd5e1"};border-radius:8px;">
+                            <span style="font-size:12.5px;font-weight:700;color:#475569;">Monto con ${this.escape(st.selectedLabel || st.selectedMop || "Efectivo")}</span>
+                            <span style="font-size:22px;font-weight:800;color:${st.tenderedBuffer ? "#1e293b" : "#94a3b8"};">${this.formatMoney(tenderedNum)}</span>
+                        </div>
+                        <div style="font-size:11.5px;color:#64748b;">${st.tenderedBuffer ? "Escribe con el teclado. ⌫ borra el último número." : "Escribe el monto con el teclado. Si no escribes nada, se cobra el saldo pendiente."}</div>
                         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">
                             ${["1", "2", "3"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-key="${k}" style="height:48px;">${k}</button>`).join("")}
                             <button type="button" class="rpos-key" data-action="pay-screen-add" data-add="10" style="height:48px;background:#bbf7d0;color:#14532d;font-weight:800;">+10</button>
