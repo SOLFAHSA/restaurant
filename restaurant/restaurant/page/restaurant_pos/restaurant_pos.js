@@ -3554,6 +3554,20 @@ class LeafRestaurantPOS {
         this.render();
     }
 
+    paymentLinesTotal(st) {
+        return this.roundMoney((st?.payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0));
+    }
+
+    paymentScreenRemaining(st) {
+        // Still due after the gift certificate and the partial payments already added (mixed payment).
+        return Math.max(0, this.roundMoney(this.getCheckoutPreviewTotal(st) - (st.giftCardAmount || 0) - this.paymentLinesTotal(st)));
+    }
+
+    isCashMode(mop) {
+        const row = (this.bootstrap?.modes_of_payment || []).find(m => m.name === mop);
+        return row?.type ? row.type === "Cash" : String(mop || "").toLowerCase().includes("efectivo");
+    }
+
     renderPaymentScreenView() {
         const st = this.paymentScreenState;
         if (!st) return "";
@@ -3613,7 +3627,9 @@ class LeafRestaurantPOS {
         const cfg = this.getRposConfig();
         this.recalculateLocalTotals();
         const grand = this.getCheckoutPreviewTotal(st);
-        const remaining = Math.max(0, this.roundMoney(grand - (st.giftCardAmount || 0)));
+        const paidLines = st.payments || [];
+        const paidSum = this.paymentLinesTotal(st);
+        const remaining = this.paymentScreenRemaining(st);
         const tenderedNum = st.tenderedBuffer ? Number(st.tenderedBuffer) : remaining;
         const change = st.giftCardCode ? 0 : Math.max(0, this.roundMoney(tenderedNum - remaining));
         const [intPart, decPart] = grand.toFixed(2).split(".");
@@ -3659,6 +3675,22 @@ class LeafRestaurantPOS {
                                 <span>${this.formatMoney(change)}</span>
                             </div>
                         ` : ""}
+                        ${paidLines.length ? `
+                            <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px;">
+                                ${paidLines.map((p, idx) => `
+                                    <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:#f8fafc;border:1px solid #cbd5e1;border-radius:7px;font-size:13px;font-weight:700;color:#1e293b;">
+                                        <span>${mopIcon(p.mode_of_payment)}</span>
+                                        <span style="flex:1;">${this.escape(p.label || p.mode_of_payment)}</span>
+                                        <span>${this.formatMoney(p.amount)}</span>
+                                        <button type="button" data-action="pay-screen-remove-line" data-index="${idx}" title="Quitar este pago" style="border:0;background:transparent;color:#dc2626;font-size:15px;font-weight:800;cursor:pointer;padding:0 4px;">✕</button>
+                                    </div>
+                                `).join("")}
+                                <div style="padding:8px 12px;background:${remaining > 0 ? "#fff7ed" : "#f0fdf4"};border:1px solid ${remaining > 0 ? "#fed7aa" : "#86efac"};border-radius:7px;display:flex;justify-content:space-between;font-size:13.5px;font-weight:800;color:${remaining > 0 ? "#9a3412" : "#166534"};">
+                                    <span>${remaining > 0 ? "Pendiente por cobrar:" : "Total cubierto"}</span>
+                                    <span>${this.formatMoney(remaining)}</span>
+                                </div>
+                            </div>
+                        ` : ""}
                         ${st.globalDiscountPct > 0 ? `<div style="padding:6px 10px;background:#effbe9;border:1px solid #a4ce87;border-radius:6px;font-size:12px;font-weight:700;color:#2f8500;">Descuento global: ${st.globalDiscountPct}%</div>` : ""}
                         ${st.couponCode ? `<div style="padding:6px 10px;background:#effbe9;border:1px solid #a4ce87;border-radius:6px;font-size:12px;font-weight:700;color:#2f8500;">Cupón: ${this.escape(st.couponCode)}</div>` : ""}
                         ${st.giftCardCode ? `<div style="padding:6px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;font-weight:700;color:#002456;">Certificado: ${this.escape(st.giftCardMaskedCode)} (${this.formatMoney(st.giftCardAmount)})</div>` : ""}
@@ -3700,12 +3732,15 @@ class LeafRestaurantPOS {
                             <button type="button" class="rpos-key is-back" data-action="pay-screen-key" data-key="BACK" style="height:48px;">⌫</button>
                         </div>
 
+                        <button type="button" data-action="pay-screen-add-line" ${remaining > 0 ? "" : "disabled"} style="height:44px;margin-top:4px;justify-content:center;font-weight:700;font-size:13.5px;background:#ffffff;border:1.5px solid #002456;color:#002456;border-radius:7px;cursor:${remaining > 0 ? "pointer" : "not-allowed"};opacity:${remaining > 0 ? 1 : 0.5};">
+                            ＋ Agregar pago con ${this.escape(st.selectedLabel || st.selectedMop || "Efectivo")}
+                        </button>
                         <div style="display:grid;grid-template-columns:1fr 1.3fr;gap:8px;margin-top:4px;">
                             <button type="button" data-action="pay-screen-back" style="height:52px;justify-content:center;font-weight:700;font-size:14px;background:#f1f5f9;border:1px solid #cbd5e1;color:#1e293b;border-radius:7px;cursor:pointer;">
                                 Regresar
                             </button>
                             <button type="button" class="rpos-btn-primary" data-action="pay-screen-validate" style="height:52px;justify-content:center;font-weight:700;font-size:14.5px;background:#2F8500;border-color:#236600;">
-                                ${this.escape(st.selectedLabel || "Efectivo")}
+                                ${paidLines.length && remaining <= 0 && !st.tenderedBuffer ? "Confirmar pago" : this.escape(st.selectedLabel || "Efectivo")}
                             </button>
                         </div>
                     </div>
@@ -3715,6 +3750,11 @@ class LeafRestaurantPOS {
                     <div style="font-size:96px;font-weight:800;line-height:1;color:#1e293b;letter-spacing:-2px;">
                         <span style="font-size:58px;color:#64748b;margin-right:6px;">L</span><span>${this.escape(intPart)}</span><span style="color:#64748b;">,${this.escape(decPart)}</span>
                     </div>
+                    ${paidLines.length ? `
+                        <div style="margin-top:16px;font-size:20px;font-weight:700;color:#475569;">
+                            Pagado ${this.formatMoney(paidSum)} · <span style="color:${remaining > 0 ? "#c2410c" : "#2F8500"};">Pendiente ${this.formatMoney(remaining)}</span>
+                        </div>
+                    ` : ""}
                 </div>
             </div>
         `;
@@ -3753,8 +3793,38 @@ class LeafRestaurantPOS {
         }
         if (action === "pay-screen-add") {
             const addVal = Number(el.dataset.add || 0);
-            const curVal = st.tenderedBuffer ? Number(st.tenderedBuffer) : Math.max(0, this.getCheckoutPreviewTotal(st) - (st.giftCardAmount || 0));
+            const curVal = st.tenderedBuffer ? Number(st.tenderedBuffer) : this.paymentScreenRemaining(st);
             st.tenderedBuffer = (curVal + addVal).toFixed(2);
+            this.render();
+            return;
+        }
+        if (action === "pay-screen-add-line") {
+            const remaining = this.paymentScreenRemaining(st);
+            const amount = this.roundMoney(st.tenderedBuffer ? Number(st.tenderedBuffer) : remaining);
+            if (remaining <= 0) {
+                frappe.msgprint("El total ya está cubierto. Presiona el botón verde para confirmar el pago.");
+                return;
+            }
+            if (!(amount > 0)) {
+                frappe.msgprint("Escribe con el teclado el monto de este pago.");
+                return;
+            }
+            if (amount > remaining) {
+                frappe.msgprint("Este monto supera el saldo pendiente. Para dar cambio, cobra el último pago en efectivo con el botón verde.");
+                return;
+            }
+            st.payments = [...(st.payments || []), {
+                mode_of_payment: st.selectedMop || "Efectivo",
+                label: st.selectedLabel || st.selectedMop || "Efectivo",
+                amount,
+            }];
+            st.tenderedBuffer = "";
+            this.render();
+            return;
+        }
+        if (action === "pay-screen-remove-line") {
+            const index = Number(el.dataset.index);
+            st.payments = (st.payments || []).filter((_payment, idx) => idx !== index);
             this.render();
             return;
         }
@@ -3825,9 +3895,14 @@ class LeafRestaurantPOS {
         }
         if (action === "pay-screen-validate") {
             this.recalculateLocalTotals();
-            const grand = this.getCheckoutPreviewTotal(st);
-            const remaining = Math.max(0, this.roundMoney(grand - (st.giftCardAmount || 0)));
+            const remaining = this.paymentScreenRemaining(st);
             const tendered = st.tenderedBuffer ? Number(st.tenderedBuffer) : remaining;
+            if (tendered > remaining && !this.isCashMode(st.selectedMop)) {
+                frappe.msgprint("Solo el efectivo puede dar cambio. Cobra con tarjeta o transferencia solo el saldo pendiente y el resto en efectivo.");
+                return;
+            }
+            const payments = (st.payments || []).map(p => ({ mode_of_payment: p.mode_of_payment, amount: p.amount }));
+            if (tendered > 0) payments.push({ mode_of_payment: st.selectedMop || "Efectivo", amount: tendered });
             const res = await this.submitCheckout({
                 order_name: this.currentOrder.name,
                 customer: this.currentOrder.customer,
@@ -3839,7 +3914,7 @@ class LeafRestaurantPOS {
                 gift_card_code: st.giftCardCode || "",
                 gift_card_amount: st.giftCardAmount || 0,
                 loyalty_points: st.loyaltyPoints || 0,
-                payments: tendered > 0 ? [{ mode_of_payment: st.selectedMop || "Efectivo", amount: tendered }] : [],
+                payments,
             });
             if (!res) return;
 
