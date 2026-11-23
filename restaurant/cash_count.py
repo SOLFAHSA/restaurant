@@ -4,13 +4,8 @@ import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, now_datetime
 
-from restaurant.pos import (
-    _get_active_opening_shift,
-    _require_pos_user,
-    close_pos_shift,
-    create_cash_movement,
-    get_shift_cash_movements,
-)
+from restaurant.cash.shift import close_pos_shift, create_cash_movement, get_shift_cash_movements
+from restaurant.pos_context import _get_active_opening_shift, _require_pos_user
 
 
 DEFAULT_HNL_DENOMINATIONS = (
@@ -151,7 +146,7 @@ def _get_profile_payment_methods(pos_profile):
 
 def _assert_shift_access(opening_doc):
     """Ensure only the shift cashier owner or a supervisor in the same branch can read or submit audits."""
-    from restaurant.pos import _get_active_user_branch
+    from restaurant.pos_context import _get_active_user_branch
     from restaurant.pos_auth import is_supervisor, user_can_invoice
 
     if not user_can_invoice():

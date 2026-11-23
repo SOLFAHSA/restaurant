@@ -9,14 +9,9 @@ import frappe
 from frappe import _
 from frappe.utils import cint, cstr, flt, get_datetime
 
-from restaurant.pos import (
-    _check_order_company,
-    _get_areas_with_live_tables,
-    _get_order_company,
-    _require_pos_user,
-    _serialize_order,
-    validate_order,
-)
+from restaurant.orders.serialization import _get_areas_with_live_tables, _serialize_order
+from restaurant.orders.validation import validate_order
+from restaurant.pos_context import _check_order_company, _get_order_company, _require_pos_user
 
 ORDER = "Restaurant Order"
 TABLE = "Restaurant Table"
