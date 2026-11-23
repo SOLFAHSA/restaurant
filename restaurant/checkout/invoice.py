@@ -35,6 +35,23 @@ def _sync_order_totals_from_invoice(order, invoice):
     })
 
 
+def _check_change_is_paid_in_cash(payments, change_cents):
+    """Change is handed back in cash, so a mixed payment may only exceed the total by its cash part."""
+    if change_cents <= 0:
+        return
+    cash_modes = set(frappe.get_all(
+        "Mode of Payment",
+        filters={"name": ["in", list({row.mode_of_payment for row in payments})], "type": "Cash"},
+        pluck="name",
+    ))
+    cash_cents = sum(round(flt(row.amount, 2) * 100) for row in payments if row.mode_of_payment in cash_modes)
+    if change_cents > cash_cents:
+        frappe.throw(_(
+            "Solo el efectivo puede dar cambio. Cobra con tarjeta o transferencia solo el saldo pendiente "
+            "y el resto en efectivo."
+        ))
+
+
 def _set_doc_field(doc, fieldname, value):
     setter = getattr(doc, "set", None)
     if callable(setter) and not isinstance(doc, dict):
@@ -382,6 +399,8 @@ def pay_and_invoice_order(
                 flt(total_paid, 2), flt(expected_paid_due, 2)
             )
         )
+
+    _check_change_is_paid_in_cash(si.payments, total_paid_cents - expected_due_cents)
 
     if expected_due_cents == 0 and total_paid_cents > 0:
         frappe.throw(_("Una factura con total cero no admite un importe recibido."))
