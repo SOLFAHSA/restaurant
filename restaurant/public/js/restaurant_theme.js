@@ -2,7 +2,7 @@
 (() => {
     if (frappe.restaurant_theme) return;
     const storageKey = "leaf.restaurant.theme.v1";
-    const ownPages = new Set(["restaurant-location", "restaurant-table-map", "restaurant-commands", "restaurant-pos", "restaurant-kds"]);
+    const ownPages = new Set(["restaurant-location", "restaurant-table-map", "restaurant-commands", "restaurant-pos", "restaurant-kds", "restaurant-dashboard"]);
     const ownTypes = new Set(["Restaurant Command", "Restaurant Command Group", "Restaurant Area", "Restaurant Table", "Restaurant Option Group", "Restaurant Dish Option", "Restaurant Preparation Stage", "Restaurant Preparation Display", "Restaurant Preparation Ticket", "Restaurant Order", "Restaurant Order Preset", "Restaurant Settings", "Restaurant Gift Card", "Restaurant Cash Count", "Restaurant Cash Denomination"]);
     const sharedTypes = new Set(["Item", "Item Group", "Item Price", "Price List", "Customer", "Employee", "Designation", "Branch", "UOM", "Mode of Payment"]);
     const reports = new Set(["Sales Analytics", "Sales Register", "Item-wise Sales Register"]);
