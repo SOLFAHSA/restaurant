@@ -78,9 +78,9 @@ VERIFIED:
 Comando de pruebas, dentro del DevContainer, desde /workspace/development/frappe-bench:
 
 ```bash
-bench --site development run-tests --app restaurant \
+bench --site test_restaurant run-tests --app restaurant \
   --module restaurant.restaurant.doctype.restaurant_command.test_restaurant_command \
-  --skip-test-records
+  --skip-before-tests --skip-test-records
 ```
 
 Las pruebas usan savepoint/rollback y comparan los conteos de documentos financieros e inventario.
