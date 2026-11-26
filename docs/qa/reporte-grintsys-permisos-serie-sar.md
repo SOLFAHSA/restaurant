@@ -94,6 +94,14 @@ en `create_prefix_for_days` y en `create_daily_summary_series`.
 - **Riesgo de upgrade:** bajo. Es código propio de Grintsys, no del ERPNext original.
 - **Requiere validación tributaria local:** no, porque no altera la numeración ni el CAI.
 
-## Mitigación temporal en LEAF Restaurante
+## Mitigación temporal en LEAF Restaurante (retirada el 2026-11-24)
 
-Mientras se corrige el fork, la app Restaurante puede otorgar al rol de caja permiso de **lectura y creación** sobre esos dos DocTypes, mediante su matriz de permisos (`restaurant/setup.py`, `ensure_cashier_permissions`, que se aplica en cada `bench migrate`). Es un cambio declarativo (Nivel 2) y reversible, y deja de ser necesario cuando Grintsys publique la corrección.
+Mientras se corregía el fork, la app Restaurante otorgaba al rol de caja permiso de **lectura y creación** sobre esos dos DocTypes desde `restaurant/setup.py` (`ensure_cashier_permissions`, bloque `sar_series_records`).
+
+Por acuerdo en la revisión técnica con Grintsys, ese bloque **se retiró** de la app Restaurante. La corrección vive solo en `Grintsys/erpnext14` (`version-14`) mediante un cambio mínimo y aislado:
+
+- Archivo único: `erpnext/accounts/doctype/sales_invoice/sales_invoice.py`.
+- Líneas únicas: `doc.insert(ignore_if_duplicate=True)` → `doc.insert(ignore_permissions=True, ignore_if_duplicate=True)` en `create_prefix_for_days()` y `create_daily_summary_series()`.
+- Sin mezclar `ticket.json` ni ningún otro archivo en ese PR.
+
+Nota para sitios existentes: retirar el código no borra los `Custom DocPerm` que la versión anterior ya instaló. Siguen funcionando hasta que Grintsys publique la corrección; después, un administrador puede revocarlos desde **Administrador de permisos de rol** (`Prefix sales for days` y `Daily summary series`, roles `Restaurant Manager`, `Restaurant Cashier`, `Restaurant Direct Cashier`). No se revocan automáticamente para no bloquear cajas antes de que llegue la corrección.

@@ -1,6 +1,7 @@
 """Idempotent installation of restaurant-specific operational roles."""
 
 import frappe
+from frappe import _
 
 
 def ensure_restaurant_roles():
@@ -146,20 +147,14 @@ def ensure_cashier_permissions():
     """Ensure Restaurant Cashier and Restaurant Direct Cashier have DB permissions for POS, customers, shifts, and reports."""
     from frappe.permissions import add_permission
 
-    # Grintsys ERPNext creates these fiscal-series control records on the first invoice of a
-    # new SAR series without ignore_permissions. Temporary workaround until the fork is fixed
-    # (see docs/qa/reporte-grintsys-permisos-serie-sar.md).
-    sar_series_records = {
-        "Prefix sales for days": {"read": 1, "create": 1},
-        "Daily summary series": {"read": 1, "create": 1},
-    }
+    # SAR series control records are created by Grintsys ERPNext itself; their permission fix
+    # belongs to erpnext14 (docs/qa/reporte-grintsys-permisos-serie-sar.md), not to this app.
     cashier_matrix = {
         "Restaurant Manager": {
             "POS Opening Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
             "POS Closing Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
             "Sales Invoice": {"read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "report": 1, "print": 1},
             "Restaurant Cash Count": {"read": 1, "write": 1, "create": 1, "submit": 1, "cancel": 1, "print": 1},
-            **sar_series_records,
         },
         "Restaurant User": {
             "Customer": {"read": 1, "select": 1},
@@ -181,7 +176,6 @@ def ensure_cashier_permissions():
             "Restaurant Cash Count": {"read": 1, "write": 1, "create": 1, "submit": 1, "print": 1},
             "POS Opening Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
             "POS Closing Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
-            **sar_series_records,
         },
         "Restaurant Direct Cashier": {
             "Customer": {"read": 1, "write": 1, "create": 1, "select": 1, "report": 1},
@@ -190,7 +184,6 @@ def ensure_cashier_permissions():
             "Restaurant Cash Count": {"read": 1, "write": 1, "create": 1, "submit": 1, "print": 1},
             "POS Opening Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
             "POS Closing Shift": {"read": 1, "write": 1, "create": 1, "submit": 1},
-            **sar_series_records,
         },
     }
     for role_name, doctypes in cashier_matrix.items():
@@ -482,23 +475,32 @@ def ensure_sar_print_and_fields():
         except Exception:
             pass
 
-    if frappe.db.exists("DocType", "POS Profile"):
-        try:
-            profiles = frappe.get_all(
-                "POS Profile",
-                fields=["name", "disable_rounded_total", "print_format"],
-            )
-            has_ticket = frappe.db.exists("Print Format", "Ticket")
-            for prof in profiles:
-                updates = {}
-                if not prof.get("disable_rounded_total"):
-                    updates["disable_rounded_total"] = 1
-                if has_ticket and not prof.get("print_format"):
-                    updates["print_format"] = "Ticket"
-                if updates:
-                    frappe.db.set_value("POS Profile", prof.name, updates, update_modified=False)
-        except Exception:
-            pass
+    # POS Profiles are never touched by a migration: other modules (POS Awesome retail, hospital...)
+    # share them. Restaurant defaults are applied only by apply_restaurant_pos_profile_defaults().
+
+
+RESTAURANT_TICKET = "Ticket Restaurant"
+
+
+@frappe.whitelist(methods=["POST"])
+def apply_restaurant_pos_profile_defaults(pos_profile):
+    """Explicit administrator action: prepare one POS Profile for restaurant SAR tickets.
+
+    Sets exact centavos (no whole-unit rounding) and the restaurant thermal ticket only on the
+    requested profile, never on the other POS Profiles of the site.
+    """
+    frappe.only_for(("System Manager", "Restaurant Manager"))
+    return set_restaurant_pos_profile_defaults(pos_profile)
+
+
+def set_restaurant_pos_profile_defaults(pos_profile):
+    if not pos_profile or not frappe.db.exists("POS Profile", pos_profile):
+        frappe.throw(_("El perfil de Punto de Venta {0} no existe.").format(pos_profile))
+    updates = {"disable_rounded_total": 1}
+    if frappe.db.exists("Print Format", RESTAURANT_TICKET):
+        updates["print_format"] = RESTAURANT_TICKET
+    frappe.db.set_value("POS Profile", pos_profile, updates)
+    return updates
 
 
 def backfill_historical_branches():
