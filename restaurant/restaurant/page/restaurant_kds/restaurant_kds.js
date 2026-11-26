@@ -88,10 +88,8 @@ class LeafRestaurantKDS {
     }
 
     isRealtimeConnected() {
-        return Boolean(
-            window.frappe?.realtime?.socket
-            && (window.frappe.realtime.socket.connected || window.frappe.realtime.socket.io?.engine?.readyState === "open")
-        );
+        // Frappe v14 keeps the Socket.IO client in frappe.socketio.socket (frappe.realtime only wraps on/off).
+        return Boolean(window.frappe?.socketio?.socket?.connected);
     }
 
     bindRealtime() {
@@ -99,9 +97,6 @@ class LeafRestaurantKDS {
         this._onRealtimeKdsUpdate = (data) => {
             if (frappe.get_route()[0] !== "restaurant-kds") {
                 this.unbindRealtime();
-                return;
-            }
-            if (this.activeBranch && data?.branch && data.branch !== this.activeBranch) {
                 return;
             }
             if (this.realtimeDebounceTimer) {
@@ -206,8 +201,13 @@ class LeafRestaurantKDS {
 
     async refreshOrders(options = {}) {
         if (options.silent && this.viewMode === "config") return;
-        if (this.loading) return;
+        if (this.loading) {
+            // Do not drop a change that arrives while loading: refresh again when this load ends.
+            this.refreshPending = true;
+            return;
+        }
         this.loading = true;
+        this.refreshPending = false;
         try {
             const res = await frappe.call({
                 method: "restaurant.kds.get_kds_state",
@@ -246,6 +246,10 @@ class LeafRestaurantKDS {
             }
         } finally {
             this.loading = false;
+            if (this.refreshPending && frappe.get_route()[0] === "restaurant-kds") {
+                this.refreshPending = false;
+                this.refreshOrders({ silent: true });
+            }
         }
     }
 
