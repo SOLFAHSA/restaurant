@@ -88,41 +88,60 @@ Reglas que ya se movieron a su capa durante la semana 6:
 
 ## 4. Estructura de carpetas
 
-### Estructura actual
+### Estructura actual (por funcionalidad)
+
+Desde la semana 7, el antiguo `pos.py` (4,016 líneas) quedó separado por funcionalidad (issue #27). `pos.py` conserva solo el arranque del POS y vuelve a exponer cada función con su misma dirección `restaurant.pos.<nombre>`, para que la pantalla y los hooks no cambien.
 
 ```text
 apps/restaurant/
 ├── restaurant/
-│   ├── hooks.py                 # Integración con Frappe/ERPNext (doc_events, fixtures)
-│   ├── pos.py                   # Punto de venta: órdenes, cobro, catálogo, configuración
+│   ├── pos.py                   # Arranque del POS (get_pos_bootstrap) y direcciones públicas
+│   ├── pos_context.py           # Contexto compartido: usuario, empresa, sucursal, turno
+│   ├── pos_auth.py              # Roles, PIN de supervisor y bitácora de auditoría
+│   ├── cash/shift.py            # Caja: abrir turno, movimientos de efectivo y cierre
+│   ├── pos_settings/            # Configuración del POS por perfil y estaciones de cocina y bar
+│   ├── catalog/                 # Menú y precios (menu.py) e ISV de cada producto (taxes.py)
+│   ├── orders/                  # Órdenes: validación, serialización, servicio y cambios
+│   ├── checkout/                # Cobro: factura, descuentos, inventario, cuentas, combos y extras
 │   ├── kds.py                   # Pantalla de cocina y etapas de preparación
 │   ├── order_operations.py      # Dividir, transferir y fusionar cuentas
 │   ├── cash_count.py            # Arqueo de caja
-│   ├── pos_auth.py              # Roles, PIN de supervisor y bitácora de auditoría
 │   ├── invoice_events.py        # Ciclo de vida de la factura nativa
 │   ├── tax_configuration.py     # Plantillas fiscales nativas por empresa
-│   ├── gift_certificates.py     # Certificados de regalo nativos de Grintsys
-│   ├── table_management.py      # Mesas y mapa del salón
+│   ├── dashboard.py             # Datos del tablero (solo lectura)
 │   ├── restaurant/doctype/      # DocTypes propios (capa de datos)
-│   ├── restaurant/page/         # Pantallas del POS, cocina, mesas y comandas
+│   ├── restaurant/page/         # Pantallas: POS, cocina, mesas, comandas y tablero
 │   ├── restaurant/report/       # Reportes (Ventas por Mesero y Modalidad)
-│   └── tests/                   # Pruebas automáticas (FrappeTestCase)
+│   └── tests/                   # Pruebas automáticas (FrappeTestCase y Node)
 └── docs/                        # Arquitectura, decisiones, pruebas y bitácoras
 ```
 
-La mayoría de los módulos ya está organizada **por funcionalidad** (cocina, caja, mesas, fiscal). La excepción es `pos.py`, de más de 4,000 líneas, que mezcla órdenes, cobro, catálogo y configuración.
+### Diccionario de nombres del código
 
-### Estructura meta
+El código va en inglés (regla del proyecto); este es su significado:
 
-Separar `pos.py` por funcionalidad, sin cambiar el comportamiento ni los nombres de los endpoints que usa el JavaScript:
+| Carpeta o archivo | Significado | Qué contiene |
+| :--- | :--- | :--- |
+| `pos_context.py` | Contexto del punto de venta | Quién es el usuario, su empresa, su sucursal y su turno |
+| `cash/shift.py` | Caja / turno | Apertura, movimientos de efectivo, vista previa y cierre |
+| `pos_settings/config.py` | Configuración del POS | Ajustes por perfil, pantalla de reposo y autopedido |
+| `pos_settings/stations.py` | Estaciones | Cocina, bar e impresión de comandas |
+| `catalog/menu.py` | Catálogo / menú | Categorías, productos y precios de venta |
+| `catalog/taxes.py` | Impuestos del catálogo | ISV de cada producto (15 %, 18 % o exento) |
+| `orders/validation.py` | Validación de órdenes | Revisar que la orden esté correcta y el estado de la mesa |
+| `orders/serialization.py` | Datos de la orden | Lo que la pantalla necesita de cada orden y las mesas en vivo |
+| `orders/service.py` | Servicio de órdenes | Guardar, enviar a cocina, precuenta, reimpresión y autopedido |
+| `orders/changes.py` | Cambios a órdenes | Transferir, dividir, anular productos, vaciar y desbloquear |
+| `checkout/invoice.py` | Cobro / factura | Cobrar y emitir la factura de venta nativa |
+| `checkout/combos.py` | Combos | Componentes del combo que salen del inventario (decisión 003) |
+| `checkout/discounts.py` | Descuentos | Límites y autorización del supervisor |
+| `checkout/stock.py` | Inventario | Revisión de existencias antes de facturar |
+| `checkout/accounts.py` | Cuentas | Cuentas contables y datos fiscales SAR |
+| `checkout/extras.py` | Extras del cobro | Cupones, certificados, puntos, correo, WhatsApp y recibo |
+| `dashboard.py` | Tablero | Cifras del tablero del gerente |
 
-```text
-restaurant/
-├── ordenes/        # validación y guardado de órdenes, precuenta
-├── cobro/          # facturación, pagos, descuentos y propina
-├── catalogo/       # menú, precios e impuestos por producto
-├── configuracion/  # configuración del POS por perfil
-└── ...             # cocina, caja, mesas y fiscal se mantienen
-```
+### Pendiente
 
-Frappe exige que los DocTypes vivan en `restaurant/restaurant/doctype/`, así que la separación aplica al código Python de negocio. Este trabajo está planificado para una fase posterior, protegido por la suite de pruebas automáticas.
+La pantalla del POS (`restaurant/page/restaurant_pos/restaurant_pos.js`, unas 6,750 líneas) sigue en un solo archivo. Separarla por funcionalidad es el siguiente paso, con el mismo criterio.
+
+Frappe exige que los DocTypes vivan en `restaurant/restaurant/doctype/`, así que la separación aplica al código Python de negocio y a las pantallas. Cada paso se protege con la suite de pruebas automáticas.
