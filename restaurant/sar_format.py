@@ -365,11 +365,17 @@ def get_sar_ticket_context(doc):
             "sublines": sublines,
         })
 
-    tip_amount = 0.0
+    # Historical invoices (before the tip became a staff liability) carried it as a tax row and
+    # inside grand_total; they are printed as issued and never get a second, non-fiscal tip.
+    legacy_tip_amount = 0.0
     for tax_row in (doc.get("taxes") or []):
         desc = cstr(tax_row.get("description") or "").lower()
         if "propina" in desc or "servicio" in desc:
-            tip_amount += flt(tax_row.get("tax_amount"), 2)
+            legacy_tip_amount += flt(tax_row.get("tax_amount"), 2)
+    tip_amount = 0.0
+    if not legacy_tip_amount and doc.name and frappe.db.exists("DocType", "Restaurant Order"):
+        order_tip = frappe.db.get_value("Restaurant Order", {"sales_invoice": doc.name}, "tip_amount")
+        tip_amount = flt(order_tip, 2)
 
     customer_name = cstr(doc.get("customer_name") or doc.get("customer") or "CONSUMIDOR FINAL").strip()
     customer_rtn = cstr(doc.get("tax_id") or "").strip()
@@ -415,6 +421,8 @@ def get_sar_ticket_context(doc):
         "isv_15": flt(doc.get("isv_15"), 2),
         "isv_18": flt(doc.get("isv_18"), 2),
         "tip_amount": flt(tip_amount, 2),
+        "legacy_tip_amount": flt(legacy_tip_amount, 2),
+        "total_collected": flt(flt(doc.get("grand_total")) + tip_amount, 2),
         "grand_total": flt(doc.get("grand_total"), 2),
         "paid_amount": paid_amount,
         "change_amount": change_amount,

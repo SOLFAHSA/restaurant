@@ -18,7 +18,7 @@ from restaurant.setup import (
     ensure_restaurant_role_profiles,
     ensure_waiter_module_profile,
 )
-from restaurant.tests.fixtures import ensure_restaurant_test_baseline
+from restaurant.tests.fixtures import ensure_restaurant_test_baseline, ensure_tip_liability_account
 
 
 class TestQAComprehensiveAudit2026(FrappeTestCase):
@@ -373,6 +373,8 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
                 )
 
                 # Mixed payment on parent order (50% Cash + remainder Card)
+                refreshed_company = frappe.db.get_value("Restaurant Order", order_doc["name"], "company")
+                ensure_tip_liability_account(refreshed_company)
                 frappe.set_user(ctx["cashiers"][0]["user"])
                 refreshed = frappe.get_doc("Restaurant Order", order_doc["name"])
                 grand = flt(refreshed.grand_total, 2)
@@ -388,7 +390,12 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
                 )
                 si_name = inv_res["invoice"]["name"]
                 created_invoices.append(si_name)
-                self.assertEqual(flt(inv_res["invoice"]["grand_total"], 2), grand)
+                # The order total is what was collected; the SAR invoice excludes the voluntary tip.
+                self.assertEqual(flt(inv_res["invoice"]["total_collected"], 2), grand)
+                self.assertEqual(
+                    flt(inv_res["invoice"]["grand_total"], 2), flt(grand - flt(refreshed.tip_amount), 2),
+                )
+                self.assertEqual(refreshed_company, inv_res["invoice"]["company"])
 
                 # GL Entry balance verification per invoice
                 gl_diff = frappe.db.sql(

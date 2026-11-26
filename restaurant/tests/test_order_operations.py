@@ -6,10 +6,11 @@ from unittest.mock import patch
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
+from frappe.utils import flt
 
 from restaurant import kds, pos
 from restaurant.tests import test_kds as preparation_fixtures
-from restaurant.tests.fixtures import existing_invoice_name
+from restaurant.tests.fixtures import ensure_tip_liability_account, existing_invoice_name
 
 
 class TestOrderOperations(FrappeTestCase):
@@ -657,13 +658,16 @@ class TestOrderOperations(FrappeTestCase):
         # The link fixture is setup, not a side effect of the kitchen operation under test.
         self.transaction_counts = {doctype: frappe.db.count(doctype) for doctype in self.transaction_doctypes}
         self.assertTrue(invoice_name, "Development must provide an existing invoice link for the mock")
+        # The voluntary tip is a staff liability outside the SAR invoice: the invoice gets consumption only.
+        ensure_tip_liability_account(created.company)
+        invoice_total = flt(created.grand_total - created.tip_amount, 2)
         fake_invoice = frappe._dict({
             "name": invoice_name, "customer": created.customer, "customer_name": created.customer_name,
             "company": created.company, "company_tax_id": "", "tax_id": "",
             "posting_date": frappe.utils.nowdate(), "cai": "PRUEBA-DIVISION",
-            "due_date_cai": "2030-01-01", "grand_total": created.grand_total,
-            "net_total": created.subtotal, "paid_amount": created.grand_total, "change_amount": 0,
-            "payments": [frappe._dict(amount=created.grand_total)],
+            "due_date_cai": "2030-01-01", "grand_total": invoice_total,
+            "net_total": created.subtotal, "paid_amount": invoice_total, "change_amount": 0,
+            "payments": [frappe._dict(amount=invoice_total)],
         })
         preparation_fixtures.mock_invoice_lifecycle(fake_invoice)
         real_get_doc = frappe.get_doc
@@ -681,8 +685,10 @@ class TestOrderOperations(FrappeTestCase):
         }
         with patch("restaurant.pos.frappe.get_doc", side_effect=get_doc), \
                 patch("restaurant.checkout.invoice._resolve_payment_account", return_value=None), \
-                patch("restaurant.checkout.accounts._resolve_sar_fiscal_info", return_value=fiscal_info):
+                patch("restaurant.checkout.accounts._resolve_sar_fiscal_info", return_value=fiscal_info), \
+                patch("restaurant.checkout.tips.create_tip_journal_entry", return_value=None) as tip_journal:
             paid = pos.pay_and_invoice_order(created.name, payments=preparation_fixtures.checkout_payment(created))
+        self.assertEqual(tip_journal.call_count, 1 if flt(created.tip_amount) > 0 else 0)
         self.assertEqual(len(invoice_payloads), 1)
         self.assertEqual(invoice_payloads[0]["items"][0]["qty"], 0.001)
         fake_invoice.calculate_taxes_and_totals.assert_called()

@@ -39,6 +39,7 @@
   "section_summary",
   "invoice_count",
   "total_sales",
+  "total_tips",
   "column_break_summary",
   "total_expected",
   "total_counted",
@@ -266,6 +267,15 @@
    "read_only": 1
   },
   {
+   "default": "0",
+   "description": "Propinas voluntarias recaudadas a favor del personal (pasivo). No forman parte de las ventas facturadas.",
+   "fieldname": "total_tips",
+   "fieldtype": "Currency",
+   "label": "Propinas Recaudadas (Pasivo)",
+   "options": "currency",
+   "read_only": 1
+  },
+  {
    "fieldname": "column_break_summary",
    "fieldtype": "Column Break"
   },
@@ -319,7 +329,7 @@
  "index_web_pages_for_search": 1,
  "is_submittable": 1,
  "links": [],
- "modified": "2026-11-11 22:35:00.000000",
+ "modified": "2026-11-24 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Restaurant",
  "name": "Restaurant Cash Count",

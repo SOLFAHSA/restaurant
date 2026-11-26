@@ -12,6 +12,7 @@ from frappe.utils import flt
 
 from restaurant import cash_count, pos
 from restaurant.tests import test_fiscal_numbering
+from restaurant.tests.fixtures import ensure_tip_liability_account
 
 
 class TestCheckoutAcceptance(FrappeTestCase):
@@ -89,7 +90,7 @@ class TestCheckoutAcceptance(FrappeTestCase):
         return invoice
 
     def ticket_amount(self, invoice, label):
-        html = frappe.get_print("Sales Invoice", invoice.name, "Ticket", no_letterhead=1)
+        html = frappe.get_print("Sales Invoice", invoice.name, "Ticket Restaurant", no_letterhead=1)
         match = re.search(
             re.escape(label) + r"\s*</td>\s*<td[^>]*>\s*([0-9.,]+)", html
         )
@@ -282,14 +283,17 @@ class TestCheckoutAcceptance(FrappeTestCase):
         self.assertEqual(flt(certificate.reload().saldo_disponible, 2), 50)
         self.assertFalse(frappe.db.get_value("Restaurant Order", order["name"], "sales_invoice"))
 
-    def test_explicit_payment_includes_native_discounted_tip_total(self):
+    def test_tip_is_collected_outside_the_discounted_invoice_total(self):
+        ensure_tip_liability_account(self.sale.company)
         invoice = self.invoice(
-            self.make_order(), [{"mode_of_payment": self.cash, "amount": 112.50}], global_discount_percentage=10, tip_amount=10,
+            self.make_order(), [{"mode_of_payment": self.cash, "amount": 113.50}], global_discount_percentage=10, tip_amount=10,
         )
-        self.assertEqual(flt(invoice.grand_total, 2), 112.50)
-        self.assertEqual(flt(invoice.paid_amount, 2), 112.50)
+        # The global discount applies to consumption only; the voluntary tip is never discounted or billed.
+        self.assertEqual(flt(invoice.grand_total, 2), 103.50)
+        self.assertEqual(flt(invoice.paid_amount, 2), 103.50)
         self.assertEqual(flt(invoice.change_amount, 2), 0)
-        self.assertEqual(self.ticket_amount(invoice, "TOTAL FACTURA L."), 112.50)
+        self.assertFalse([row for row in invoice.taxes if row.charge_type == "Actual"])
+        self.assertEqual(self.ticket_amount(invoice, "TOTAL FACTURA L."), 103.50)
 
     def test_zero_price_invoice_posts_and_reverses_native_stock(self):
         item = frappe.get_doc("Item", self.make_item(15))
