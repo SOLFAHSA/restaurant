@@ -5,6 +5,7 @@ from frappe import _
 from frappe.utils import cint, cstr, flt, nowdate, nowtime
 
 from restaurant.checkout.accounts import _resolve_payment_account, _resolve_service_income_account
+from restaurant.checkout.combos import get_combo_components
 from restaurant.checkout.discounts import _approve_checkout_discounts
 from restaurant.checkout.stock import _invoice_has_stock_items
 from restaurant.orders.serialization import _get_areas_with_live_tables, _serialize_order
@@ -166,10 +167,18 @@ def pay_and_invoice_order(
 
     from restaurant.tax_configuration import get_native_tax_configuration, get_item_tax_template
 
+    billable_rows = [
+        row for row in doc.items
+        if not cint(getattr(row, "is_cancelled", 0)) and row.kds_status != "Cancelado"
+    ]
     invoice_items = []
-    for row in doc.items:
-        if cint(getattr(row, "is_cancelled", 0)) or row.kds_status == "Cancelado":
-            continue
+    line_tax_rates = []
+    line_defaults = {
+        key: value
+        for key, value in (("warehouse", warehouse), ("income_account", income_account), ("cost_center", cost_center))
+        if value
+    }
+    for row, components in zip(billable_rows, get_combo_components(billable_rows)):
         desc_parts = [row.item_name or row.item_code]
         if row.options_summary:
             desc_parts.append(f"Opciones: {row.options_summary}")
@@ -184,14 +193,24 @@ def pay_and_invoice_order(
             "rate": flt(row.rate, 2),
             "price_list_rate": flt(row.base_rate + row.options_rate, 2),
             "discount_percentage": flt(row.discount_percentage, 2),
+            **line_defaults,
         }
-        if warehouse:
-            item_entry["warehouse"] = warehouse
-        if income_account:
-            item_entry["income_account"] = income_account
-        if cost_center:
-            item_entry["cost_center"] = cost_center
         invoice_items.append(item_entry)
+        line_tax_rates.append(row.tax_rate)
+        # Combo components go at zero so the native invoice moves (and reverts) their stock.
+        for component in components:
+            invoice_items.append({
+                "item_code": component.item_code,
+                "item_name": component.item_name,
+                "description": _("Incluido en el combo {0}").format(row.item_name or row.item_code),
+                "qty": component.qty,
+                "uom": component.uom,
+                "rate": 0,
+                "price_list_rate": 0,
+                "discount_percentage": 0,
+                **line_defaults,
+            })
+            line_tax_rates.append(row.tax_rate)
 
     if not invoice_items:
         frappe.throw(_("No hay productos activos por facturar en esta cuenta."))
@@ -318,12 +337,8 @@ def pay_and_invoice_order(
     si_payload["taxes_and_charges"] = native_taxes[
         "exonerated_taxes_and_charges" if is_exonerated else "taxes_and_charges"
     ]
-    for item_entry, order_row in zip(invoice_items, (
-        row for row in doc.items if not cint(row.is_cancelled) and row.kds_status != "Cancelado"
-    )):
-        item_entry["item_tax_template"] = get_item_tax_template(
-            company, 0 if is_exonerated else order_row.tax_rate,
-        )
+    for item_entry, tax_rate in zip(invoice_items, line_tax_rates):
+        item_entry["item_tax_template"] = get_item_tax_template(company, 0 if is_exonerated else tax_rate)
     exo_values = {
         "custom_subtipo_exonerado": cstr(cust_info.get("custom_subtipo_exonerado") or "").strip() if is_exonerated else "",
         "custom_orden_compra_exenta": cstr(custom_orden_compra_exenta or "").strip() if is_exonerated else "",
