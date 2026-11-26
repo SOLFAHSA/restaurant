@@ -159,15 +159,15 @@ body.restaurant-theme-context .page-actions .primary-action.btn-primary:hover {
     border-color: var(--restaurant-green-dark) !important;
 }
 
-/* Global LEAF animated leaf loader for freeze overlays and page loading states */
-#freeze .freeze-message {
+/* LEAF animated leaf loader for freeze overlays, only inside the restaurant navigation context */
+body.restaurant-theme-context #freeze .freeze-message {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 10px;
 }
-#freeze .freeze-message::before {
+body.restaurant-theme-context #freeze .freeze-message::before {
     content: "";
     display: block;
     width: 56px;
