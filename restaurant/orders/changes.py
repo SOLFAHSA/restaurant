@@ -66,11 +66,13 @@ def preview_split_order(order_name, split_items, expected_modified=None):
 
 
 def _sync_kds_after_order_change(doc):
-    """Synchronize KDS tickets and publish a realtime update after item or order mutation."""
+    """Synchronize KDS tickets after an item or order mutation.
+
+    The realtime notice is already published by the order's on_update hook after commit.
+    """
     try:
-        from restaurant.kds import _sync_legacy_status, publish_kds_realtime_update
+        from restaurant.kds import _sync_legacy_status
         _sync_legacy_status(doc)
-        publish_kds_realtime_update(doc=doc, source="order_change")
     except Exception:
         frappe.log_error(frappe.get_traceback(), "KDS Sync After Order Change")
 
