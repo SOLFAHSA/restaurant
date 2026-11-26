@@ -10,6 +10,7 @@ from restaurant.catalog.taxes import _get_item_tax_rates
 from restaurant.pos_auth import is_supervisor, is_waiter_only, user_can_invoice
 from restaurant.pos_context import _get_active_user_branch, _get_default_customer, _get_order_company
 from restaurant.pos_settings.stations import _resolve_command_map
+from restaurant.tax_configuration import taxes_included_in_price
 
 
 def validate_order(doc):
@@ -163,10 +164,11 @@ def validate_order(doc):
                         )
 
     command_map = _resolve_command_map()
+    prices_include_tax = taxes_included_in_price(doc.company, doc.pos_profile) if doc.company else False
+    exonerated = is_exonerated_order(doc)
 
-    subtotal = 0.0
-    taxed_15 = 0.0
-    taxed_18 = 0.0
+    gross_by_rate = {15.0: 0.0, 18.0: 0.0}
+    net_by_rate = {15.0: 0.0, 18.0: 0.0}
     exempt = 0.0
 
     item_meta = frappe.get_meta("Restaurant Order Item")
@@ -303,11 +305,15 @@ def validate_order(doc):
             missing_tax_items.append(row.item_name or row.item_code)
             continue
 
-        subtotal += row.amount
-        if abs(row.tax_rate - 15.0) < 0.01:
-            taxed_15 += row.amount
-        elif abs(row.tax_rate - 18.0) < 0.01:
-            taxed_18 += row.amount
+        line_rate = 0.0 if exonerated else row.tax_rate
+        rate_key = next((key for key in gross_by_rate if abs(line_rate - key) < 0.01), None)
+        if rate_key is not None:
+            gross_by_rate[rate_key] += row.amount
+            # ERPNext rounds the net amount of each tax-inclusive invoice line before taxing it.
+            net_by_rate[rate_key] += flt(row.amount / (1 + rate_key / 100.0), 2)
+        elif exonerated and prices_include_tax:
+            # The exonerated invoice line is billed at the price without its ISV.
+            exempt += net_exonerated_line_amount(row.qty, row.rate, row.tax_rate)
         else:
             exempt += row.amount
 
@@ -318,14 +324,30 @@ def validate_order(doc):
             )
         )
 
-    doc.subtotal = flt(subtotal, 2)
-    doc.taxed_amount_15 = flt(taxed_15, 2)
-    # Match ERPNext Sales Invoice taxes_and_totals: accumulate taxable net per rate before rounding once.
-    doc.isv_15 = flt(doc.taxed_amount_15 * 0.15, 2)
-    doc.taxed_amount_18 = flt(taxed_18, 2)
-    doc.isv_18 = flt(doc.taxed_amount_18 * 0.18, 2)
+    # Match ERPNext taxes_and_totals: accumulate the taxable amount per rate and round once.
+    taxable = {}
+    isv = {}
+    for rate, gross in gross_by_rate.items():
+        if prices_include_tax:
+            net = net_by_rate[rate]
+            taxable[rate] = flt(net, 2)
+            isv[rate] = flt(net * rate / 100.0, 2)
+        else:
+            taxable[rate] = flt(gross, 2)
+            isv[rate] = flt(taxable[rate] * rate / 100.0, 2)
+
+    doc.taxed_amount_15 = taxable[15.0]
+    doc.isv_15 = isv[15.0]
+    doc.taxed_amount_18 = taxable[18.0]
+    doc.isv_18 = isv[18.0]
     doc.exempt_amount = flt(exempt, 2)
+    doc.subtotal = flt(doc.taxed_amount_15 + doc.taxed_amount_18 + doc.exempt_amount, 2)
     doc.tax_amount = flt(doc.isv_15 + doc.isv_18, 2)
+    if prices_include_tax:
+        # Tax-inclusive prices: the invoice total is the sum of the prices, ISV is not added again.
+        fiscal_total = flt(sum(gross_by_rate.values()) + exempt, 2)
+    else:
+        fiscal_total = flt(doc.subtotal + doc.tax_amount, 2)
 
     doc.tip_percentage = max(0.0, min(100.0, flt(doc.tip_percentage, 2)))
     if doc.tip_percentage > 0:
@@ -333,7 +355,26 @@ def validate_order(doc):
     else:
         doc.tip_amount = max(0.0, flt(doc.tip_amount, 2))
 
-    doc.grand_total = flt(doc.subtotal + doc.tax_amount + doc.tip_amount, 2)
+    # The voluntary tip is collected for the staff: it is never part of the fiscal invoice total.
+    doc.flags.fiscal_total = fiscal_total
+    doc.grand_total = flt(fiscal_total + doc.tip_amount, 2)
+
+
+def net_exonerated_line_amount(qty, rate, tax_rate):
+    """Amount of an exonerated line when list prices include ISV (same rounding as the invoice line)."""
+    net_rate = flt(flt(rate) / (1 + flt(tax_rate) / 100.0), 2)
+    return flt(flt(qty) * net_rate, 2)
+
+
+def is_exonerated_order(doc):
+    """An order is exonerated when the checkout forces it or its customer has the Exonerado category."""
+    forced = doc.flags.get("restaurant_tax_category")
+    if forced:
+        return cstr(forced).strip().upper() == "EXONERADO"
+    if not doc.customer or not frappe.get_meta("Customer").has_field("tax_category"):
+        return False
+    category = frappe.db.get_value("Customer", doc.customer, "tax_category")
+    return cstr(category).strip().upper() == "EXONERADO"
 
 
 def sync_table_status_for_order(doc, deleted=False):

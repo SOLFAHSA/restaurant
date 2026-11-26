@@ -21,8 +21,39 @@ class RestaurantSettings(Document):
         _assert_settings_admin()
         self._sync_self_order_flags()
         self._sync_wallpaper_defaults()
+        self._validate_fiscal_configuration()
         self._sync_pos_profile_and_config()
         frappe.clear_cache()
+
+    def _validate_fiscal_configuration(self):
+        """Tax templates must belong to the restaurant company; the tip account must be a Liability ledger."""
+        from restaurant.checkout.tips import validate_tip_liability_account
+        from restaurant.tax_configuration import EXONERATED_CATEGORY, describe_sales_template
+
+        company = self.company or (
+            frappe.db.get_value("POS Profile", self.pos_profile, "company") if self.pos_profile else None
+        )
+        for fieldname, label in (
+            ("sales_taxes_template", _("gravada")),
+            ("exonerated_taxes_template", _("exonerada")),
+        ):
+            template = self.get(fieldname)
+            if not template:
+                continue
+            row = frappe.db.get_value(
+                "Sales Taxes and Charges Template", template, ["company", "disabled", "tax_category"], as_dict=True,
+            )
+            if company and row.company != company:
+                frappe.throw(_("La plantilla {0} {1} no pertenece a la empresa {2}.").format(label, template, company))
+            if cint(row.disabled):
+                frappe.throw(_("La plantilla {0} {1} está deshabilitada.").format(label, template))
+            info = describe_sales_template(template)
+            if fieldname == "exonerated_taxes_template" and any(flt(rate) for rate in info.rates.values()):
+                frappe.throw(_("La plantilla exonerada {0} debe usar tasas de cero.").format(template))
+            if fieldname == "sales_taxes_template" and (row.tax_category or "") == EXONERATED_CATEGORY:
+                frappe.throw(_("La plantilla gravada no puede tener la categoría de impuesto Exonerado."))
+        if self.get("tip_liability_account"):
+            validate_tip_liability_account(self.tip_liability_account, company)
 
     def _sync_self_order_flags(self):
         if not cint(self.enable_self_order):
@@ -128,6 +159,9 @@ class RestaurantSettings(Document):
             prof_doc = frappe.get_doc("POS Profile", self.pos_profile)
             prof_doc.hide_images = 0 if cint(self.show_product_images) else 1
             prof_doc.disable_rounded_total = 0 if cint(self.enable_rounded_total) else 1
+            # This profile is linked to the restaurant explicitly by an administrator.
+            if not prof_doc.print_format and frappe.db.exists("Print Format", "Ticket Restaurant"):
+                prof_doc.print_format = "Ticket Restaurant"
 
             enabled_payments = payload["enabled_payments"]
             if enabled_payments:

@@ -528,12 +528,29 @@ class LeafRestaurantPOS {
             }
         });
 
-        // Match ERPNext Sales Invoice taxes_and_totals: round once per accumulated tax rate.
-        const roundedSubtotal = this.roundMoney(subtotal);
-        const roundedTaxed15 = this.roundMoney(taxed15);
-        const roundedTaxed18 = this.roundMoney(taxed18);
-        const isv15 = this.roundMoney(roundedTaxed15 * 0.15);
-        const isv18 = this.roundMoney(roundedTaxed18 * 0.18);
+        // Preview only: the server recomputes these totals with the same native rule.
+        const pricesIncludeTax = Boolean(Number(this.getRposConfig().taxes_included_in_price || 0));
+        let roundedTaxed15;
+        let roundedTaxed18;
+        let isv15;
+        let isv18;
+        let fiscalTotal;
+        if (pricesIncludeTax) {
+            // Tax-inclusive prices: split the net base out of the price; ISV is not added again.
+            roundedTaxed15 = this.roundMoney(taxed15 / 1.15);
+            roundedTaxed18 = this.roundMoney(taxed18 / 1.18);
+            isv15 = this.roundMoney((taxed15 / 1.15) * 0.15);
+            isv18 = this.roundMoney((taxed18 / 1.18) * 0.18);
+            fiscalTotal = this.roundMoney(taxed15 + taxed18 + exempt);
+        } else {
+            // Match ERPNext Sales Invoice taxes_and_totals: round once per accumulated tax rate.
+            roundedTaxed15 = this.roundMoney(taxed15);
+            roundedTaxed18 = this.roundMoney(taxed18);
+            isv15 = this.roundMoney(roundedTaxed15 * 0.15);
+            isv18 = this.roundMoney(roundedTaxed18 * 0.18);
+            fiscalTotal = null;
+        }
+        const roundedSubtotal = this.roundMoney(roundedTaxed15 + roundedTaxed18 + this.roundMoney(exempt));
 
         this.currentOrder.subtotal = roundedSubtotal;
         this.currentOrder.taxed_amount_15 = roundedTaxed15;
@@ -549,9 +566,11 @@ class LeafRestaurantPOS {
         } else {
             this.currentOrder.tip_amount = Math.max(0, this.roundMoney(this.currentOrder.tip_amount || 0));
         }
-        this.currentOrder.grand_total = this.roundMoney(
-            this.currentOrder.subtotal + this.currentOrder.tax_amount + this.currentOrder.tip_amount
-        );
+        // Total collected = fiscal invoice total + voluntary tip (the tip is not part of the invoice).
+        const invoiceTotal = fiscalTotal === null
+            ? this.roundMoney(this.currentOrder.subtotal + this.currentOrder.tax_amount)
+            : fiscalTotal;
+        this.currentOrder.grand_total = this.roundMoney(invoiceTotal + this.currentOrder.tip_amount);
     }
 
     brandLeafLogoHtml() {
@@ -1851,7 +1870,7 @@ class LeafRestaurantPOS {
                 this.showInvoiceReceiptModal(
                     {
                         name: invName,
-                        print_format: this.getActivePosProfileObj().print_format || "Ticket",
+                        print_format: this.getActivePosProfileObj().print_format || "Ticket Restaurant",
                     },
                     ord
                 );
@@ -4206,7 +4225,7 @@ class LeafRestaurantPOS {
     }
 
     showInvoiceReceiptModal(invoice, order) {
-        const printFormat = invoice?.print_format || this.getActivePosProfileObj().print_format || "Ticket";
+        const printFormat = invoice?.print_format || this.getActivePosProfileObj().print_format || "Ticket Restaurant";
         const baseUrl = frappe.urllib.get_base_url();
         const previewUrl = `${baseUrl}/printview?doctype=${encodeURIComponent("Sales Invoice")}&name=${encodeURIComponent(invoice.name)}&format=${encodeURIComponent(printFormat)}&no_letterhead=1`;
         const backdrop = this.createModal(
@@ -6379,6 +6398,7 @@ class LeafRestaurantPOS {
                         <span class="rpos-arq-meta-pill">Turno: <strong>${this.escape(snapshot.pos_opening_shift)}</strong></span>
                         <span class="rpos-arq-meta-pill">Cajero: <strong>${this.escape(snapshot.cashier_name || snapshot.cashier)}</strong></span>
                         <span class="rpos-arq-meta-pill">Facturas: <strong>${Number(snapshot.invoice_count || 0)}</strong> (${this.escape(formatCurrency(snapshot.total_sales))})</span>
+                        ${Number(snapshot.total_tips || 0) > 0 ? `<span class="rpos-arq-meta-pill" title="Ventas Facturadas + Propinas Recaudadas (Pasivo) = Total Recibido en Caja / Terminal">Propinas recaudadas (pasivo): <strong>${this.escape(formatCurrency(snapshot.total_tips))}</strong></span>` : ""}
                     </div>
                     <div class="rpos-arq-type-switch" role="group" aria-label="Tipo de Arqueo">
                         <button type="button" class="rpos-arq-type-btn ${countType === "Arqueo Parcial" ? "is-active" : ""}" data-arq-type="Arqueo Parcial">Arqueo Parcial</button>
@@ -6442,8 +6462,9 @@ class LeafRestaurantPOS {
                                     <tr>
                                         <th>Método</th>
                                         <th class="num">Apertura</th>
-                                        <th class="num">Ventas</th>
-                                        ${hideExpected ? "" : '<th class="num">Esperado</th>'}
+                                        <th class="num">Ventas facturadas</th>
+                                        <th class="num" title="Propinas voluntarias recaudadas a favor del personal (pasivo). No forman parte de la factura SAR.">Propinas (pasivo)</th>
+                                        ${hideExpected ? "" : '<th class="num">Total recibido esperado</th>'}
                                         <th class="num">Contado (${this.escape(snapshot.currency || "L")})</th>
                                         ${hideExpected ? "" : '<th class="num">Diferencia</th>'}
                                     </tr>
@@ -6457,6 +6478,7 @@ class LeafRestaurantPOS {
                                             </td>
                                             <td class="num">${this.escape(formatCurrency(m.opening_amount))}</td>
                                             <td class="num">${this.escape(formatCurrency(m.sales_amount))}</td>
+                                            <td class="num">${this.escape(formatCurrency(m.tip_amount || 0))}</td>
                                             ${hideExpected ? "" : `<td class="num"><strong>${this.escape(formatCurrency(m.expected_amount))}</strong></td>`}
                                             <td class="num">
                                                 <input type="number" step="0.01" min="0"

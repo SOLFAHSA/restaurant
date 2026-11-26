@@ -44,6 +44,8 @@
         "column_break_fiscal",
         "cai",
         "due_date_cai",
+        "tip_mode_of_payment",
+        "tip_journal_entry",
         "additional_info_tab",
         "section_break_pos",
         "pos_profile",
@@ -326,6 +328,23 @@
             "label": "Fecha límite de emisión CAI",
             "fieldtype": "Date",
             "read_only": 1
+        },
+        {
+            "fieldname": "tip_mode_of_payment",
+            "label": "Medio de pago de la propina",
+            "fieldtype": "Link",
+            "options": "Mode of Payment",
+            "read_only": 1,
+            "no_copy": 1
+        },
+        {
+            "fieldname": "tip_journal_entry",
+            "label": "Partida de diario de la propina (pasivo)",
+            "description": "Propina voluntaria recaudada a favor del personal. No forma parte de la factura SAR.",
+            "fieldtype": "Link",
+            "options": "Journal Entry",
+            "read_only": 1,
+            "no_copy": 1
         },
         {
             "fieldname": "additional_info_tab",

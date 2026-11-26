@@ -25,6 +25,11 @@
   "col_break_pay",
   "tips_enabled",
   "enable_rounded_total",
+  "fiscal_section",
+  "sales_taxes_template",
+  "exonerated_taxes_template",
+  "col_break_fiscal",
+  "tip_liability_account",
   "pos_interface_section",
   "show_product_images",
   "show_category_images",
@@ -168,6 +173,36 @@
    "fieldname": "enable_rounded_total",
    "fieldtype": "Check",
    "label": "Habilitar redondeo de totales"
+  },
+  {
+   "fieldname": "fiscal_section",
+   "fieldtype": "Section Break",
+   "label": "Impuestos SAR y propinas"
+  },
+  {
+   "description": "Plantilla de impuestos de venta para clientes gravados. Si se deja vacía se usa la del perfil de Punto de Venta o la predeterminada de la empresa. Precios netos o con ISV incluido se detectan de sus filas.",
+   "fieldname": "sales_taxes_template",
+   "fieldtype": "Link",
+   "label": "Plantilla de impuestos de venta (gravada)",
+   "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "description": "Plantilla con tasas de cero para clientes con categoría Exonerado. Si se deja vacía se usa la plantilla de la empresa con categoría de impuesto Exonerado.",
+   "fieldname": "exonerated_taxes_template",
+   "fieldtype": "Link",
+   "label": "Plantilla de impuestos de venta (exonerada)",
+   "options": "Sales Taxes and Charges Template"
+  },
+  {
+   "fieldname": "col_break_fiscal",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Cuenta de pasivo (Propinas por pagar a empleados). La propina voluntaria no forma parte de la factura SAR ni de la base del ISV: se registra con una Partida de diario a esta cuenta.",
+   "fieldname": "tip_liability_account",
+   "fieldtype": "Link",
+   "label": "Cuenta de pasivo para propinas",
+   "options": "Account"
   },
   {
    "fieldname": "pos_interface_section",
@@ -374,7 +409,7 @@
   }
  ],
  "issingle": 1,
- "modified": "2026-11-12 20:30:00.000000",
+ "modified": "2026-11-24 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "Restaurant",
  "name": "Restaurant Settings",

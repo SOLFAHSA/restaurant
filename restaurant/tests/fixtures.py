@@ -226,6 +226,38 @@ def ensure_item_tax(item_code, rate=15):
     item.save(ignore_permissions=True)
 
 
+QA_TIP_ACCOUNT_NAME = "QA Propinas por pagar a empleados"
+
+
+def set_restaurant_settings(**values):
+    """Write Restaurant Settings fields directly (inside the caller's savepoint) and drop cached reads."""
+    for fieldname, value in values.items():
+        frappe.db.set_single_value("Restaurant Settings", fieldname, value)
+    cache = getattr(frappe.db, "value_cache", None)
+    if isinstance(cache, dict):
+        cache.pop("Restaurant Settings", None)
+    frappe.clear_document_cache("Restaurant Settings", "Restaurant Settings")
+
+
+def ensure_tip_liability_account(company):
+    """Configure a ledger Liability account for staff tips (callers roll it back with their savepoint)."""
+    name = frappe.db.get_value("Account", {"company": company, "account_name": QA_TIP_ACCOUNT_NAME}, "name")
+    if not name:
+        parent = frappe.db.get_value(
+            "Account", {"company": company, "is_group": 1, "root_type": "Liability", "parent_account": ["is", "set"]},
+            "name",
+        ) or frappe.db.get_value("Account", {"company": company, "is_group": 1, "root_type": "Liability"}, "name")
+        name = frappe.get_doc({
+            "doctype": "Account",
+            "account_name": QA_TIP_ACCOUNT_NAME,
+            "company": company,
+            "parent_account": parent,
+            "is_group": 0,
+        }).insert(ignore_permissions=True).name
+    set_restaurant_settings(tip_liability_account=name)
+    return name
+
+
 def existing_invoice_name():
     """Return a Sales Invoice to use as a link target, creating a draft on a clean test site."""
     name = frappe.db.get_value("Sales Invoice", {}, "name")

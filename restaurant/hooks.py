@@ -6,7 +6,7 @@ app_email = "juanm.padilla13@hotmail.com"
 app_license = "MIT"
 
 # Register scoped colors independently from the icon sprite cache.
-app_include_css = ["/assets/restaurant/css/restaurant_theme.css?v=20261113.1"]
+app_include_css = ["/assets/restaurant/css/restaurant_theme.css?v=20261124.1"]
 app_include_js = [
     "/assets/restaurant/js/restaurant_icons.js",
     "/assets/restaurant/js/restaurant_theme.js?v=20261122.1",
@@ -279,6 +279,7 @@ doc_events = {
         "on_trash": "restaurant.kds.publish_kds_realtime_update",
     },
     "Sales Invoice": {
+        "on_submit": "restaurant.checkout.tips.create_pending_tip_journal_entry",
         "on_cancel": "restaurant.invoice_events.reopen_order_after_invoice_cancel",
         "validate": [
             "restaurant.pos.validate_restaurant_invoice_stock",

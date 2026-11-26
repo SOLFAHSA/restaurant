@@ -146,6 +146,73 @@ def validate_item(doc, method=None):
             frappe.throw(_("Las opciones de Restaurante deben estar activadas o desactivadas."))
     if cint(doc.get("restaurant_recipe_enabled")):
         _validate_recipe_parent(doc)
+    validate_restaurant_item_tax(doc)
+
+
+def is_restaurant_dish(doc):
+    """A sellable item explicitly configured for the restaurant: recipe, options or a kitchen-routed group.
+
+    restaurant_color is not a signal: the custom field has a default value on every Item.
+    """
+    if not cint(doc.get("is_sales_item")) or cint(doc.get("disabled")) or cint(doc.get("has_variants")):
+        return False
+    if cint(doc.get("restaurant_recipe_enabled")) or cint(doc.get("restaurant_options_enabled")):
+        return True
+    if not doc.get("item_group") or doc.item_group == "All Item Groups":
+        return False
+    from restaurant.pos_settings.stations import _resolve_command_map
+
+    # Only a group routed to a kitchen/bar station on its own counts; parents are not widened so
+    # catalog items of other modules keep their native behavior.
+    return doc.item_group in (_resolve_command_map() or {})
+
+
+def _item_group_ancestors(item_group):
+    """The item group followed by its parents, as ERPNext walks them to inherit Item Tax."""
+    groups = []
+    while item_group and item_group not in groups:
+        groups.append(item_group)
+        item_group = frappe.db.get_value("Item Group", item_group, "parent_item_group")
+    return groups
+
+
+def _restaurant_company():
+    company = None
+    if frappe.get_meta("Restaurant Settings").has_field("company"):
+        company = frappe.db.get_single_value("Restaurant Settings", "company")
+    return company or frappe.defaults.get_global_default("company")
+
+
+def validate_restaurant_item_tax(doc):
+    """Block saving a restaurant dish that has no Item Tax Template for the restaurant company.
+
+    The template may be on the item or inherited from its item group (native ERPNext lookup),
+    so the problem is reported here instead of at the table or at the cash register.
+    """
+    if not is_restaurant_dish(doc):
+        return
+    company = _restaurant_company()
+    if not company:
+        return
+    company_templates = set(frappe.get_all(
+        "Item Tax Template", filters={"company": company, "disabled": 0}, pluck="name",
+    ))
+    if any(row.item_tax_template in company_templates for row in (doc.get("taxes") or [])):
+        return
+    for group in _item_group_ancestors(doc.get("item_group")):
+        group_templates = frappe.get_all(
+            "Item Tax", filters={"parent": group, "parenttype": "Item Group"}, pluck="item_tax_template",
+        )
+        if any(name in company_templates for name in group_templates):
+            return
+    frappe.throw(
+        _(
+            "El platillo o producto de Restaurante '{0}' no tiene una plantilla de impuesto (ISV 15%, ISV 18% "
+            "o Exento) para la empresa {1}. Asígnala en la tabla de impuestos del producto o en su grupo "
+            "de productos antes de venderlo en mesa o caja."
+        ).format(doc.get("item_name") or doc.name, company),
+        title=_("Falta la plantilla de impuesto"),
+    )
 
 
 def validate_managed_bundle(doc, method=None):

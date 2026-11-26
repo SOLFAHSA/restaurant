@@ -127,7 +127,9 @@ def send_invoice_email(invoice_name, recipient_email=None):
         "Sales Invoice",
         si.name,
         file_name=f"{si.name}.pdf",
-        print_format="Ticket",
+        print_format=(
+            frappe.db.get_value("POS Profile", si.pos_profile, "print_format") if si.get("pos_profile") else None
+        ) or "Ticket Restaurant",
     )
     frappe.sendmail(
         recipients=[target_email],

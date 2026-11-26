@@ -220,13 +220,17 @@ def build_cash_count_snapshot(pos_opening_shift=None):
     system_methods = _get_system_enabled_payment_methods()
     mop_type_map = {m["name"]: m.get("type") for m in system_methods}
 
+    from restaurant.checkout.tips import get_shift_tips_by_mode
+
+    # Tips are a staff liability outside the invoices: POS Closing Shift does not see them,
+    # but the cashier receives them in the drawer or terminal and must reconcile them.
+    tips_by_mop = get_shift_tips_by_mode(opening_doc.name)
     by_mop = {row["mode_of_payment"]: row for row in reconciliation_rows}
     combined_mops = []
     for mop in profile_methods:
         if mop and mop not in combined_mops:
             combined_mops.append(mop)
-    for row in reconciliation_rows:
-        mop = row.get("mode_of_payment")
+    for mop in [row.get("mode_of_payment") for row in reconciliation_rows] + list(tips_by_mop):
         if mop and mop not in combined_mops:
             combined_mops.append(mop)
     cash_mop = _resolve_cash_mode_of_payment(opening_doc.pos_profile, combined_mops)
@@ -251,6 +255,9 @@ def build_cash_count_snapshot(pos_opening_shift=None):
         # For cash, make_closing_shift_from_opening already adds income and subtracts withdrawals
         # when the mode matches "Efectivo". Keep sales_amount consistent with expected_amount.
         sales_amt = flt(expected_amt - opening_amt - income_amt + expense_amt, 2)
+        tip_amt = flt(tips_by_mop.get(mop), 2)
+        # Ventas Facturadas + Propinas Recaudadas (Pasivo) = Total Recibido en Caja / Terminal.
+        expected_amt = flt(expected_amt + tip_amt, 2)
         payment_methods.append({
             "mode_of_payment": mop,
             "is_cash": cint(is_cash),
@@ -258,6 +265,7 @@ def build_cash_count_snapshot(pos_opening_shift=None):
             "detail_kind": detail_kind,
             "opening_amount": opening_amt,
             "sales_amount": sales_amt,
+            "tip_amount": tip_amt,
             "income_amount": income_amt,
             "expense_amount": expense_amt,
             "expected_amount": expected_amt,
@@ -292,6 +300,7 @@ def build_cash_count_snapshot(pos_opening_shift=None):
         "period_start_date": str(opening_doc.period_start_date),
         "invoice_count": invoice_count,
         "total_sales": total_sales,
+        "total_tips": flt(sum(m["tip_amount"] for m in payment_methods), 2),
         "total_income": total_income,
         "total_expense": total_expense,
         "net_cash_movement": net_cash_movement,
@@ -418,6 +427,7 @@ def recalculate_cash_count_doc(doc, use_denomination_cash_total=False):
             "mode_of_payment": mop,
             "opening_amount": flt(snap_row["opening_amount"], 2),
             "sales_amount": flt(snap_row["sales_amount"], 2),
+            "tip_amount": flt(snap_row.get("tip_amount"), 2),
             "income_amount": flt(snap_row["income_amount"], 2),
             "expense_amount": flt(snap_row["expense_amount"], 2),
             "expected_amount": expected_amt,
@@ -442,6 +452,8 @@ def recalculate_cash_count_doc(doc, use_denomination_cash_total=False):
     doc.net_cash_movement = flt(snapshot["net_cash_movement"], 2)
     doc.invoice_count = cint(snapshot["invoice_count"])
     doc.total_sales = flt(snapshot["total_sales"], 2)
+    if doc.meta.has_field("total_tips"):
+        doc.total_tips = flt(snapshot.get("total_tips"), 2)
     doc.total_expected = flt(total_expected, 2)
     doc.total_counted = flt(total_counted, 2)
     doc.total_difference = flt(doc.total_counted - doc.total_expected, 2)
@@ -588,11 +600,15 @@ def save_and_submit_cash_count(payload):
 
 
 def close_linked_pos_shift_from_count(doc):
-    """Close the active POS Opening Shift using the verified counted amounts of a cash count."""
+    """Close the active POS Opening Shift using the verified counted amounts of a cash count.
+
+    POS Closing Shift reconciles invoice payments only, so the tips received (a staff liability
+    already recorded by its Journal Entry) are taken out of the counted amount of each method.
+    """
     closing_amounts = [
         {
             "mode_of_payment": row.mode_of_payment,
-            "closing_amount": flt(row.counted_amount, 2),
+            "closing_amount": flt(flt(row.counted_amount) - flt(row.get("tip_amount")), 2),
         }
         for row in (doc.payment_methods or [])
     ]

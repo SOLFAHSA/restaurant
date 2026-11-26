@@ -19,9 +19,15 @@ from restaurant.pos_context import (
 )
 from restaurant.pos_settings.config import _get_effective_rpos_config
 
+RESTAURANT_TICKET = "Ticket Restaurant"
+
 
 def _sync_order_totals_from_invoice(order, invoice):
-    """The issued invoice is the source of truth: show its discounted totals on the order."""
+    """The issued invoice is the source of truth: show its discounted totals on the order.
+
+    The order total is what the customer paid in the transaction: the fiscal invoice total plus
+    the voluntary tip, which is recorded outside the invoice.
+    """
     isv_15 = flt(invoice.get("isv_15"), 2)
     isv_18 = flt(invoice.get("isv_18"), 2)
     order.db_set({
@@ -32,7 +38,7 @@ def _sync_order_totals_from_invoice(order, invoice):
         "isv_18": isv_18,
         "exempt_amount": flt(flt(invoice.get("exempt_amount")) + flt(invoice.get("exonerated_amount")), 2),
         "tax_amount": flt(isv_15 + isv_18, 2),
-        "grand_total": flt(invoice.grand_total, 2),
+        "grand_total": flt(flt(invoice.grand_total) + flt(order.tip_amount), 2),
     })
 
 
@@ -88,6 +94,7 @@ def pay_and_invoice_order(
     supervisor_user=None,
     supervisor_pin=None,
     reason=None,
+    tip_mode_of_payment=None,
 ):
     """Emit and submit a native SAR Sales Invoice for a Restaurant Order and free its table."""
     _require_pos_user()
@@ -168,6 +175,27 @@ def pay_and_invoice_order(
         doc.tip_percentage = 0.0
         doc.tip_amount = max(0.0, flt(tip_amount, 2))
 
+    si_meta = frappe.get_meta("Sales Invoice")
+    cust_meta = frappe.get_meta("Customer")
+    cust_lookup_fields = ["tax_category"] if cust_meta.has_field("tax_category") else []
+    for exo_f in (
+        "custom_subtipo_exonerado",
+        "custom_constancia_exonerado",
+        "custom_carnet_diplomatico",
+        "custom_registro_sag",
+    ):
+        if cust_meta.has_field(exo_f):
+            cust_lookup_fields.append(exo_f)
+    cust_info = (
+        frappe.db.get_value("Customer", doc.customer, cust_lookup_fields, as_dict=True)
+        if doc.customer and cust_lookup_fields
+        else {}
+    ) or {}
+    resolved_tax_category = cstr(tax_category or cust_info.get("tax_category") or "Contribuyente").strip()
+    is_exonerated = resolved_tax_category.upper() == "EXONERADO"
+    # The pre-bill and the invoice must apply the same exoneration rule.
+    doc.flags.restaurant_tax_category = resolved_tax_category
+
     validate_order(doc)
 
     warehouse = prof_doc.warehouse
@@ -182,14 +210,21 @@ def pay_and_invoice_order(
         else frappe.db.get_value("Company", company, "cost_center")
     )
 
-    from restaurant.tax_configuration import get_native_tax_configuration, get_item_tax_template
+    from restaurant.catalog.taxes import _get_item_tax_templates
+    from restaurant.tax_configuration import resolve_line_item_tax_template, resolve_tax_context
+
+    tax_context = resolve_tax_context(company, pos_profile)
+    if is_exonerated and not tax_context.exonerated:
+        frappe.throw(_("Configura una plantilla de impuestos de venta Exonerado para {0}.").format(company))
+    prices_include_tax = bool(cint(tax_context.included_in_print_rate))
 
     billable_rows = [
         row for row in doc.items
         if not cint(getattr(row, "is_cancelled", 0)) and row.kds_status != "Cancelado"
     ]
+    native_templates = _get_item_tax_templates([row.item_code for row in billable_rows], company)
     invoice_items = []
-    line_tax_rates = []
+    line_tax_templates = []
     line_defaults = {
         key: value
         for key, value in (("warehouse", warehouse), ("income_account", income_account), ("cost_center", cost_center))
@@ -201,19 +236,32 @@ def pay_and_invoice_order(
             desc_parts.append(f"Opciones: {row.options_summary}")
         if row.note:
             desc_parts.append(f"Nota: {row.note}")
+        line_template = resolve_line_item_tax_template(
+            company, native_templates.get(row.item_code), row.tax_rate, tax_context, exonerated=is_exonerated,
+        )
+        line_rate = flt(row.rate, 2)
+        list_rate = flt(row.base_rate + row.options_rate, 2)
+        if is_exonerated and prices_include_tax and flt(row.tax_rate):
+            # Tax-inclusive price lists: an exonerated customer pays the price without its ISV.
+            divisor = 1 + flt(row.tax_rate) / 100.0
+            line_rate = flt(line_rate / divisor, 2)
+            list_rate = flt(list_rate / divisor, 2)
+        if is_exonerated and "EXENTO" not in cstr(line_template).upper():
+            # Without a list price Grintsys' SAR adjustment keeps the exonerated net rate untouched.
+            list_rate = 0
         item_entry = {
             "item_code": row.item_code,
             "item_name": row.item_name,
             "description": " | ".join(desc_parts),
             "qty": flt(row.qty),
             "uom": row.uom,
-            "rate": flt(row.rate, 2),
-            "price_list_rate": flt(row.base_rate + row.options_rate, 2),
+            "rate": line_rate,
+            "price_list_rate": list_rate,
             "discount_percentage": flt(row.discount_percentage, 2),
             **line_defaults,
         }
         invoice_items.append(item_entry)
-        line_tax_rates.append(row.tax_rate)
+        line_tax_templates.append(line_template)
         # Combo components go at zero so the native invoice moves (and reverts) their stock.
         for component in components:
             invoice_items.append({
@@ -227,7 +275,7 @@ def pay_and_invoice_order(
                 "discount_percentage": 0,
                 **line_defaults,
             })
-            line_tax_rates.append(row.tax_rate)
+            line_tax_templates.append(line_template)
 
     if not invoice_items:
         frappe.throw(_("No hay productos activos por facturar en esta cuenta."))
@@ -235,18 +283,6 @@ def pay_and_invoice_order(
     update_stock = int(_invoice_has_stock_items(invoice_items))
     if update_stock and (not warehouse or prof_doc.company != company):
         frappe.throw(_("Configura un almacén en un perfil POS de la misma empresa para facturar productos inventariables."))
-
-    service_taxes = []
-    if doc.tip_amount > 0:
-        service_acc = _resolve_service_income_account(company)
-        if service_acc:
-            service_taxes.append({
-                "charge_type": "Actual",
-                "account_head": service_acc,
-                "description": "Servicio sugerido / Propina",
-                "tax_amount": flt(doc.tip_amount, 2),
-                "cost_center": cost_center,
-            })
 
     from restaurant.gift_certificates import GIFT_CERT_MOP_NAME
 
@@ -270,6 +306,16 @@ def pay_and_invoice_order(
                     "amount": flt(p["amount"], 2),
                     "account": acc,
                 })
+    # The tip never enters the SAR invoice: it is taken out of the tendered payments and
+    # recorded as a staff liability with a native Journal Entry after the invoice is submitted.
+    from restaurant.checkout.tips import get_tip_liability_account, split_tip_from_payments
+
+    tip_total = flt(doc.tip_amount, 2)
+    resolved_tip_mop = None
+    if tip_total > 0:
+        get_tip_liability_account(company)
+        resolved_tip_mop = split_tip_from_payments(payment_rows, tip_total, tip_mode_of_payment)
+
     certificate = None
     if gift_card_code or flt(gift_card_amount):
         from restaurant.gift_certificates import get_certificate_for_redemption
@@ -329,33 +375,12 @@ def pay_and_invoice_order(
     if coupon_code and frappe.db.exists("Coupon Code", coupon_code):
         si_payload["coupon_code"] = coupon_code
 
-    si_meta = frappe.get_meta("Sales Invoice")
-    cust_meta = frappe.get_meta("Customer")
-    cust_lookup_fields = ["tax_category"] if cust_meta.has_field("tax_category") else []
-    for exo_f in (
-        "custom_subtipo_exonerado",
-        "custom_constancia_exonerado",
-        "custom_carnet_diplomatico",
-        "custom_registro_sag",
-    ):
-        if cust_meta.has_field(exo_f):
-            cust_lookup_fields.append(exo_f)
-    cust_info = (
-        frappe.db.get_value("Customer", doc.customer, cust_lookup_fields, as_dict=True)
-        if doc.customer and cust_lookup_fields
-        else {}
-    ) or {}
-    resolved_tax_category = cstr(tax_category or cust_info.get("tax_category") or "Contribuyente").strip()
     if si_meta.has_field("tax_category"):
         si_payload["tax_category"] = resolved_tax_category
 
-    is_exonerated = resolved_tax_category.upper() == "EXONERADO"
-    native_taxes = get_native_tax_configuration(company)
-    si_payload["taxes_and_charges"] = native_taxes[
-        "exonerated_taxes_and_charges" if is_exonerated else "taxes_and_charges"
-    ]
-    for item_entry, tax_rate in zip(invoice_items, line_tax_rates):
-        item_entry["item_tax_template"] = get_item_tax_template(company, 0 if is_exonerated else tax_rate)
+    si_payload["taxes_and_charges"] = tax_context.exonerated if is_exonerated else tax_context.name
+    for item_entry, line_template in zip(invoice_items, line_tax_templates):
+        item_entry["item_tax_template"] = line_template
     exo_values = {
         "custom_subtipo_exonerado": cstr(cust_info.get("custom_subtipo_exonerado") or "").strip() if is_exonerated else "",
         "custom_orden_compra_exenta": cstr(custom_orden_compra_exenta or "").strip() if is_exonerated else "",
@@ -390,12 +415,12 @@ def pay_and_invoice_order(
     si.disable_rounded_total = si_payload["disable_rounded_total"]
     si.tax_category = resolved_tax_category
     si.taxes_and_charges = si_payload["taxes_and_charges"]
-    # Load the native tax master after POS defaults and preserve the service charge.
+    # Load the native tax master after POS defaults; the invoice carries consumption and ISV only.
     from erpnext.controllers.accounts_controller import get_taxes_and_charges
 
     _set_doc_field(si, "taxes", get_taxes_and_charges(
         "Sales Taxes and Charges Template", si.taxes_and_charges,
-    ) + service_taxes)
+    ))
     si.calculate_taxes_and_totals()
 
     _approve_checkout_discounts(si, doc, prof_doc, supervisor_user, supervisor_pin, reason)
@@ -434,12 +459,23 @@ def pay_and_invoice_order(
     si.insert(ignore_permissions=True)
     auto_submit = bool(cint(rpos_cfg.get("auto_validate_orders", 1)))
     if auto_submit:
+        if getattr(si, "flags", None) is not None:
+            # The tip Journal Entry is created right below; the on_submit hook must not repeat it.
+            si.flags.restaurant_tip_handled = True
         si.submit()
 
     invoice_finalized = (cint(getattr(si, "docstatus", 0)) == 1) or auto_submit
 
     if active_opening_shift:
         doc.pos_opening_shift = active_opening_shift
+    has_tip_fields = frappe.get_meta("Restaurant Order").has_field("tip_journal_entry")
+    if has_tip_fields:
+        doc.tip_mode_of_payment = resolved_tip_mop
+        doc.tip_journal_entry = None
+        if invoice_finalized and resolved_tip_mop:
+            from restaurant.checkout.tips import create_tip_journal_entry
+
+            doc.tip_journal_entry = create_tip_journal_entry(doc, si, tip_total, resolved_tip_mop)
     doc.sales_invoice = si.name
     doc.cai = si.cai
     doc.due_date_cai = si.due_date_cai
@@ -470,7 +506,7 @@ def pay_and_invoice_order(
             "due_date_cai": cstr(si.due_date_cai),
             "authorized_range": cstr(si.get("authorized_range")),
             "prefix": cstr(si.get("naming_series")) or prof_doc.prefix,
-            "print_format": (prof_doc.print_format if prof_doc and prof_doc.print_format else "Ticket"),
+            "print_format": (prof_doc.print_format if prof_doc and prof_doc.print_format else RESTAURANT_TICKET),
             "net_total": flt(si.net_total, 2),
             "discount_amount": flt(si.get("discount_amount"), 2),
             "taxed_amount_15": flt(si.get("taxed_amount_15"), 2),
@@ -479,7 +515,10 @@ def pay_and_invoice_order(
             "isv_18": flt(si.get("isv_18"), 2),
             "exempt_amount": flt(si.get("exempt_amount"), 2),
             "exonerated_amount": flt(si.get("exonerated_amount"), 2),
-            "tip_amount": flt(doc.tip_amount, 2),
+            "tip_amount": flt(tip_total, 2),
+            "tip_mode_of_payment": cstr(resolved_tip_mop or ""),
+            "tip_journal_entry": cstr(doc.get("tip_journal_entry") or ""),
+            "total_collected": flt(flt(si.grand_total) + tip_total, 2),
             "grand_total": flt(si.grand_total, 2),
             "paid_amount": flt(si.paid_amount, 2),
             "change_amount": flt(si.change_amount, 2),
