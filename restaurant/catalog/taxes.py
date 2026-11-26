@@ -25,8 +25,8 @@ def _load_item_tax_template_rates(template_names):
     return {template: rate for template, rate in rates.items() if rate in (0.0, 15.0, 18.0)}
 
 
-def _get_item_tax_rates(item_codes, company):
-    """Resolve each item's rate with ERPNext's lookup: item templates first, then its item groups."""
+def _get_item_tax_templates(item_codes, company):
+    """Resolve each item's template with ERPNext's lookup: item templates first, then its item groups."""
     from erpnext.stock.get_item_details import get_item_tax_template
 
     args = frappe._dict(company=company, doctype="Sales Invoice", tax_category=None, transaction_date=nowdate())
@@ -35,5 +35,11 @@ def _get_item_tax_rates(item_codes, company):
         out = {}
         get_item_tax_template(args, frappe.get_cached_doc("Item", item_code), out)
         templates[item_code] = out.get("item_tax_template")
+    return templates
+
+
+def _get_item_tax_rates(item_codes, company):
+    """Resolve each item's nominal ISV rate from its native Item Tax Template."""
+    templates = _get_item_tax_templates(item_codes, company)
     rates = _load_item_tax_template_rates({name for name in templates.values() if name})
     return {item_code: rates.get(template) for item_code, template in templates.items()}

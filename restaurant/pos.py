@@ -200,7 +200,7 @@ def get_pos_bootstrap(area_name=None):
             "default_customer": prof.customer or default_customer_fallback,
             "prefix": prof.get("prefix") or "",
             "company_address": prof.get("company_address") or "",
-            "print_format": prof.get("print_format") or "Ticket",
+            "print_format": prof.get("print_format") or "Ticket Restaurant",
             "disable_rounded_total": cint(prof.get("disable_rounded_total") if prof.get("disable_rounded_total") is not None else 1),
             "hide_expected_amount": cint(prof.get("hide_expected_amount") or 0),
             "close_pos_format": prof.get("close_pos_format") or "",
@@ -326,6 +326,18 @@ def get_pos_bootstrap(area_name=None):
     orders = [_serialize_order(row, serial_ctx=serial_ctx) for row in order_docs]
 
     fiscal_info = _resolve_sar_fiscal_info(pos_profile=active_prof_name, company=company)
+
+    from restaurant.tax_configuration import taxes_included_in_price
+
+    # The POS preview must follow the same net / tax-inclusive rule as the server and the invoice.
+    try:
+        rpos_config["taxes_included_in_price"] = (
+            int(taxes_included_in_price(company, active_prof_name)) if company else 0
+        )
+    except frappe.ValidationError:
+        # An inconsistent template is reported when saving or billing the order, not at POS startup.
+        frappe.clear_messages()
+        rpos_config["taxes_included_in_price"] = 0
 
     if active_prof_name:
         try:
