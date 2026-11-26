@@ -8,7 +8,9 @@ from frappe import _
 from frappe.permissions import get_doc_permissions, get_role_permissions
 from frappe.utils import cint, cstr, get_datetime, now_datetime
 
-from restaurant.pos import _check_order_company, _get_order_company, _require_pos_user, _row_stations, _serialize_order
+from restaurant.orders.serialization import _serialize_order
+from restaurant.pos_context import _check_order_company, _get_order_company, _require_pos_user
+from restaurant.pos_settings.stations import _row_stations
 
 DISPLAY = "Restaurant Preparation Display"
 STAGE = "Restaurant Preparation Stage"
@@ -291,7 +293,8 @@ def _serialize_ticket(doc, display, ticket, eligible, current_time, serial_ctx=N
 @frappe.whitelist()
 def get_kds_state(display_name=None, station=None):
     """Read persisted preparation configuration and permitted active orders in batched queries."""
-    from restaurant.pos import _get_active_user_branch, _load_orders_batch, build_order_serialization_context
+    from restaurant.orders.serialization import _load_orders_batch, build_order_serialization_context
+    from restaurant.pos_context import _get_active_user_branch
 
     _require_pos_user()
     active_branch = _get_active_user_branch()

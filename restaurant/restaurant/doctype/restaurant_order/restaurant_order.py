@@ -5,7 +5,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 
-from restaurant.pos import sync_table_status_for_order, validate_order
+from restaurant.orders.validation import sync_table_status_for_order, validate_order
 from restaurant.pos_auth import is_supervisor
 
 

@@ -231,7 +231,7 @@ class TestPosStartup(FrappeTestCase):
             patch("frappe.db.exists", return_value=True),
             patch("frappe.get_doc", return_value=fake_opening),
             patch("frappe.get_cached_doc", return_value=frappe._dict({"currency": "HNL", "hide_expected_amount": 0})),
-            patch("restaurant.pos.get_shift_cash_movements", return_value=fake_movements),
+            patch("restaurant.cash.shift.get_shift_cash_movements", return_value=fake_movements),
             patch("posawesome.posawesome.doctype.pos_closing_shift.pos_closing_shift.make_closing_shift_from_opening", return_value=fake_closing),
         ):
             preview = get_closing_shift_preview("POSA-OS-TEST-99")

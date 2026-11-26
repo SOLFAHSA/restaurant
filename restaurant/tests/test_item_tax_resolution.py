@@ -5,7 +5,7 @@ from uuid import uuid4
 import frappe
 from frappe.tests.utils import FrappeTestCase
 
-from restaurant.pos import _get_item_tax_rates
+from restaurant.catalog.taxes import _get_item_tax_rates
 from restaurant.tax_configuration import get_item_tax_template
 from restaurant.tests import test_invoice_stock
 

@@ -17,7 +17,7 @@ def reopen_order_after_invoice_cancel(invoice, method=None):
         return
 
     from restaurant.kds import publish_kds_realtime_update
-    from restaurant.pos import sync_table_status_for_order
+    from restaurant.orders.validation import sync_table_status_for_order
 
     updates = {"sales_invoice": None, "cai": None, "due_date_cai": None}
     if order.status == "Facturada":
@@ -31,7 +31,7 @@ def reopen_order_after_invoice_cancel(invoice, method=None):
 
 def _restore_order_totals(order):
     """Drop the cancelled invoice's discounted totals by recomputing them from the order lines."""
-    from restaurant.pos import validate_order
+    from restaurant.orders.validation import validate_order
 
     try:
         validate_order(order)

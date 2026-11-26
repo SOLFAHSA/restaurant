@@ -437,8 +437,8 @@ class TestPreparationDisplay(FrappeTestCase):
                     "authorized_range": "", "company_tax_id": "", "prefix": "",
                 }
                 with patch("restaurant.pos.frappe.get_doc", side_effect=get_doc), \
-                        patch("restaurant.pos._resolve_payment_account", return_value=None), \
-                        patch("restaurant.pos._resolve_sar_fiscal_info", return_value=fiscal_info):
+                        patch("restaurant.checkout.invoice._resolve_payment_account", return_value=None), \
+                        patch("restaurant.checkout.accounts._resolve_sar_fiscal_info", return_value=fiscal_info):
                     response = pay_and_invoice_order(order.name, payments=checkout_payment(order))
                 self.assertEqual(response["order"]["status"], "Facturada")
                 self.assertEqual(response["order"]["kds_status"], "En preparación")
