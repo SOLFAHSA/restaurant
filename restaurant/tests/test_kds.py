@@ -271,6 +271,33 @@ class TestPreparationDisplay(FrappeTestCase):
         self.assertEqual(self.order_state(order)["stage_index"], 0)
         self.assertFalse(self.ticket(order).completed_at)
 
+    def clear_payload(self, *orders):
+        return frappe.as_json([
+            {"order_name": order.name, "ticket_id": self.order_state(order)["ticket_name"]} for order in orders
+        ])
+
+    def test_clear_tickets_retires_only_completed_tickets_by_default(self):
+        done, cooking = self.make_order(), self.make_order()
+        self.complete(done)
+        result = kds.clear_tickets(self.display, self.clear_payload(done, cooking))
+        self.assertEqual(result["cleared"], 1)
+        self.assertIsNone(self.order_state(done))
+        self.assertEqual(self.order_state(cooking)["stage_index"], 0)
+
+    def test_only_a_manager_can_clear_tickets_still_in_preparation_and_orders_stay_intact(self):
+        order = self.make_order()
+        original = frappe.get_doc("Restaurant Order", order.name).as_dict()
+        payload = self.clear_payload(order)
+        with patch("frappe.get_roles", return_value=["Restaurant User"]):
+            with self.assertRaises(frappe.PermissionError):
+                kds.clear_tickets(self.display, payload, completed_only=0)
+        self.assertIsNotNone(self.order_state(order))
+        self.assertEqual(kds.clear_tickets(self.display, payload, completed_only=0)["cleared"], 1)
+        self.assertIsNone(self.order_state(order))
+        after = frappe.get_doc("Restaurant Order", order.name).as_dict()
+        for field in ("grand_total", "subtotal", "tax_amount", "sales_invoice", "status", "docstatus"):
+            self.assertEqual(after[field], original[field], field)
+
     def test_configuration_validation_rejects_missing_stages_bad_color_and_negative_timer(self):
         with self.assertRaises(frappe.ValidationError):
             self.make_display(stages=self.stages[:2])
