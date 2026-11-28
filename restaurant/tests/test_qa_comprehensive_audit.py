@@ -2,21 +2,18 @@
 
 import json
 import time
-import unittest
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from frappe.utils import flt, now_datetime, nowdate
+from frappe.utils import flt, now_datetime
 from frappe.utils.password import set_encrypted_password
 
-from restaurant import cash_count, commands, kds, location, order_operations, pos, table_management
+from restaurant import cash_count, commands, kds, location, pos, table_management
 from restaurant.setup import (
     ensure_link_permissions,
     ensure_restaurant_roles,
-    ensure_restaurant_role_profiles,
-    ensure_waiter_module_profile,
 )
 from restaurant.tests.fixtures import ensure_restaurant_test_baseline
 
@@ -250,7 +247,6 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
             for i in range(3):
                 user_seq += 1
                 is_direct = i == 2
-                rp = "Cajero (Facturación Directa)" if is_direct else "Cajero (Completo)"
                 roles = ["Restaurant Cashier", "Restaurant Direct Cashier"] if is_direct else ["Restaurant User", "Restaurant Cashier"]
                 # Grant Accounts User/Sales User in this operational simulation so native ERPNext invoice submit works cleanly;
                 # pure-role without Accounts User is tested separately in DEF-QA-03!
@@ -486,7 +482,6 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
                     "ms": round((time.perf_counter() - t0) * 1000.0, 2),
                 }
 
-            prof = frappe.db.get_value("POS Profile", {"disabled": 0, "company": self.company}, "name")
             item_p = self._make_item("PROFITEM", rate=90.0, tax_pct=15.0)
             wh_p = self._make_warehouse("ProfWh")
             prof_p = self._make_pos_profile("ProfPOS", wh_p, update_stock=0)
@@ -689,7 +684,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
 
     def test_def_qa_10_gift_card_redemption_deducts_from_invoice_cash_due(self):
         """DEF-QA-10: A native certificate reduces the required cash payment."""
-        branch = self._make_branch("GC")
+        self._make_branch("GC")
         wh = self._make_warehouse("GCWh")
         prof = self._make_pos_profile("GCPOS", wh, update_stock=0)
         item = self._make_item("GCITEM", rate=100.0, tax_pct=15.0)
@@ -753,7 +748,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
 
     def test_def_qa_12_mixed_isv15_isv18_order_does_not_double_tax_on_invoice(self):
         """DEF-QA-12 (P0): pay_and_invoice_order double-taxes mixed 15% + 18% items (both rates apply to every item -> 33% ISV)."""
-        branch = self._make_branch("MixTax")
+        self._make_branch("MixTax")
         wh = self._make_warehouse("MixWh")
         prof = self._make_pos_profile("MixPOS", wh, update_stock=0)
         dish15 = self._make_item("D15", rate=120.0, tax_pct=15.0)
@@ -785,7 +780,7 @@ class TestQAComprehensiveAudit2026(FrappeTestCase):
 
     def test_def_qa_05_exonerated_and_update_stock_not_overwritten_by_set_missing_values(self):
         """DEF-QA-05: si.set_missing_values() overwrites si_payload update_stock=0 and tax_category='Exonerado' from POS Profile."""
-        branch = self._make_branch("Exo")
+        self._make_branch("Exo")
         wh = self._make_warehouse("ExoWh")
         prof = self._make_pos_profile("ExoPOS", wh, update_stock=1, tax_category="Contribuyente")
         exo_cust = frappe.get_doc({

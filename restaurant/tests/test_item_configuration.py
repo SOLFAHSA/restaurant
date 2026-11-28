@@ -3,7 +3,7 @@
 from copy import deepcopy
 from uuid import uuid4
 
-from restaurant.tax_configuration import _account, get_native_tax_configuration
+from restaurant.tax_configuration import _account
 
 import frappe
 from frappe.tests.utils import FrappeTestCase
