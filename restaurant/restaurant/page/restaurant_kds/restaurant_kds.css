@@ -753,46 +753,134 @@
     cursor: not-allowed;
 }
 
-/* Station Filter Drawer Bar */
-.rkds-station-bar {
-    background: #ffffff;
-    border-bottom: 1px solid #e5e7eb;
-    padding: 8px 14px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
-    flex-shrink: 0;
-}
-
-.rkds-station-title {
-    font-size: 12.5px;
-    font-weight: 600;
-    color: #6b7280;
-    margin-right: 4px;
-}
-
-.rkds-station-chip {
-    height: 30px;
-    padding: 0 12px;
-    border-radius: 999px;
-    border: 1px solid #d1d5db;
-    background: #f9fafb;
-    color: #374151;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.rkds-station-chip.is-active {
-    background: #04152d;
-    border-color: #04152d;
-    color: #ffffff;
-}
-
 /* ==========================================================================
    Main KDS Cards Board
    ========================================================================== */
+
+/* Body: optional filter sidebar next to the cards board */
+.rkds-body {
+    flex: 1 1 auto;
+    display: flex;
+    min-height: 0;
+}
+
+.rkds-sidebar {
+    flex: 0 0 250px;
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+    min-height: 0;
+}
+
+.rkds-side-scroll {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 12px 10px;
+}
+
+.rkds-side-section {
+    margin-bottom: 14px;
+}
+
+.rkds-side-title {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 6px 4px 8px;
+    margin-bottom: 4px;
+    border: 0;
+    border-bottom: 1px solid #d1d5db;
+    background: transparent;
+    color: #111827;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: left;
+}
+
+.rkds-side-title.is-filter {
+    cursor: pointer;
+}
+
+.rkds-side-item {
+    display: flex;
+    justify-content: space-between;
+    width: 100%;
+    padding: 7px 8px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: #1f2937;
+    font-size: 14.5px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.rkds-side-item:hover,
+.rkds-side-title.is-filter:hover {
+    background: #f3f4f6;
+}
+
+.rkds-side-item.is-active,
+.rkds-side-title.is-active {
+    background: #04152d;
+    color: #ffffff;
+}
+
+.rkds-side-count {
+    min-width: 24px;
+    text-align: right;
+}
+
+.rkds-side-footer {
+    flex-shrink: 0;
+    padding: 8px;
+    border-top: 1px solid #e5e7eb;
+}
+
+.rkds-side-clear {
+    width: 100%;
+    min-height: 64px;
+    margin-bottom: 8px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: #e5e7eb;
+    color: #1f2937;
+    font-size: 17px;
+    cursor: pointer;
+}
+
+.rkds-side-clear:hover:not(:disabled) {
+    background: #d1d5db;
+}
+
+.rkds-side-clear:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.rkds-side-zoom {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border: 1px solid #e5e7eb;
+}
+
+.rkds-side-zoom button {
+    height: 38px;
+    border: 0;
+    background: transparent;
+    color: #1f2937;
+    cursor: pointer;
+}
+
+.rkds-side-zoom button + button {
+    border-left: 1px solid #e5e7eb;
+}
+
+.rkds-side-zoom button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
 
 .rkds-board {
     flex: 1 1 auto;
@@ -807,6 +895,7 @@
 
 /* Ticket Card (Viñeta) */
 .rkds-card {
+    zoom: var(--rkds-card-zoom, 1);
     width: 262px;
     background: #ffffff;
     border: 1px solid #d1d5db;
@@ -1018,11 +1107,6 @@
     font-size: 13.5px;
 }
 
-/* Dark Mode Toggle Support (optional via moon button in preparation monitor) */
-.rkds-shell.is-dark-mode {
-    background: #f8f9fa;
-    color: #111827;
-}
 .rkds-display-grid {
     display: flex;
     flex-wrap: wrap;
@@ -1111,3 +1195,110 @@
     }
 }
 
+/* ==========================================================================
+   Native dark theme: reuses Frappe's theme variables when data-theme="dark"
+   ========================================================================== */
+
+[data-theme="dark"] .rkds-shell,
+[data-theme="dark"] .rkds-hub-container,
+[data-theme="dark"] .rkds-board {
+    background: var(--bg-color);
+    color: var(--text-color);
+}
+
+[data-theme="dark"] .rkds-topbar,
+[data-theme="dark"] .rkds-hub-topbar,
+[data-theme="dark"] .rkds-sidebar,
+[data-theme="dark"] .rkds-card,
+[data-theme="dark"] .rkds-hub-card,
+[data-theme="dark"] .rkds-hub-dropdown,
+[data-theme="dark"] .rkds-hub-search-box,
+[data-theme="dark"] .rkds-config-sheet,
+[data-theme="dark"] .rkds-stages-table-wrap,
+[data-theme="dark"] .rkds-stages-table td,
+[data-theme="dark"] .rkds-customer-status-screen,
+[data-theme="dark"] .rkds-customer-col.is-almost-ready {
+    background: var(--fg-color);
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .rkds-card-header,
+[data-theme="dark"] .rkds-stages-table th,
+[data-theme="dark"] .rkds-customer-col.is-ready-now,
+[data-theme="dark"] .rkds-side-clear {
+    background: var(--control-bg);
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .rkds-icon-btn,
+[data-theme="dark"] .rkds-top-btn,
+[data-theme="dark"] .rkds-stage-tab,
+[data-theme="dark"] .rkds-card-btn,
+[data-theme="dark"] .rkds-timer-pill:not(.is-urgent),
+[data-theme="dark"] .rkds-hub-pill {
+    background: var(--control-bg);
+    color: var(--text-color);
+    border-color: var(--border-color);
+}
+
+[data-theme="dark"] .rkds-icon-btn:hover,
+[data-theme="dark"] .rkds-icon-btn.is-active,
+[data-theme="dark"] .rkds-top-btn:hover:not(:disabled),
+[data-theme="dark"] .rkds-stage-tab:hover,
+[data-theme="dark"] .rkds-stage-tab.is-active,
+[data-theme="dark"] .rkds-item-row.is-clickable:hover,
+[data-theme="dark"] .rkds-side-item:hover,
+[data-theme="dark"] .rkds-side-title.is-filter:hover,
+[data-theme="dark"] .rkds-hub-dropdown-item:hover,
+[data-theme="dark"] .rkds-stages-table tbody tr:hover td {
+    background: var(--fg-hover-color);
+}
+
+[data-theme="dark"] .rkds-card-title,
+[data-theme="dark"] .rkds-card-sched,
+[data-theme="dark"] .rkds-item-main,
+[data-theme="dark"] .rkds-item-name,
+[data-theme="dark"] .rkds-item-qty,
+[data-theme="dark"] .rkds-side-title,
+[data-theme="dark"] .rkds-side-item,
+[data-theme="dark"] .rkds-side-zoom button,
+[data-theme="dark"] .rkds-stage-label,
+[data-theme="dark"] .rkds-empty-title {
+    color: var(--text-color) !important;
+}
+
+[data-theme="dark"] .rkds-item-mod,
+[data-theme="dark"] .rkds-card-guests,
+[data-theme="dark"] .rkds-empty-sub {
+    color: var(--text-muted);
+}
+
+[data-theme="dark"] .rkds-side-item.is-active,
+[data-theme="dark"] .rkds-side-title.is-active {
+    background: #55a61c;
+    color: #ffffff !important;
+}
+
+[data-theme="dark"] .rkds-card,
+[data-theme="dark"] .rkds-sidebar,
+[data-theme="dark"] .rkds-side-footer,
+[data-theme="dark"] .rkds-side-zoom,
+[data-theme="dark"] .rkds-side-zoom button + button,
+[data-theme="dark"] .rkds-side-title {
+    border-color: var(--border-color);
+}
+
+@media (max-width: 700px) {
+    .rkds-body {
+        flex-direction: column;
+    }
+
+    .rkds-sidebar {
+        flex-basis: auto;
+        max-height: 45vh;
+        border-right: 0;
+        border-bottom: 1px solid #e5e7eb;
+    }
+}
