@@ -659,6 +659,43 @@ def dismiss_ticket(display_name, order_name, expected_stage=None, ticket_id=None
     return _mutation_result(doc, display, ticket, eligible)
 
 
+KDS_MANAGER_ROLES = {"Restaurant Manager", "System Manager"}
+MAX_TICKETS_PER_CLEAR = 500
+
+
+@frappe.whitelist(methods=["POST"])
+def clear_tickets(display_name, tickets, completed_only=1):
+    """Retire several tickets from one screen in a single transaction.
+
+    Only the screen ticket is retired: the order, its items and its invoice stay untouched, and a
+    new item sent to the kitchen shows the order again. Retiring tickets still in preparation is
+    reserved to restaurant managers.
+    """
+    rows = _parse_list(tickets)
+    completed_only = cint(completed_only)
+    if len(rows) > MAX_TICKETS_PER_CLEAR:
+        frappe.throw(_("Hay demasiadas órdenes para limpiar a la vez."))
+    if not completed_only and not KDS_MANAGER_ROLES.intersection(frappe.get_roles()):
+        frappe.throw(
+            _("Solo un gerente del restaurante puede limpiar órdenes que siguen en preparación."),
+            frappe.PermissionError,
+        )
+    cleared = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            frappe.throw(_("La lista de órdenes para limpiar no es válida."))
+        doc, display, ticket, eligible, projection = _locked_context(
+            display_name, row.get("order_name"), row.get("ticket_id")
+        )
+        if completed_only and projection["stage_index"] != len(projection["stages"]) - 1:
+            continue
+        ticket = _materialize_ticket(doc, display, ticket, eligible, projection)
+        ticket.cleared_at = ticket.cleared_at or now_datetime()
+        _mutation_result(doc, display, ticket, eligible)
+        cleared += 1
+    return {"cleared": cleared}
+
+
 def _rewind_ticket(display_name, order_name, expected_stage, first=False, ticket_id=None):
     doc, display, ticket, eligible, projection = _locked_context(display_name, order_name, ticket_id)
     _check_expected_stage(projection, expected_stage)

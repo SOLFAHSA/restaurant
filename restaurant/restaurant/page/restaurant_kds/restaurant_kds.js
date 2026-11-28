@@ -23,7 +23,8 @@ class LeafRestaurantKDS {
         this.viewMode = "hub";
         this.activeStage = "Todas";
         this.selectedStation = "Todas las estaciones";
-        this.stationBarOpen = false;
+        this.sidebarOpen = false;
+        this.filters = { time: "", service: "", group: "", item: "" };
         this.orders = [];
         this.displays = [];
         this.selectedDisplay = null;
@@ -45,15 +46,15 @@ class LeafRestaurantKDS {
 
         this.stageConfigs = [];
 
-        this.darkMode = false;
+        this.cardZoom = 1;
         try {
-            this.darkMode = window.localStorage?.getItem("rkds_dark_mode") === "1";
+            this.cardZoom = Number(window.localStorage?.getItem("rkds_card_zoom")) || 1;
         } catch (e) {
-            this.darkMode = false;
+            this.cardZoom = 1;
         }
 
         this.shell = document.createElement("div");
-        this.shell.className = `rkds-shell${this.darkMode ? " is-dark-mode" : ""}`;
+        this.shell.className = "rkds-shell";
         this.page.main[0].appendChild(this.shell);
     }
 
@@ -88,10 +89,8 @@ class LeafRestaurantKDS {
     }
 
     isRealtimeConnected() {
-        return Boolean(
-            window.frappe?.realtime?.socket
-            && (window.frappe.realtime.socket.connected || window.frappe.realtime.socket.io?.engine?.readyState === "open")
-        );
+        // Frappe v14 keeps the Socket.IO client in frappe.socketio.socket (frappe.realtime only wraps on/off).
+        return Boolean(window.frappe?.socketio?.socket?.connected);
     }
 
     bindRealtime() {
@@ -99,9 +98,6 @@ class LeafRestaurantKDS {
         this._onRealtimeKdsUpdate = (data) => {
             if (frappe.get_route()[0] !== "restaurant-kds") {
                 this.unbindRealtime();
-                return;
-            }
-            if (this.activeBranch && data?.branch && data.branch !== this.activeBranch) {
                 return;
             }
             if (this.realtimeDebounceTimer) {
@@ -206,8 +202,13 @@ class LeafRestaurantKDS {
 
     async refreshOrders(options = {}) {
         if (options.silent && this.viewMode === "config") return;
-        if (this.loading) return;
+        if (this.loading) {
+            // Do not drop a change that arrives while loading: refresh again when this load ends.
+            this.refreshPending = true;
+            return;
+        }
         this.loading = true;
+        this.refreshPending = false;
         try {
             const res = await frappe.call({
                 method: "restaurant.kds.get_kds_state",
@@ -246,6 +247,10 @@ class LeafRestaurantKDS {
             }
         } finally {
             this.loading = false;
+            if (this.refreshPending && frappe.get_route()[0] === "restaurant-kds") {
+                this.refreshPending = false;
+                this.refreshOrders({ silent: true });
+            }
         }
     }
 
@@ -329,11 +334,58 @@ class LeafRestaurantKDS {
         return Number.isInteger(num) ? `${num}x` : `${num.toLocaleString("es-HN")}x`;
     }
 
-    visibleOrders() {
+    stageOrders() {
         if (this.activeStage === "Todas") {
             return this.orders;
         }
         return this.orders.filter(ord => (ord.kds_stage || this.stageConfigs[0]?.name || "") === this.activeStage);
+    }
+
+    visibleOrders() {
+        const { time, service, group, item } = this.filters;
+        return this.stageOrders().filter(ord => {
+            if (time && this.timeBucket(ord) !== time) return false;
+            if (service && (ord.service_type || "Comer en el local") !== service) return false;
+            const items = this.kitchenItems(ord);
+            if (group && !items.some(row => (row.item_group || "Sin grupo") === group)) return false;
+            if (item && !items.some(row => row.item_name === item)) return false;
+            return true;
+        });
+    }
+
+    kitchenItems(ord) {
+        return (ord.items || []).filter(row => !row.is_cancelled && row.kds_status !== "Cancelado");
+    }
+
+    timeBucket(ord) {
+        // Orders without a scheduled time are cooked now; scheduled ones go by their day.
+        if (!ord.scheduled_time) return "now";
+        const scheduled = new Date(this.parseTimestampMs(ord.scheduled_time));
+        const now = new Date(Date.now() + this.serverClockOffsetMs);
+        if (Number.isNaN(scheduled.getTime()) || scheduled <= now) return "now";
+        const dayStart = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+        const days = Math.round((dayStart(scheduled) - dayStart(now)) / 86400000);
+        if (days <= 0) return "today";
+        return days === 1 ? "tomorrow" : "next";
+    }
+
+    sidebarSummary() {
+        const orders = this.stageOrders();
+        const times = { now: 0, today: 0, tomorrow: 0, next: 0 };
+        const services = new Map(["Comer en el local", "Para llevar", "Entrega"].map(name => [name, 0]));
+        const groups = new Map();
+        orders.forEach(ord => {
+            times[this.timeBucket(ord)] += 1;
+            const service = ord.service_type || "Comer en el local";
+            services.set(service, (services.get(service) || 0) + 1);
+            this.kitchenItems(ord).forEach(row => {
+                const groupName = row.item_group || "Sin grupo";
+                if (!groups.has(groupName)) groups.set(groupName, new Map());
+                const products = groups.get(groupName);
+                products.set(row.item_name, (products.get(row.item_name) || 0) + Number(row.qty || 0));
+            });
+        });
+        return { total: orders.length, times, services, groups };
     }
 
     currentDisplay() {
@@ -341,7 +393,7 @@ class LeafRestaurantKDS {
     }
 
     render() {
-        this.shell.classList.toggle("is-dark-mode", Boolean(this.darkMode));
+        this.shell.style.setProperty("--rkds-card-zoom", String(this.cardZoom));
         if (this.viewMode === "hub") {
             this.shell.innerHTML = this.renderHubView();
             this.bindEvents();
@@ -403,6 +455,7 @@ class LeafRestaurantKDS {
         return `<header class="rkds-hub-topbar"><div class="rkds-hub-topbar-left">
             <span class="rkds-hub-page-title">Pantalla de preparación · ${this.escape(display?.display_name || "Nueva")}</span>
         </div><div class="rkds-hub-topbar-actions">
+            <button type="button" class="rkds-top-btn" data-kds-action="open-stages-list">Etapas</button>
             <button type="button" class="rkds-admin-new-btn" data-kds-action="save-display">Guardar</button>
             <button type="button" class="rkds-top-btn" data-kds-action="open-hub">Volver</button>
         </div></header><main class="rkds-hub-container"><section class="rkds-config-sheet">
@@ -530,13 +583,13 @@ class LeafRestaurantKDS {
         return `
             <header class="rkds-topbar">
                 <div class="rkds-topbar-left">
-                    <button type="button" class="rkds-icon-btn ${this.stationBarOpen ? "is-active" : ""}" data-kds-action="toggle-stations" title="Filtrar por estación de comanda">
+                    <button type="button" class="rkds-icon-btn ${this.sidebarOpen ? "is-active" : ""}" data-kds-action="toggle-sidebar" title="${this.sidebarOpen ? "Ocultar" : "Mostrar"} filtros de cocina">
                         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <rect x="3" y="3" width="18" height="18" rx="2"/>
                             <line x1="9" y1="3" x2="9" y2="21"/>
                         </svg>
                     </button>
-                    <button type="button" class="rkds-icon-btn" data-kds-action="toggle-theme" title="Cambiar modo de color">
+                    <button type="button" class="rkds-icon-btn" data-kds-action="toggle-theme" title="Cambiar a modo ${this.isDarkTheme() ? "claro" : "oscuro"}">
                         <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                         </svg>
@@ -583,26 +636,108 @@ class LeafRestaurantKDS {
                 </div>
             </header>
 
-            ${this.stationBarOpen ? `
-                <div class="rkds-station-bar">
-                    <span class="rkds-station-title">Estación:</span>
-                    ${this.stations.map(st => `
-                        <button type="button" class="rkds-station-chip ${this.selectedStation === st ? "is-active" : ""}" data-station="${this.escape(st)}">
-                            ${this.escape(st)}
-                        </button>
-                    `).join("")}
-                </div>
-            ` : ""}
-
-            <main class="rkds-board">
-                ${visible.length ? visible.map(ord => this.renderTicketCard(ord)).join("") : `
-                    <div class="rkds-empty-state">
-                        <div class="rkds-empty-title">No hay pedidos en "${this.escape(this.stageConfigs.find(stage => stage.name === this.activeStage)?.stage_name || this.activeStage)}"</div>
-                        <div class="rkds-empty-sub">Las comandas enviadas desde el Punto de Venta aparecerán aquí automáticamente.</div>
-                    </div>
-                `}
-            </main>
+            <div class="rkds-body">
+                ${this.sidebarOpen ? this.renderSidebar() : ""}
+                <main class="rkds-board">
+                    ${visible.length ? visible.map(ord => this.renderTicketCard(ord)).join("") : `
+                        <div class="rkds-empty-state">
+                            <div class="rkds-empty-title">No hay pedidos en "${this.escape(this.stageConfigs.find(stage => stage.name === this.activeStage)?.stage_name || this.activeStage)}"</div>
+                            <div class="rkds-empty-sub">Las comandas enviadas desde el Punto de Venta aparecerán aquí automáticamente.</div>
+                        </div>
+                    `}
+                </main>
+            </div>
         `;
+    }
+
+    renderSidebar() {
+        const summary = this.sidebarSummary();
+        const timeLabels = { now: "Ahora", today: "Hoy", tomorrow: "Mañana", next: "Próximos días" };
+        const entry = (filter, value, label, count) => `
+            <button type="button" class="rkds-side-item ${this.filters[filter] === value ? "is-active" : ""}" data-kds-action="toggle-filter" data-filter="${filter}" data-value="${this.escape(value)}">
+                <span>${this.escape(label)}</span><span class="rkds-side-count">${count}</span>
+            </button>
+        `;
+        const section = (title, count, body) => `
+            <section class="rkds-side-section">
+                <div class="rkds-side-title"><span>${this.escape(title)}</span><span>${count}</span></div>
+                ${body}
+            </section>
+        `;
+        const groupSections = [...summary.groups.entries()]
+            .sort(([a], [b]) => a.localeCompare(b, "es"))
+            .map(([group, products]) => {
+                const total = [...products.values()].reduce((sum, qty) => sum + qty, 0);
+                const rows = [...products.entries()]
+                    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "es"))
+                    .map(([name, qty]) => entry("item", name, name, this.formatQty(qty)))
+                    .join("");
+                return `
+                    <section class="rkds-side-section">
+                        <button type="button" class="rkds-side-title is-filter ${this.filters.group === group ? "is-active" : ""}" data-kds-action="toggle-filter" data-filter="group" data-value="${this.escape(group)}">
+                            <span>${this.escape(group)}</span><span>${this.formatQty(total)}</span>
+                        </button>
+                        ${rows}
+                    </section>
+                `;
+            }).join("");
+        return `
+            <aside class="rkds-sidebar" aria-label="Filtros de cocina">
+                <div class="rkds-side-scroll">
+                    ${section("Tiempo", summary.total, Object.entries(timeLabels).map(([key, label]) => entry("time", key, label, summary.times[key])).join(""))}
+                    ${section("Tipo de servicio", summary.total, [...summary.services.entries()].map(([name, count]) => entry("service", name, name, count)).join(""))}
+                    ${this.stations.length > 1 ? `
+                        <section class="rkds-side-section">
+                            <div class="rkds-side-title"><span>Estación</span></div>
+                            ${this.stations.map(st => `
+                                <button type="button" class="rkds-side-item ${this.selectedStation === st ? "is-active" : ""}" data-station="${this.escape(st)}"><span>${this.escape(st)}</span></button>
+                            `).join("")}
+                        </section>
+                    ` : ""}
+                    ${groupSections}
+                </div>
+                <div class="rkds-side-footer">
+                    ${this.isKdsManager() ? `
+                        <button type="button" class="rkds-side-clear" data-kds-action="clear-all" ${this.orders.length ? "" : "disabled"} title="Retira todas las tarjetas de esta pantalla; las órdenes y facturas no cambian">Limpiar todas las órdenes</button>
+                    ` : ""}
+                    <div class="rkds-side-zoom">
+                        <button type="button" data-kds-action="zoom-out" title="Reducir tarjetas" aria-label="Reducir tarjetas" ${this.cardZoom <= 0.7 ? "disabled" : ""}>
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/></svg>
+                        </button>
+                        <button type="button" data-kds-action="zoom-in" title="Agrandar tarjetas" aria-label="Agrandar tarjetas" ${this.cardZoom >= 1.6 ? "disabled" : ""}>
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6M11 8v6"/></svg>
+                        </button>
+                    </div>
+                </div>
+            </aside>
+        `;
+    }
+
+    isDarkTheme() {
+        return document.documentElement.getAttribute("data-theme") === "dark";
+    }
+
+    toggleNativeTheme() {
+        // Same switch as the native theme dialog: desk.js applies data-theme-mode, switch_theme saves it.
+        const theme = this.isDarkTheme() ? "Light" : "Dark";
+        document.documentElement.setAttribute("data-theme-mode", theme.toLowerCase());
+        frappe.xcall("frappe.core.doctype.user.user.switch_theme", { theme });
+        window.setTimeout(() => this.render(), 50);
+    }
+
+    setCardZoom(step) {
+        this.cardZoom = Math.min(1.6, Math.max(0.7, Math.round((this.cardZoom + step) * 10) / 10));
+        try { window.localStorage?.setItem("rkds_card_zoom", String(this.cardZoom)); } catch (e) { /* Storage may be disabled. */ }
+        this.render();
+    }
+
+    async clearTickets(orders, completedOnly) {
+        if (!orders.length) return;
+        const tickets = orders.map(ord => ({ order_name: ord.name, ticket_id: ord.ticket_name }));
+        if (await this.callMutation("clear_tickets", { display_name: this.selectedDisplay, tickets: JSON.stringify(tickets), completed_only: completedOnly ? 1 : 0 })) {
+            this.undoStack = [];
+            this.render();
+        }
     }
 
     formatScheduledHeader(schedStr) {
@@ -762,12 +897,19 @@ class LeafRestaurantKDS {
             this.viewMode="preparation"; this.render(); return;
         }
         if (action === "open-status-screen") {this.viewMode="status-screen"; this.render(); return;}
-        if (action === "toggle-stations") {this.stationBarOpen=!this.stationBarOpen; this.render(); return;}
-        if (action === "toggle-theme") {
-            this.darkMode=!this.darkMode;
-            try {window.localStorage?.setItem("rkds_dark_mode",this.darkMode ? "1" : "0");} catch(e) { /* Storage may be disabled. */ }
+        if (action === "toggle-sidebar") {this.sidebarOpen=!this.sidebarOpen; this.render(); return;}
+        if (action === "toggle-filter") {
+            const key=el.dataset.filter;
+            this.filters[key]=this.filters[key]===el.dataset.value ? "" : el.dataset.value;
             this.render(); return;
         }
+        if (action === "zoom-in" || action === "zoom-out") {this.setCardZoom(action === "zoom-in" ? 0.1 : -0.1); return;}
+        if (action === "clear-all") {
+            const count=this.orders.length;
+            frappe.confirm(`¿Limpiar las ${count} órdenes de esta pantalla? Se retiran de la cocina; las órdenes y sus facturas no cambian.`, () => this.clearTickets(this.orders, false));
+            return;
+        }
+        if (action === "toggle-theme") {this.toggleNativeTheme(); return;}
         if (action === "close-kds") {this.stopTimers(); frappe.set_route("Workspaces", "Restaurante"); return;}
         if (action === "toggle-item") {await this.toggleOrderItemStrike(el.dataset.order,el.dataset.itemName,el.closest("[data-card-ticket]")?.dataset.cardTicket); return;}
         if (action === "reset-order" || action === "close-order") {
@@ -785,10 +927,7 @@ class LeafRestaurantKDS {
         }
         if (action === "clear-completed") {
             const completed=this.orders.filter(order=>order.stage_index===(order.stages || this.stageConfigs).length-1);
-            for (const order of completed) {
-                if (!await this.callMutation("dismiss_ticket",{display_name:this.selectedDisplay,order_name:order.name,ticket_id:order.ticket_name,expected_stage:order.kds_stage},false)) break;
-            }
-            await this.refreshOrders({silent:true});
+            await this.clearTickets(completed, true);
         }
     }
 
