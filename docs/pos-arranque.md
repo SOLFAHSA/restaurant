@@ -81,9 +81,9 @@ La navegación era correcta: Frappe utiliza la ruta completa. Se ajustó esa exp
 Comandos dentro del DevContainer, desde /workspace/development/frappe-bench:
 
 ```bash
-bench --site development run-tests --app restaurant \
-  --module restaurant.tests.test_pos_startup --skip-test-records
-bench --site development run-tests --app restaurant --skip-test-records
+bench --site test_restaurant run-tests --app restaurant \
+  --module restaurant.tests.test_pos_startup --skip-before-tests --skip-test-records
+bench --site test_restaurant run-tests --app restaurant --skip-before-tests --skip-test-records
 ```
 
 Prueba visual: restaurant/tests/ui/pos_startup.cjs.
