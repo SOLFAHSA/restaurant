@@ -52,8 +52,8 @@ No se prueba todo: se prueba primero **donde más duele fallar**. En un restaura
 | Dividir, transferir y fusionar cuentas sin perder productos ni importes | Integración | `test_order_operations` (35) |
 | Simulación operativa completa: 3 sucursales y 30 usuarios, más controles de seguridad y presupuesto de consultas | Integración | `test_qa_comprehensive_audit` (18) |
 | La pantalla continúa al cobro después de la precuenta sin recargar | Unitaria (JavaScript) | `restaurant/tests/ui/precuenta_state.cjs` (4) |
-| El cajero cobra una cuenta y obtiene su factura SAR **desde el navegador** | **Extremo a extremo** | Por crear (Playwright), sección 6 |
-| El mesero **no ve** el botón de cobrar **desde el navegador** | **Extremo a extremo** | Por crear (Playwright), sección 6 |
+| El cajero cobra una cuenta y obtiene su factura SAR **desde el navegador** | **Extremo a extremo** | `e2e/tests/flujo-central.spec.js` |
+| El mesero **no ve** el botón de cobrar **desde el navegador** | **Extremo a extremo** | `e2e/tests/permiso-mesero.spec.js` |
 
 ## 3. Niveles de prueba y pirámide
 
@@ -61,7 +61,7 @@ No se prueba todo: se prueba primero **donde más duele fallar**. En un restaura
 | :--- | :--- | :--- | :--- |
 | Unitaria | Una regla aislada, en milisegundos | Node (`node:test`) para la lógica de pantalla | 4 |
 | Integración | El caso de uso con la base de datos de prueba: orden, factura nativa, contabilidad e inventario | `FrappeTestCase` | 274 |
-| Extremo a extremo | La app completa en un navegador, como un usuario | Playwright | 0 en ejecución |
+| Extremo a extremo | La app completa en un navegador, como un usuario | Playwright 1.49.1 (`e2e/`) | 2 (ver `e2e/README.md`) |
 
 **Lectura honesta:** la pirámide del proyecto está cargada hacia la integración. Es esperable en un módulo de ERP, porque casi cada regla depende de documentos nativos (factura, impuestos, inventario) que solo existen en la base de datos. Las reglas de cálculo que no tocan la base se irán separando en pruebas unitarias. Las de extremo a extremo serán **pocas**: solo el flujo central y el permiso crítico.
 
@@ -99,7 +99,7 @@ Prueba unitaria de pantalla: `node restaurant/tests/ui/precuenta_state.cjs`.
 
 | Brecha | Plan |
 | :--- | :--- |
-| Las pruebas de navegador no corren: Playwright no está instalado | Instalarlo y escribir 2 pruebas de extremo a extremo: el flujo central del cajero y el permiso del mesero |
+| Las pruebas de navegador no corren: Playwright no está instalado | ✅ Corregido el 28/11/2026: Playwright 1.49.1 en `e2e/` con 2 pruebas (flujo central del cajero y permiso del mesero), ambas OK contra `development` |
 | No hay pipeline de integración continua | Crear `.github/workflows/` con los 5 pasos (descargar, instalar, estilo, pruebas, construir) y proteger la rama principal |
 | `test_order_company_isolation` se omite | Agregar una segunda empresa con perfil de POS a los datos semilla del sitio de pruebas |
 | Varias instrucciones antiguas mandaban correr las pruebas contra `development` sin `--skip-before-tests` | ✅ Corregido el 25/11/2026 en `comandas.md`, `kds-verificacion.md`, `pos-arranque.md` y `qa/como-ejecutar-pruebas.md` |
