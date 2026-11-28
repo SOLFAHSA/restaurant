@@ -57,100 +57,10 @@
     filter: brightness(1.05);
 }
 
-.rkds-admin-new-btn.is-outline {
-    background: #ffffff;
-    border-color: #55a61c;
-    color: #369900;
-}
-
-.rkds-admin-new-btn.is-outline:hover {
-    background: #effbe9;
-}
-
 .rkds-hub-page-title {
     font-size: 17px;
     font-weight: 600;
     color: #111827;
-}
-
-.rkds-hub-menu-wrap {
-    position: relative;
-}
-
-.rkds-hub-dots-btn {
-    width: 30px;
-    height: 30px;
-    border-radius: 5px;
-    border: 1px solid transparent;
-    background: transparent;
-    color: #4b5563;
-    font-size: 18px;
-    line-height: 1;
-    cursor: pointer;
-}
-
-.rkds-hub-dots-btn:hover {
-    background: #f3f4f6;
-    color: #111827;
-}
-
-.rkds-hub-dropdown {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    min-width: 215px;
-    background: #ffffff;
-    border: 1px solid #d1d5db;
-    border-radius: 8px;
-    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
-    padding: 6px;
-    z-index: 40;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.rkds-hub-dropdown-item {
-    width: 100%;
-    text-align: left;
-    padding: 8px 12px;
-    border: 0;
-    border-radius: 5px;
-    background: transparent;
-    color: #111827;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.rkds-hub-dropdown-item:hover {
-    background: #f3f4f6;
-}
-
-.rkds-hub-search-box {
-    flex: 0 1 420px;
-    height: 36px;
-    border-radius: 999px;
-    border: 1px solid #d1d5db;
-    background: #ffffff;
-    padding: 0 14px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #6b7280;
-}
-
-.rkds-hub-search-input {
-    width: 100%;
-    border: 0;
-    outline: none;
-    background: transparent;
-    color: #111827;
-    font-size: 13.5px;
-}
-
-.rkds-hub-search-input::placeholder {
-    color: #9ca3af;
 }
 
 .rkds-hub-topbar-actions {
@@ -314,43 +224,9 @@
     color: #374151;
 }
 
-.rkds-hub-metric-label {
-    font-weight: 500;
-    color: #4b5563;
-}
-
-.rkds-hub-metric-value {
-    font-weight: 700;
-    color: #111827;
-    font-size: 15.5px;
-}
-
 /* ==========================================================================
    Configuration Sheet & Stages Table Views (White Background)
    ========================================================================== */
-
-.rkds-breadcrumb {
-    display: flex;
-    flex-direction: column;
-    line-height: 1.2;
-}
-
-.rkds-breadcrumb-link {
-    border: 0;
-    padding: 0;
-    background: transparent;
-    color: #369900;
-    font-size: 12px;
-    font-weight: 600;
-    text-align: left;
-    cursor: pointer;
-}
-
-.rkds-breadcrumb-current {
-    font-size: 14.5px;
-    font-weight: 700;
-    color: #111827;
-}
 
 .rkds-config-sheet {
     width: 100%;
@@ -367,20 +243,6 @@
     margin-bottom: 24px;
 }
 
-.rkds-config-small-label {
-    display: block;
-    font-size: 13px;
-    font-weight: 700;
-    color: #4b5563;
-    margin-bottom: 4px;
-}
-
-.rkds-config-main-title {
-    font-size: 32px;
-    font-weight: 600;
-    color: #111827;
-}
-
 .rkds-config-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -391,68 +253,6 @@
     display: flex;
     flex-direction: column;
     gap: 18px;
-}
-
-.rkds-config-field {
-    display: grid;
-    grid-template-columns: 170px 1fr;
-    align-items: center;
-    gap: 14px;
-}
-
-.rkds-config-label {
-    font-size: 13.5px;
-    font-weight: 700;
-    color: #1f2937;
-}
-
-.rkds-help-mark {
-    color: #2563eb;
-    font-weight: 700;
-    margin-left: 2px;
-}
-
-.rkds-config-value {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    font-size: 13.5px;
-    color: #111827;
-}
-
-.rkds-config-value.is-muted {
-    color: #6b7280;
-}
-
-.rkds-config-link-muted {
-    color: #6b7280;
-    cursor: pointer;
-    text-decoration: underline;
-    text-underline-offset: 3px;
-}
-
-.rkds-config-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 3px 12px;
-    border-radius: 999px;
-    border: 1px solid #9ca3af;
-    background: #f9fafb;
-    color: #111827;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-}
-
-.rkds-config-tag:hover {
-    background: #f3f4f6;
-}
-
-.rkds-config-checkbox {
-    width: 16px;
-    height: 16px;
-    accent-color: #55a61c;
 }
 
 .rkds-stages-table-wrap {
@@ -490,11 +290,6 @@
 
 .rkds-stages-table tbody tr:hover td {
     background: #f9fafb;
-}
-
-.rkds-drag-handle {
-    color: #9ca3af;
-    margin-right: 10px;
 }
 
 .rkds-stage-color-dot {
@@ -709,21 +504,6 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-}
-
-.rkds-stage-badge.is-gray {
-    background: #e5e7eb;
-    color: #111827;
-}
-
-.rkds-stage-badge.is-blue {
-    background: #bfdbfe;
-    color: #1e3a8a;
-}
-
-.rkds-stage-badge.is-green {
-    background: #86efac;
-    color: #14532d;
 }
 
 /* Right Action Buttons */
@@ -1211,8 +991,6 @@
 [data-theme="dark"] .rkds-sidebar,
 [data-theme="dark"] .rkds-card,
 [data-theme="dark"] .rkds-hub-card,
-[data-theme="dark"] .rkds-hub-dropdown,
-[data-theme="dark"] .rkds-hub-search-box,
 [data-theme="dark"] .rkds-config-sheet,
 [data-theme="dark"] .rkds-stages-table-wrap,
 [data-theme="dark"] .rkds-stages-table td,
@@ -1251,7 +1029,6 @@
 [data-theme="dark"] .rkds-item-row.is-clickable:hover,
 [data-theme="dark"] .rkds-side-item:hover,
 [data-theme="dark"] .rkds-side-title.is-filter:hover,
-[data-theme="dark"] .rkds-hub-dropdown-item:hover,
 [data-theme="dark"] .rkds-stages-table tbody tr:hover td {
     background: var(--fg-hover-color);
 }

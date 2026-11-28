@@ -455,6 +455,7 @@ class LeafRestaurantKDS {
         return `<header class="rkds-hub-topbar"><div class="rkds-hub-topbar-left">
             <span class="rkds-hub-page-title">Pantalla de preparación · ${this.escape(display?.display_name || "Nueva")}</span>
         </div><div class="rkds-hub-topbar-actions">
+            <button type="button" class="rkds-top-btn" data-kds-action="open-stages-list">Etapas</button>
             <button type="button" class="rkds-admin-new-btn" data-kds-action="save-display">Guardar</button>
             <button type="button" class="rkds-top-btn" data-kds-action="open-hub">Volver</button>
         </div></header><main class="rkds-hub-container"><section class="rkds-config-sheet">
