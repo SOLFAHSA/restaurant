@@ -3039,12 +3039,11 @@ class LeafRestaurantPOS {
             <div class="rpos-modal" style="max-width:780px;">
                 <div class="rpos-modal-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid #e2e8f0;">
                     <div style="display:flex;align-items:center;gap:12px;">
-                        <button type="button" class="rpos-btn-primary" data-cust-create-btn style="background:#2F8500;border-color:#236600;padding:7px 16px;">Crear</button>
-                        <h3 style="margin:0;font-size:17px;">Elige un cliente</h3>
+                        <button type="button" class="rpos-btn-primary" data-cust-create-btn style="background:#002456;border-color:#002456;padding:8px 16px;">Crear</button>
+                        <h3 style="margin:0;font-size:18px;">Elige un cliente</h3>
                     </div>
                     <div style="display:flex;align-items:center;gap:10px;flex:1;max-width:300px;">
-                        <input type="search" data-cust-search-inp placeholder="🔍 Buscar clientes..." style="width:100%;padding:7px 12px;border:1px solid #cbd5e1;border-radius:7px;font-size:13.5px;">
-                        <button type="button" class="rpos-icon-btn" data-modal-close>×</button>
+                        <input type="search" data-cust-search-inp placeholder="🔍 Buscar clientes..." style="width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:7px;font-size:13.5px;">
                     </div>
                 </div>
                 <div class="rpos-modal-body" style="padding:0;min-height:360px;max-height:460px;overflow-y:auto;" data-cust-body></div>
@@ -3140,14 +3139,9 @@ class LeafRestaurantPOS {
             body.innerHTML = filtered.length ? filtered.map(c => {
                 const isSelected = this.currentOrder.customer === c.name;
                 return `
-                    <div class="rpos-cust-row" data-cust-pick="${this.escape(c.name)}" style="display:grid;grid-template-columns:1.3fr 1fr 1.3fr auto;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #f1f5f9;cursor:pointer;background:${isSelected ? "#f0f9ff" : "#ffffff"};">
-                        <div style="font-weight:700;font-size:13.5px;color:#0f172a;">${this.escape(c.customer_name)}</div>
-                        <div style="font-size:12.5px;color:#475569;">${this.escape(c.address || (c.tax_id ? `RTN: ${c.tax_id}` : ""))}</div>
-                        <div style="font-size:12.5px;color:#475569;">
-                            ${c.email_id ? `<span>✉ ${this.escape(c.email_id)}</span>` : ""}
-                            ${c.mobile_no ? `<span style="margin-left:6px;">📞 ${this.escape(c.mobile_no)}</span>` : ""}
-                        </div>
-                        <button type="button" data-cust-edit="${this.escape(c.name)}" title="Editar cliente" style="padding:6px 10px;background:#f1f5f9;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;font-weight:700;cursor:pointer;">≡</button>
+                    <div class="rpos-cust-row" data-cust-pick="${this.escape(c.name)}" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #f1f5f9;cursor:pointer;background:${isSelected ? "#e8f0f9" : "#ffffff"};">
+                        <div style="font-weight:700;font-size:14px;color:#0f172a;">${this.escape(c.customer_name)}</div>
+                        <button type="button" data-cust-edit="${this.escape(c.name)}" title="Editar cliente" style="width:44px;height:44px;background:#ffffff;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;font-weight:700;cursor:pointer;">≡</button>
                     </div>
                 `;
             }).join("") : `
