@@ -3643,7 +3643,6 @@ class LeafRestaurantPOS {
                                 <span>${this.escape(mc.label)}</span>
                             </button>
                         `).join("")}
-                        ${st.globalDiscountPct > 0 ? `<div style="padding:6px 10px;background:#effbe9;border:1px solid #a4ce87;border-radius:6px;font-size:12px;font-weight:700;color:#2f8500;">Descuento global: ${st.globalDiscountPct}%</div>` : ""}
                         ${st.couponCode ? `<div style="padding:6px 10px;background:#effbe9;border:1px solid #a4ce87;border-radius:6px;font-size:12px;font-weight:700;color:#2f8500;">Cupón: ${this.escape(st.couponCode)}</div>` : ""}
                         ${st.giftCardCode ? `<div style="padding:6px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;font-weight:700;color:#002456;">Certificado: ${this.escape(st.giftCardMaskedCode)} (${this.formatMoney(st.giftCardAmount)})</div>` : ""}
                     </div>
@@ -3659,19 +3658,21 @@ class LeafRestaurantPOS {
                                 <span>Recibo/Factura</span>
                             </button>
                         </div>
-                        ${cfg.tips_enabled !== 0 ? `
-                            <button type="button" data-action="open-tip-modal" style="justify-content:center;padding:10px;font-size:13px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:7px;cursor:pointer;">
-                                ♥ Propina ${Number(this.currentOrder.tip_amount) > 0 ? `(${this.formatMoney(this.currentOrder.tip_amount)})` : ""}
-                            </button>
-                        ` : ""}
-                        ${(cfg.allow_global_discount !== 0 || cfg.enable_promotions_coupons || cfg.enable_gift_cards || cfg.enable_loyalty_program) ? `
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                                ${cfg.allow_global_discount !== 0 ? `<button type="button" data-action="pay-screen-global-discount" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🏷 Desc. Global</button>` : ""}
-                                ${cfg.enable_promotions_coupons ? `<button type="button" data-action="pay-screen-coupon" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🎟 Cupón</button>` : ""}
-                                ${cfg.enable_gift_cards ? `<button type="button" data-action="pay-screen-gift-card" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🎁 Certificado de Regalo</button>` : ""}
-                                ${cfg.enable_loyalty_program ? `<button type="button" data-action="pay-screen-loyalty" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">⭐ Puntos Lealtad</button>` : ""}
-                            </div>
-                        ` : ""}
+                        <div class="rpos-pay-extras">
+                            ${cfg.tips_enabled !== 0 ? `
+                                <button type="button" class="rpos-pay-extra-btn" data-action="open-tip-modal">
+                                    ${this.paymentExtraIcon("tip")}<span>Propina ${Number(this.currentOrder.tip_amount) > 0 ? `(${this.formatMoney(this.currentOrder.tip_amount)})` : ""}</span>
+                                </button>
+                            ` : ""}
+                            ${cfg.allow_global_discount !== 0 ? `
+                                <button type="button" class="rpos-pay-extra-btn" data-action="pay-screen-global-discount">
+                                    ${this.paymentExtraIcon("discount")}<span>Descuento global${st.globalDiscountPct > 0 ? ` (${st.globalDiscountPct}%)` : ""}</span>
+                                </button>
+                            ` : ""}
+                            ${cfg.enable_promotions_coupons ? `<button type="button" class="rpos-pay-extra-btn" data-action="pay-screen-coupon">${this.paymentExtraIcon("coupon")}<span>Cupón</span></button>` : ""}
+                            ${cfg.enable_gift_cards ? `<button type="button" class="rpos-pay-extra-btn" data-action="pay-screen-gift-card">${this.paymentExtraIcon("gift")}<span>Certificado de regalo</span></button>` : ""}
+                            ${cfg.enable_loyalty_program ? `<button type="button" class="rpos-pay-extra-btn" data-action="pay-screen-loyalty">${this.paymentExtraIcon("loyalty")}<span>Puntos de lealtad</span></button>` : ""}
+                        </div>
 
                         <div class="rpos-pay-keypad">
                             ${["1", "2", "3"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="${k}">${k}</button>`).join("")}
@@ -3692,21 +3693,22 @@ class LeafRestaurantPOS {
                     </div>
                 </div>
 
-                <div class="rpos-pay-right">
+                <div class="rpos-pay-right ${paidLines.length ? "" : "is-empty"}">
                     <div class="rpos-pay-total">
                         <span class="rpos-pay-total-cur">L</span><span>${this.escape(Number(intPart).toLocaleString("es-HN"))}</span><span class="rpos-pay-total-cents">,${this.escape(decPart)}</span>
                     </div>
+                    ${paidLines.length ? "" : `<div class="rpos-pay-hint">Elige un método de pago. Puedes escribir el monto antes o después de elegirlo.</div>`}
+                    ${paidLines.length ? `
                     <div class="rpos-pay-lines">
-                        ${paidLines.length ? paidLines.map((p, idx) => `
+                        ${paidLines.map((p, idx) => `
                             <div class="rpos-pay-line ${idx === st.selectedIndex ? "is-selected" : ""}" data-action="pay-screen-select-line" data-index="${idx}">
                                 <span class="rpos-pay-line-label">${this.escape(p.label || p.mode_of_payment)}</span>
                                 <span class="rpos-pay-line-amount">${moneyParts(p.amount)}</span>
                                 <button type="button" class="rpos-pay-line-remove" data-action="pay-screen-remove-line" data-index="${idx}" title="Quitar este pago" aria-label="Quitar este pago">×</button>
                             </div>
-                        `).join("") : `
-                            <div class="rpos-pay-empty">Elige un método de pago. Puedes escribir el monto antes o después de elegirlo.</div>
-                        `}
+                        `).join("")}
                     </div>
+                    ` : ""}
                     ${summary.cashShortForChange ? `
                         <div class="rpos-pay-warning">Solo el efectivo puede dar cambio. Reduce el monto de tarjeta o transferencia.</div>
                     ` : ""}
@@ -3736,6 +3738,17 @@ class LeafRestaurantPOS {
             due, paid, remaining, change, cashShortForChange,
             canValidate: remaining <= 0 && !cashShortForChange && (hasLines || due === 0),
         };
+    }
+
+    paymentExtraIcon(kind) {
+        const paths = {
+            tip: '<path d="M12 20s-7-4.4-7-9.5A4 4 0 0 1 12 8a4 4 0 0 1 7 2.5C19 15.6 12 20 12 20Z"/>',
+            discount: '<path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="7.5" r="1.5"/><path d="m9.5 16.5 5-5"/>',
+            coupon: '<path d="M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4V7Z"/><path d="M10 7v10" stroke-dasharray="2 2"/>',
+            gift: '<rect x="3" y="9" width="18" height="12" rx="1"/><path d="M3 13h18M12 9v12M12 9S10 4 7.5 5.5 9 9 12 9Zm0 0s2-5 4.5-3.5S15 9 12 9Z"/>',
+            loyalty: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/>',
+        };
+        return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[kind] || ""}</svg>`;
     }
 
     paymentMethodIcon(mop) {
