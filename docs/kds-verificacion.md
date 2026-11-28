@@ -33,12 +33,12 @@ bench --site development backup
 bench --site development migrate
 bench --site development execute restaurant.kds_setup.ensure_default_display
 bench --site development clear-cache
-bench --site development run-tests --app restaurant --module restaurant.tests.test_kds --skip-test-records
-bench --site development run-tests --app restaurant --module restaurant.tests.test_pos_startup --skip-test-records
-bench --site development run-tests --app restaurant --module restaurant.restaurant.doctype.restaurant_command.test_restaurant_command --skip-test-records
-bench --site development run-tests --app restaurant --module restaurant.restaurant.doctype.restaurant_preparation_display.test_restaurant_preparation_display --skip-test-records
-bench --site development run-tests --app restaurant --module restaurant.restaurant.doctype.restaurant_preparation_stage.test_restaurant_preparation_stage --skip-test-records
-bench --site development run-tests --app restaurant --module restaurant.restaurant.doctype.restaurant_preparation_ticket.test_restaurant_preparation_ticket --skip-test-records
+bench --site test_restaurant run-tests --app restaurant --module restaurant.tests.test_kds --skip-before-tests --skip-test-records
+bench --site test_restaurant run-tests --app restaurant --module restaurant.tests.test_pos_startup --skip-before-tests --skip-test-records
+bench --site test_restaurant run-tests --app restaurant --module restaurant.restaurant.doctype.restaurant_command.test_restaurant_command --skip-before-tests --skip-test-records
+bench --site test_restaurant run-tests --app restaurant --module restaurant.restaurant.doctype.restaurant_preparation_display.test_restaurant_preparation_display --skip-before-tests --skip-test-records
+bench --site test_restaurant run-tests --app restaurant --module restaurant.restaurant.doctype.restaurant_preparation_stage.test_restaurant_preparation_stage --skip-before-tests --skip-test-records
+bench --site test_restaurant run-tests --app restaurant --module restaurant.restaurant.doctype.restaurant_preparation_ticket.test_restaurant_preparation_ticket --skip-before-tests --skip-test-records
 ```
 
 **VERIFIED:** 55 pruebas aprobadas: KDS 28, arranque 7, comandas 15, pantalla 3, etapa 1 y ticket 1. Se ejecutaron además `py_compile` con el Python del Bench, `node --check` y `git diff --check`.

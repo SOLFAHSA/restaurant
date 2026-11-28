@@ -70,13 +70,13 @@ Verificación: `bench --site test_restaurant list-apps` debe mostrar `frappe`, `
 Desde WSL (fuera del contenedor). Tarda unos 6 minutos:
 
 ```bash
-docker exec -e MYSQL_HOME=/tmp/leaf_mycnf -w /workspace/development/frappe-bench frappe_docker14_devcontainer-frappe-1 bash -lc 'bench --site test_restaurant run-tests --app restaurant --skip-test-records'
+docker exec -e MYSQL_HOME=/tmp/leaf_mycnf -w /workspace/development/frappe-bench frappe_docker14_devcontainer-frappe-1 bash -lc 'bench --site test_restaurant run-tests --app restaurant --skip-before-tests --skip-test-records'
 ```
 
 Para correr un solo archivo de pruebas, por ejemplo `test_kds`:
 
 ```bash
-docker exec -e MYSQL_HOME=/tmp/leaf_mycnf -w /workspace/development/frappe-bench frappe_docker14_devcontainer-frappe-1 bash -lc 'bench --site test_restaurant run-tests --module restaurant.tests.test_kds --skip-test-records'
+docker exec -e MYSQL_HOME=/tmp/leaf_mycnf -w /workspace/development/frappe-bench frappe_docker14_devcontainer-frappe-1 bash -lc 'bench --site test_restaurant run-tests --module restaurant.tests.test_kds --skip-before-tests --skip-test-records'
 ```
 
 ### ¿Por qué `--skip-test-records`?

@@ -1,0 +1,129 @@
+# Integración continua del módulo Restaurante (semana 7 del curso).
+# Pasos: 1) descargar el código, 2) instalar con versiones fijas, 3) revisar estilo,
+# 4) correr las pruebas, 5) construir. Corre en cada push y pull request a la rama principal.
+name: CI
+
+on:
+  push:
+    branches: [feature/modulo-restaurante]
+  pull_request:
+    branches: [feature/modulo-restaurante]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  calidad:
+    name: Estilo y sintaxis
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 1. Descargar el código
+        uses: actions/checkout@v4.2.2
+
+      - name: 2. Instalar Python y Node con versiones fijas
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4.1.0
+        with:
+          node-version: "18"
+      - run: pip install ruff==0.8.4
+
+      - name: 3. Revisar estilo de Python (errores y código sin uso)
+        run: ruff check restaurant --select E9,F
+
+      - name: 3. Revisar sintaxis de JavaScript
+        run: find restaurant -name "*.js" -not -path "*/node_modules/*" -print0 | xargs -0 -n1 node --check
+
+      - name: 3. Revisar que las pruebas de extremo a extremo se puedan cargar
+        if: hashFiles('e2e/package-lock.json') != ''
+        working-directory: e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright test --list
+
+  secretos:
+    name: Revisar secretos de la base de pruebas
+    runs-on: ubuntu-24.04
+    outputs:
+      listos: ${{ steps.revisar.outputs.listos }}
+    steps:
+      # Grintsys/erpnext14 es privado: el token de solo lectura y la contraseña de la base
+      # de pruebas se configuran como secretos del repositorio, nunca en este archivo.
+      - id: revisar
+        env:
+          ERPNEXT_READ_TOKEN: ${{ secrets.ERPNEXT_READ_TOKEN }}
+          CI_DB_ROOT_PASSWORD: ${{ secrets.CI_DB_ROOT_PASSWORD }}
+        run: |
+          if [ -n "$ERPNEXT_READ_TOKEN" ] && [ -n "$CI_DB_ROOT_PASSWORD" ]; then
+            echo "listos=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Faltan los secretos ERPNEXT_READ_TOKEN y CI_DB_ROOT_PASSWORD; las pruebas de Frappe se omiten hasta configurarlos."
+            echo "listos=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  pruebas:
+    name: Pruebas del módulo (Frappe + ERPNext)
+    needs: [calidad, secretos]
+    if: needs.secretos.outputs.listos == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      ERPNEXT_READ_TOKEN: ${{ secrets.ERPNEXT_READ_TOKEN }}
+      CI_DB_ROOT_PASSWORD: ${{ secrets.CI_DB_ROOT_PASSWORD }}
+      BENCH_DISABLE_UV: "1"
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: ${{ secrets.CI_DB_ROOT_PASSWORD }}
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+      redis:
+        image: redis:7.2
+        ports: ["6379:6379"]
+    steps:
+      - name: 1. Descargar el código
+        uses: actions/checkout@v4.2.2
+        with:
+          path: restaurant
+
+      - name: 2. Instalar Python, Node y Bench con versiones fijas
+        uses: actions/setup-python@v5.3.0
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4.1.0
+        with:
+          node-version: "18"
+      - name: 2. Instalar Bench y crear el sitio de pruebas
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mariadb-client libmariadb-dev
+          pip install frappe-bench==5.31.1
+          npm install -g yarn@1.22.22
+          bench init --skip-redis-config-generation --frappe-path https://github.com/Grintsys/frappe14 --frappe-branch version-14 --python "$(which python)" frappe-bench
+          cd frappe-bench
+          bench set-config -g db_host 127.0.0.1
+          bench set-config -g redis_cache redis://127.0.0.1:6379
+          bench set-config -g redis_queue redis://127.0.0.1:6379
+          bench set-config -g redis_socketio redis://127.0.0.1:6379
+          bench get-app --branch version-14 "https://x-access-token:${ERPNEXT_READ_TOKEN}@github.com/Grintsys/erpnext14.git"
+          bench get-app --branch version-14 https://github.com/Grintsys/POS-Awesome-14.git
+          bench get-app restaurant "$GITHUB_WORKSPACE/restaurant"
+          bench new-site test_restaurant --db-root-password "$CI_DB_ROOT_PASSWORD" --admin-password "$(openssl rand -hex 16)" --no-mariadb-socket
+          bench --site test_restaurant install-app erpnext posawesome restaurant
+          bench --site test_restaurant set-config allow_tests true
+
+      - name: 4. Correr las pruebas del módulo
+        working-directory: frappe-bench
+        run: bench --site test_restaurant run-tests --app restaurant --skip-before-tests --skip-test-records
+
+      - name: 5. Construir los recursos del módulo
+        working-directory: frappe-bench
+        run: bench build --app restaurant

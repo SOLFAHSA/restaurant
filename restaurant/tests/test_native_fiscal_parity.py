@@ -6,7 +6,6 @@ import frappe
 from frappe.tests.utils import FrappeTestCase
 from frappe.utils import flt
 
-from restaurant import pos
 from restaurant.tests import test_checkout_acceptance
 from restaurant.tax_configuration import get_native_tax_configuration
 

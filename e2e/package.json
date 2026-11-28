@@ -1,0 +1,11 @@
+{
+  "name": "restaurant-e2e",
+  "private": true,
+  "description": "Pruebas de extremo a extremo del módulo Restaurante con un navegador real.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.49.1"
+  }
+}
