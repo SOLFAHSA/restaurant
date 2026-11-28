@@ -3725,16 +3725,16 @@ class LeafRestaurantPOS {
                         </div>
                         <div style="font-size:11.5px;color:#64748b;">${st.tenderedBuffer ? "Escribe con el teclado. ⌫ borra el último número." : "Escribe el monto con el teclado. Si no escribes nada, se cobra el saldo pendiente."}</div>
                         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">
-                            ${["1", "2", "3"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-key="${k}" style="height:48px;">${k}</button>`).join("")}
+                            ${["1", "2", "3"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="${k}" style="height:48px;">${k}</button>`).join("")}
                             <button type="button" class="rpos-key" data-action="pay-screen-add" data-add="10" style="height:48px;background:#bbf7d0;color:#14532d;font-weight:800;">+10</button>
-                            ${["4", "5", "6"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-key="${k}" style="height:48px;">${k}</button>`).join("")}
+                            ${["4", "5", "6"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="${k}" style="height:48px;">${k}</button>`).join("")}
                             <button type="button" class="rpos-key" data-action="pay-screen-add" data-add="20" style="height:48px;background:#bbf7d0;color:#14532d;font-weight:800;">+20</button>
-                            ${["7", "8", "9"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-key="${k}" style="height:48px;">${k}</button>`).join("")}
+                            ${["7", "8", "9"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="${k}" style="height:48px;">${k}</button>`).join("")}
                             <button type="button" class="rpos-key" data-action="pay-screen-add" data-add="50" style="height:48px;background:#bbf7d0;color:#14532d;font-weight:800;">+50</button>
-                            <button type="button" class="rpos-key is-sign" data-action="pay-screen-key" data-key="+/-" style="height:48px;">+/-</button>
-                            <button type="button" class="rpos-key" data-action="pay-screen-key" data-key="0" style="height:48px;">0</button>
-                            <button type="button" class="rpos-key is-dot" data-action="pay-screen-key" data-key="." style="height:48px;">,</button>
-                            <button type="button" class="rpos-key is-back" data-action="pay-screen-key" data-key="BACK" style="height:48px;">⌫</button>
+                            <button type="button" class="rpos-key is-sign" data-action="pay-screen-key" data-pay-key="+/-" style="height:48px;">+/-</button>
+                            <button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="0" style="height:48px;">0</button>
+                            <button type="button" class="rpos-key is-dot" data-action="pay-screen-key" data-pay-key="." style="height:48px;">,</button>
+                            <button type="button" class="rpos-key is-back" data-action="pay-screen-key" data-pay-key="BACK" style="height:48px;">⌫</button>
                         </div>
 
                         <button type="button" data-action="pay-screen-add-line" ${remaining > 0 ? "" : "disabled"} style="height:44px;margin-top:4px;justify-content:center;font-weight:700;font-size:13.5px;background:#ffffff;border:1.5px solid #002456;color:#002456;border-radius:7px;cursor:${remaining > 0 ? "pointer" : "not-allowed"};opacity:${remaining > 0 ? 1 : 0.5};">
@@ -3781,7 +3781,8 @@ class LeafRestaurantPOS {
             return;
         }
         if (action === "pay-screen-key") {
-            const k = el.dataset.key;
+            // data-pay-key, not data-key: data-key buttons also drive the order line keypad.
+            const k = el.dataset.payKey;
             if (k === "BACK") {
                 st.tenderedBuffer = st.tenderedBuffer.slice(0, -1);
             } else if (k === "+/-") {
