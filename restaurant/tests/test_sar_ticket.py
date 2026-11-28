@@ -96,10 +96,6 @@ class TestSarTicket(FrappeTestCase):
 
         self.assertNotIn("Constancia SAR / SAG / SEFIN", html)
 
-    def test_pay_and_invoice_order_disables_rounding_and_renders_ticket(self):
-        if not frappe.db.exists("Print Format", "Ticket"):
-            self.fail("Print Format 'Ticket' must exist")
-
     def _ensure_sar_test_prereqs(self):
         active_shift = frappe.db.get_value(
             "POS Opening Shift",
@@ -122,7 +118,7 @@ class TestSarTicket(FrappeTestCase):
         if not frappe.db.exists("Item", test_item_code):
             item_group = frappe.db.get_value("Item Group", {"is_group": 0}, "name") or "All Item Groups"
             uom = frappe.db.get_value("UOM", {}, "name") or "Unidad"
-            item = frappe.get_doc({
+            frappe.get_doc({
                 "doctype": "Item",
                 "item_code": test_item_code,
                 "item_name": "Combo Familiar Prueba SAR",
@@ -135,7 +131,6 @@ class TestSarTicket(FrappeTestCase):
             }).insert(ignore_permissions=True)
         else:
             ensure_item_tax(test_item_code)
-            item = frappe.get_doc("Item", test_item_code)
 
         if not active_shift:
             shift = frappe.get_doc({

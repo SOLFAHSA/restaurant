@@ -1,6 +1,5 @@
 """Multi-branch and multi-terminal concurrency tests for Restaurant POS and KDS."""
 
-import unittest
 from uuid import uuid4
 
 import frappe
