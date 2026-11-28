@@ -3039,12 +3039,11 @@ class LeafRestaurantPOS {
             <div class="rpos-modal" style="max-width:780px;">
                 <div class="rpos-modal-header" style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;border-bottom:1px solid #e2e8f0;">
                     <div style="display:flex;align-items:center;gap:12px;">
-                        <button type="button" class="rpos-btn-primary" data-cust-create-btn style="background:#2F8500;border-color:#236600;padding:7px 16px;">Crear</button>
-                        <h3 style="margin:0;font-size:17px;">Elige un cliente</h3>
+                        <button type="button" class="rpos-btn-primary" data-cust-create-btn style="background:#002456;border-color:#002456;padding:8px 16px;">Crear</button>
+                        <h3 style="margin:0;font-size:18px;">Elige un cliente</h3>
                     </div>
                     <div style="display:flex;align-items:center;gap:10px;flex:1;max-width:300px;">
-                        <input type="search" data-cust-search-inp placeholder="🔍 Buscar clientes..." style="width:100%;padding:7px 12px;border:1px solid #cbd5e1;border-radius:7px;font-size:13.5px;">
-                        <button type="button" class="rpos-icon-btn" data-modal-close>×</button>
+                        <input type="search" data-cust-search-inp placeholder="🔍 Buscar clientes..." style="width:100%;padding:8px 12px;border:1px solid #cbd5e1;border-radius:7px;font-size:13.5px;">
                     </div>
                 </div>
                 <div class="rpos-modal-body" style="padding:0;min-height:360px;max-height:460px;overflow-y:auto;" data-cust-body></div>
@@ -3056,13 +3055,21 @@ class LeafRestaurantPOS {
         backdrop.querySelectorAll("[data-modal-close]").forEach(btn => btn.addEventListener("click", () => backdrop.remove()));
         document.body.appendChild(backdrop);
 
+        const selectCustomer = async (customer) => {
+            this.currentOrder.customer = customer.name;
+            this.currentOrder.customer_name = customer.customer_name;
+            this.currentOrder.tax_id = customer.tax_id || "";
+            this.render();
+            if (!(await this.persistCurrentOrderSilently())) return;
+            if (opts.openScheduleAfter) this.openScheduleModal();
+        };
+
         const renderBody = () => {
             const body = backdrop.querySelector("[data-cust-body]");
             if (editingCustomer) {
-                const isNew = !editingCustomer.name;
                 body.innerHTML = `
                     <div style="padding:18px;">
-                        <h4 style="margin:0 0 14px;font-size:15px;">${isNew ? "Crear nuevo cliente" : `Editar cliente · ${this.escape(editingCustomer.customer_name)}`}</h4>
+                        <h4 style="margin:0 0 14px;font-size:15px;">Editar cliente · ${this.escape(editingCustomer.customer_name)}</h4>
                         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:12px;">
                             <div class="rpos-field">
                                 <label>Nombre o Razón Social *</label>
@@ -3106,7 +3113,7 @@ class LeafRestaurantPOS {
                     const res = await frappe.call({
                         method: "restaurant.pos.save_customer_with_rtn",
                         args: {
-                            customer_id: editingCustomer.name || null,
+                            customer_id: editingCustomer.name,
                             customer_name: cName,
                             tax_id: body.querySelector("[data-edit-cust-rtn]").value.trim(),
                             address: body.querySelector("[data-edit-cust-address]").value.trim(),
@@ -3117,16 +3124,8 @@ class LeafRestaurantPOS {
                     const saved = res.message;
                     const idx = customers.findIndex(c => c.name === saved.name);
                     if (idx >= 0) customers[idx] = saved;
-                    else customers.unshift(saved);
-                    this.currentOrder.customer = saved.name;
-                    this.currentOrder.customer_name = saved.customer_name;
-                    this.currentOrder.tax_id = saved.tax_id || "";
                     backdrop.remove();
-                    this.render();
-                    if (!(await this.persistCurrentOrderSilently())) return;
-                    if (opts.openScheduleAfter) {
-                        this.openScheduleModal();
-                    }
+                    await selectCustomer(saved);
                 });
                 return;
             }
@@ -3140,14 +3139,9 @@ class LeafRestaurantPOS {
             body.innerHTML = filtered.length ? filtered.map(c => {
                 const isSelected = this.currentOrder.customer === c.name;
                 return `
-                    <div class="rpos-cust-row" data-cust-pick="${this.escape(c.name)}" style="display:grid;grid-template-columns:1.3fr 1fr 1.3fr auto;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid #f1f5f9;cursor:pointer;background:${isSelected ? "#f0f9ff" : "#ffffff"};">
-                        <div style="font-weight:700;font-size:13.5px;color:#0f172a;">${this.escape(c.customer_name)}</div>
-                        <div style="font-size:12.5px;color:#475569;">${this.escape(c.address || (c.tax_id ? `RTN: ${c.tax_id}` : ""))}</div>
-                        <div style="font-size:12.5px;color:#475569;">
-                            ${c.email_id ? `<span>✉ ${this.escape(c.email_id)}</span>` : ""}
-                            ${c.mobile_no ? `<span style="margin-left:6px;">📞 ${this.escape(c.mobile_no)}</span>` : ""}
-                        </div>
-                        <button type="button" data-cust-edit="${this.escape(c.name)}" title="Editar cliente" style="padding:6px 10px;background:#f1f5f9;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;font-weight:700;cursor:pointer;">≡</button>
+                    <div class="rpos-cust-row" data-cust-pick="${this.escape(c.name)}" style="display:grid;grid-template-columns:1fr auto;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #f1f5f9;cursor:pointer;background:${isSelected ? "#e8f0f9" : "#ffffff"};">
+                        <div style="font-weight:700;font-size:14px;color:#0f172a;">${this.escape(c.customer_name)}</div>
+                        <button type="button" data-cust-edit="${this.escape(c.name)}" title="Editar cliente" style="width:44px;height:44px;background:#ffffff;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;font-weight:700;cursor:pointer;">≡</button>
                     </div>
                 `;
             }).join("") : `
@@ -3161,15 +3155,8 @@ class LeafRestaurantPOS {
                     if (e.target.closest("[data-cust-edit]")) return;
                     const chosen = customers.find(c => c.name === row.dataset.custPick);
                     if (!chosen) return;
-                    this.currentOrder.customer = chosen.name;
-                    this.currentOrder.customer_name = chosen.customer_name;
-                    this.currentOrder.tax_id = chosen.tax_id || "";
                     backdrop.remove();
-                    this.render();
-                    if (!(await this.persistCurrentOrderSilently())) return;
-                    if (opts.openScheduleAfter) {
-                        this.openScheduleModal();
-                    }
+                    await selectCustomer(chosen);
                 });
             });
 
@@ -3187,9 +3174,19 @@ class LeafRestaurantPOS {
 
         renderBody();
 
-        backdrop.querySelector("[data-cust-create-btn]").addEventListener("click", () => {
-            editingCustomer = { customer_name: searchQuery.trim(), tax_id: "", address: "", email_id: "", mobile_no: "" };
-            renderBody();
+        const createBtn = backdrop.querySelector("[data-cust-create-btn]");
+        if (!frappe.model.can_create("Customer")) createBtn.remove();
+        else createBtn.addEventListener("click", () => {
+            // Reuse the native Customer quick entry; it applies the Customer permissions of each role.
+            backdrop.remove();
+            frappe.ui.form.make_quick_entry("Customer", async doc => {
+                const created = {
+                    name: doc.name, customer_name: doc.customer_name, tax_id: doc.tax_id || "",
+                    email_id: doc.email_id || "", mobile_no: doc.mobile_no || "",
+                };
+                if (!customers.some(c => c.name === created.name)) customers.unshift(created);
+                await selectCustomer(created);
+            }, null, { customer_name: searchQuery.trim() });
         });
 
         backdrop.querySelector("[data-cust-search-inp]").addEventListener("input", e => {
@@ -3539,19 +3536,32 @@ class LeafRestaurantPOS {
         }
         if (!(await this.persistCurrentOrderSilently())) return;
         this.recalculateLocalTotals();
-        const mops = this.bootstrap?.modes_of_payment || [{ name: "Efectivo" }, { name: "Tarjetas de credito" }, { name: "Transferencia bancaria" }];
-        const defaultMop = mops.find(m => m.name.toLowerCase().includes("efectivo"))?.name || mops[0]?.name || "Efectivo";
-
         this.paymentScreenState = {
             step: "pay",
-            selectedMop: defaultMop,
             tenderedBuffer: "",
             payments: [],
+            selectedIndex: -1,
+            replaceOnType: false,
             invoiceToggle: true,
             invoice: null,
             finishedOrder: null,
         };
         this.render();
+    }
+
+    paymentLinesTotal(st) {
+        return this.roundMoney((st?.payments || []).reduce((sum, p) => sum + Number(p.amount || 0), 0));
+    }
+
+    setSelectedPaymentAmount(st, amount) {
+        // Without a selected line the typed amount waits for the next payment method.
+        const line = (st.payments || [])[st.selectedIndex];
+        if (line) line.amount = this.roundMoney(Math.max(0, amount));
+    }
+
+    isCashMode(mop) {
+        const row = (this.bootstrap?.modes_of_payment || []).find(m => m.name === mop);
+        return row?.type ? row.type === "Cash" : String(mop || "").toLowerCase().includes("efectivo");
     }
 
     renderPaymentScreenView() {
@@ -3613,111 +3623,157 @@ class LeafRestaurantPOS {
         const cfg = this.getRposConfig();
         this.recalculateLocalTotals();
         const grand = this.getCheckoutPreviewTotal(st);
-        const remaining = Math.max(0, this.roundMoney(grand - (st.giftCardAmount || 0)));
-        const tenderedNum = st.tenderedBuffer ? Number(st.tenderedBuffer) : remaining;
-        const change = st.giftCardCode ? 0 : Math.max(0, this.roundMoney(tenderedNum - remaining));
+        const paidLines = st.payments || [];
+        const summary = this.paymentScreenSummary(st);
         const [intPart, decPart] = grand.toFixed(2).split(".");
+        const moneyParts = (amount) => {
+            const [whole, cents] = Number(amount || 0).toFixed(2).split(".");
+            return `<span class="rpos-pay-cur">L</span>${this.escape(Number(whole).toLocaleString("es-HN"))}<span class="rpos-pay-cents">,${this.escape(cents)}</span>`;
+        };
 
         const rawMops = this.bootstrap?.modes_of_payment || [];
-        const mopIcon = (name) => {
-            const lower = (name || "").toLowerCase();
-            if (lower.includes("efectivo") || lower.includes("cash")) return "💵";
-            if (lower.includes("tarjeta") || lower.includes("card")) return "💳";
-            if (lower.includes("transferencia") || lower.includes("banco")) return "🏦";
-            return "🪪";
-        };
         const mopCards = rawMops.length
-            ? rawMops.map(m => ({ label: m.name, mop: m.name, icon: mopIcon(m.name) }))
-            : [{ label: "Efectivo", mop: "Efectivo", icon: "💵" }];
-        if (!mopCards.some(c => c.mop === st.selectedMop) && mopCards.length) {
-            st.selectedMop = mopCards[0].mop;
-            st.selectedLabel = mopCards[0].label;
-        }
+            ? rawMops.map(m => ({ label: m.name, mop: m.name }))
+            : [{ label: "Efectivo", mop: "Efectivo" }];
 
         return `
-            <div style="display:grid;grid-template-columns:360px 1fr;height:calc(100vh - 64px);background:#f8fafc;">
-                <div style="display:flex;flex-direction:column;justify-content:space-between;padding:14px;border-right:1px solid #e2e8f0;background:#ffffff;overflow-y:auto;">
-                    <div style="display:flex;flex-direction:column;gap:8px;">
-                        ${mopCards.map(mc => {
-            const isSel = st.selectedMop === mc.mop || (!st.selectedMop && mc === mopCards[0]);
-            return `
-                                <button type="button" data-action="pay-screen-mop" data-mop="${this.escape(mc.mop)}" data-mop-label="${this.escape(mc.label)}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:8px;border:1.5px solid ${isSel ? "#002456" : "#cbd5e1"};background:${isSel ? "#eff6ff" : "#f8fafc"};font-size:14px;font-weight:700;color:#1e293b;cursor:pointer;text-align:left;">
-                                    <span style="font-size:18px;">${mc.icon}</span>
-                                    <span>${this.escape(mc.label)}</span>
-                                </button>
-                            `;
-        }).join("")}
-                        ${st.tenderedBuffer ? `
-                            <div style="margin-top:6px;padding:10px 12px;background:#f0fdf4;border:1px solid #86efac;border-radius:7px;display:flex;justify-content:space-between;font-size:13.5px;font-weight:700;color:#166534;">
-                                <span>Recibido (${this.escape(st.selectedLabel || st.selectedMop || "Efectivo")}):</span>
-                                <span>${this.formatMoney(tenderedNum)}</span>
-                            </div>
-                        ` : ""}
-                        ${change > 0 ? `
-                            <div style="padding:8px 12px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:7px;display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:#1d4ed8;">
-                                <span>Cambio a entregar:</span>
-                                <span>${this.formatMoney(change)}</span>
-                            </div>
-                        ` : ""}
-                        ${st.globalDiscountPct > 0 ? `<div style="padding:6px 10px;background:#effbe9;border:1px solid #a4ce87;border-radius:6px;font-size:12px;font-weight:700;color:#2f8500;">Descuento global: ${st.globalDiscountPct}%</div>` : ""}
+            <div class="rpos-pay-screen">
+                <div class="rpos-pay-left">
+                    <div class="rpos-pay-methods">
+                        ${mopCards.map(mc => `
+                            <button type="button" class="rpos-pay-method" data-action="pay-screen-mop" data-mop="${this.escape(mc.mop)}" data-mop-label="${this.escape(mc.label)}">
+                                <span class="rpos-pay-method-icon">${this.paymentMethodIcon(mc.mop)}</span>
+                                <span>${this.escape(mc.label)}</span>
+                            </button>
+                        `).join("")}
                         ${st.couponCode ? `<div style="padding:6px 10px;background:#effbe9;border:1px solid #a4ce87;border-radius:6px;font-size:12px;font-weight:700;color:#2f8500;">Cupón: ${this.escape(st.couponCode)}</div>` : ""}
                         ${st.giftCardCode ? `<div style="padding:6px 10px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;font-size:12px;font-weight:700;color:#002456;">Certificado: ${this.escape(st.giftCardMaskedCode)} (${this.formatMoney(st.giftCardAmount)})</div>` : ""}
                     </div>
 
-                    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
-                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-                            <button type="button" data-action="open-customer-modal" style="justify-content:center;padding:10px 8px;font-size:12.5px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:7px;cursor:pointer;">
-                                👤 ${this.escape((this.currentOrder.customer_name || "Cliente").slice(0, 16))}
+                    <div class="rpos-pay-actions">
+                        <div class="rpos-pay-actions-row">
+                            <button type="button" class="rpos-pay-action-btn" data-action="open-customer-modal" title="${this.escape(this.currentOrder.customer_name || "Cliente")}">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 12a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9Zm0 2c-4.4 0-8 2.2-8 5v2h16v-2c0-2.8-3.6-5-8-5Z"/></svg>
+                                <span>${this.escape(this.currentOrder.customer_name || "Cliente")}</span>
                             </button>
-                            <button type="button" data-action="pay-screen-fiscal-modal" style="justify-content:center;padding:10px 8px;font-size:12.5px;font-weight:700;background:${st.invoiceToggle ? "#f0f9ff" : "#f8fafc"};border:1px solid ${st.invoiceToggle ? "#38bdf8" : "#cbd5e1"};color:#1e293b;border-radius:7px;cursor:pointer;">
-                                🧾 Recibo/Factura
+                            <button type="button" class="rpos-pay-action-btn ${st.invoiceToggle ? "is-on" : ""}" data-action="pay-screen-fiscal-modal">
+                                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2V3Zm4 5h6M9 12h6M9 16h4"/></svg>
+                                <span>Recibo/Factura</span>
                             </button>
                         </div>
-                        ${cfg.tips_enabled !== 0 ? `
-                            <button type="button" data-action="open-tip-modal" style="justify-content:center;padding:10px;font-size:13px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:7px;cursor:pointer;">
-                                ♥ Propina ${Number(this.currentOrder.tip_amount) > 0 ? `(${this.formatMoney(this.currentOrder.tip_amount)})` : ""}
-                            </button>
-                        ` : ""}
-                        ${(cfg.allow_global_discount !== 0 || cfg.enable_promotions_coupons || cfg.enable_gift_cards || cfg.enable_loyalty_program) ? `
-                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-                                ${cfg.allow_global_discount !== 0 ? `<button type="button" data-action="pay-screen-global-discount" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🏷 Desc. Global</button>` : ""}
-                                ${cfg.enable_promotions_coupons ? `<button type="button" data-action="pay-screen-coupon" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🎟 Cupón</button>` : ""}
-                                ${cfg.enable_gift_cards ? `<button type="button" data-action="pay-screen-gift-card" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">🎁 Certificado de Regalo</button>` : ""}
-                                ${cfg.enable_loyalty_program ? `<button type="button" data-action="pay-screen-loyalty" style="padding:8px 6px;font-size:12px;font-weight:700;background:#f8fafc;border:1px solid #cbd5e1;color:#1e293b;border-radius:6px;cursor:pointer;">⭐ Puntos Lealtad</button>` : ""}
-                            </div>
-                        ` : ""}
-
-                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:4px;">
-                            ${["1", "2", "3"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-key="${k}" style="height:48px;">${k}</button>`).join("")}
-                            <button type="button" class="rpos-key" data-action="pay-screen-add" data-add="10" style="height:48px;background:#bbf7d0;color:#14532d;font-weight:800;">+10</button>
-                            ${["4", "5", "6"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-key="${k}" style="height:48px;">${k}</button>`).join("")}
-                            <button type="button" class="rpos-key" data-action="pay-screen-add" data-add="20" style="height:48px;background:#bbf7d0;color:#14532d;font-weight:800;">+20</button>
-                            ${["7", "8", "9"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-key="${k}" style="height:48px;">${k}</button>`).join("")}
-                            <button type="button" class="rpos-key" data-action="pay-screen-add" data-add="50" style="height:48px;background:#bbf7d0;color:#14532d;font-weight:800;">+50</button>
-                            <button type="button" class="rpos-key is-sign" data-action="pay-screen-key" data-key="+/-" style="height:48px;">+/-</button>
-                            <button type="button" class="rpos-key" data-action="pay-screen-key" data-key="0" style="height:48px;">0</button>
-                            <button type="button" class="rpos-key is-dot" data-action="pay-screen-key" data-key="." style="height:48px;">,</button>
-                            <button type="button" class="rpos-key is-back" data-action="pay-screen-key" data-key="BACK" style="height:48px;">⌫</button>
+                        <div class="rpos-pay-extras">
+                            ${cfg.tips_enabled !== 0 ? `
+                                <button type="button" class="rpos-pay-extra-btn" data-action="open-tip-modal">
+                                    ${this.paymentExtraIcon("tip")}<span>Propina ${Number(this.currentOrder.tip_amount) > 0 ? `(${this.formatMoney(this.currentOrder.tip_amount)})` : ""}</span>
+                                </button>
+                            ` : ""}
+                            ${cfg.allow_global_discount !== 0 ? `
+                                <button type="button" class="rpos-pay-extra-btn" data-action="pay-screen-global-discount">
+                                    ${this.paymentExtraIcon("discount")}<span>Descuento global${st.globalDiscountPct > 0 ? ` (${st.globalDiscountPct}%)` : ""}</span>
+                                </button>
+                            ` : ""}
+                            ${cfg.enable_promotions_coupons ? `<button type="button" class="rpos-pay-extra-btn" data-action="pay-screen-coupon">${this.paymentExtraIcon("coupon")}<span>Cupón</span></button>` : ""}
+                            ${cfg.enable_gift_cards ? `<button type="button" class="rpos-pay-extra-btn" data-action="pay-screen-gift-card">${this.paymentExtraIcon("gift")}<span>Certificado de regalo</span></button>` : ""}
+                            ${cfg.enable_loyalty_program ? `<button type="button" class="rpos-pay-extra-btn" data-action="pay-screen-loyalty">${this.paymentExtraIcon("loyalty")}<span>Puntos de lealtad</span></button>` : ""}
                         </div>
 
-                        <div style="display:grid;grid-template-columns:1fr 1.3fr;gap:8px;margin-top:4px;">
-                            <button type="button" data-action="pay-screen-back" style="height:52px;justify-content:center;font-weight:700;font-size:14px;background:#f1f5f9;border:1px solid #cbd5e1;color:#1e293b;border-radius:7px;cursor:pointer;">
-                                Regresar
-                            </button>
-                            <button type="button" class="rpos-btn-primary" data-action="pay-screen-validate" style="height:52px;justify-content:center;font-weight:700;font-size:14.5px;background:#2F8500;border-color:#236600;">
-                                ${this.escape(st.selectedLabel || "Efectivo")}
-                            </button>
+                        <div class="rpos-pay-keypad">
+                            ${["1", "2", "3"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="${k}">${k}</button>`).join("")}
+                            <button type="button" class="rpos-key is-add" data-action="pay-screen-add" data-add="10">+10</button>
+                            ${["4", "5", "6"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="${k}">${k}</button>`).join("")}
+                            <button type="button" class="rpos-key is-add" data-action="pay-screen-add" data-add="20">+20</button>
+                            ${["7", "8", "9"].map(k => `<button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="${k}">${k}</button>`).join("")}
+                            <button type="button" class="rpos-key is-add" data-action="pay-screen-add" data-add="50">+50</button>
+                            <button type="button" class="rpos-key is-sign" data-action="pay-screen-key" data-pay-key="+/-" disabled title="Un pago no puede ser negativo">+/-</button>
+                            <button type="button" class="rpos-key" data-action="pay-screen-key" data-pay-key="0">0</button>
+                            <button type="button" class="rpos-key is-dot" data-action="pay-screen-key" data-pay-key=".">,</button>
+                            <button type="button" class="rpos-key is-back" data-action="pay-screen-key" data-pay-key="BACK">⌫</button>
+                        </div>
+                        <div class="rpos-pay-footer-btns">
+                            <button type="button" class="rpos-pay-back-btn" data-action="pay-screen-back">Regresar</button>
+                            <button type="button" class="rpos-pay-validate-btn" data-action="pay-screen-validate" ${summary.canValidate ? "" : "disabled"}>Validar</button>
                         </div>
                     </div>
                 </div>
 
-                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;">
-                    <div style="font-size:96px;font-weight:800;line-height:1;color:#1e293b;letter-spacing:-2px;">
-                        <span style="font-size:58px;color:#64748b;margin-right:6px;">L</span><span>${this.escape(intPart)}</span><span style="color:#64748b;">,${this.escape(decPart)}</span>
+                <div class="rpos-pay-right ${paidLines.length ? "" : "is-empty"}">
+                    <div class="rpos-pay-total">
+                        <span class="rpos-pay-total-cur">L</span><span>${this.escape(Number(intPart).toLocaleString("es-HN"))}</span><span class="rpos-pay-total-cents">,${this.escape(decPart)}</span>
                     </div>
+                    ${paidLines.length ? "" : `<div class="rpos-pay-hint">Elige un método de pago. Puedes escribir el monto antes o después de elegirlo.</div>`}
+                    ${paidLines.length ? `
+                    <div class="rpos-pay-lines">
+                        ${paidLines.map((p, idx) => `
+                            <div class="rpos-pay-line ${idx === st.selectedIndex ? "is-selected" : ""}" data-action="pay-screen-select-line" data-index="${idx}">
+                                <span class="rpos-pay-line-label">${this.escape(p.label || p.mode_of_payment)}</span>
+                                <span class="rpos-pay-line-amount">${moneyParts(p.amount)}</span>
+                                <button type="button" class="rpos-pay-line-remove" data-action="pay-screen-remove-line" data-index="${idx}" title="Quitar este pago" aria-label="Quitar este pago">×</button>
+                            </div>
+                        `).join("")}
+                    </div>
+                    ` : ""}
+                    ${summary.cashShortForChange ? `
+                        <div class="rpos-pay-warning">Solo el efectivo puede dar cambio. Reduce el monto de tarjeta o transferencia.</div>
+                    ` : ""}
+                    ${paidLines.length ? `
+                        <div class="rpos-pay-balance ${summary.change > 0 ? "is-change" : summary.remaining > 0 ? "is-due" : "is-even"}">
+                            <span>${summary.change > 0 ? "Cambio" : summary.remaining > 0 ? "Restante" : "Total cubierto"}</span>
+                            <span class="rpos-pay-balance-amount">${moneyParts(summary.change > 0 ? summary.change : summary.remaining)}</span>
+                        </div>
+                    ` : ""}
                 </div>
             </div>
         `;
+    }
+
+    paymentScreenSummary(st) {
+        // Display only: the server recomputes the invoice and rejects change not covered by cash.
+        const due = Math.max(0, this.roundMoney(this.getCheckoutPreviewTotal(st) - (st.giftCardAmount || 0)));
+        const paid = this.paymentLinesTotal(st);
+        const cash = this.roundMoney((st.payments || [])
+            .filter(p => this.isCashMode(p.mode_of_payment))
+            .reduce((sum, p) => sum + Number(p.amount || 0), 0));
+        const remaining = Math.max(0, this.roundMoney(due - paid));
+        const change = Math.max(0, this.roundMoney(paid - due));
+        const cashShortForChange = change > cash;
+        const hasLines = (st.payments || []).some(p => Number(p.amount || 0) > 0);
+        return {
+            due, paid, remaining, change, cashShortForChange,
+            canValidate: remaining <= 0 && !cashShortForChange && (hasLines || due === 0),
+        };
+    }
+
+    paymentExtraIcon(kind) {
+        const paths = {
+            tip: '<path d="M12 20s-7-4.4-7-9.5A4 4 0 0 1 12 8a4 4 0 0 1 7 2.5C19 15.6 12 20 12 20Z"/>',
+            discount: '<path d="M3 12V4h8l10 10-8 8L3 12Z"/><circle cx="7.5" cy="7.5" r="1.5"/><path d="m9.5 16.5 5-5"/>',
+            coupon: '<path d="M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4V7Z"/><path d="M10 7v10" stroke-dasharray="2 2"/>',
+            gift: '<rect x="3" y="9" width="18" height="12" rx="1"/><path d="M3 13h18M12 9v12M12 9S10 4 7.5 5.5 9 9 12 9Zm0 0s2-5 4.5-3.5S15 9 12 9Z"/>',
+            loyalty: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9L12 3Z"/>',
+        };
+        return `<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[kind] || ""}</svg>`;
+    }
+
+    paymentMethodIcon(mop) {
+        const row = (this.bootstrap?.modes_of_payment || []).find(m => m.name === mop) || {};
+        const name = String(mop || "").toLowerCase();
+        const svg = (body) => `<svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
+        if (row.type === "Cash" || name.includes("efectivo") || name.includes("cash")) {
+            return svg('<rect x="3" y="8" width="26" height="16" rx="2"/><circle cx="16" cy="16" r="4"/><path d="M7 12v0M25 20v0"/>');
+        }
+        if (name.includes("tarjeta") || name.includes("card") || name.includes("crédito") || name.includes("credito") || name.includes("débito")) {
+            return svg('<rect x="3" y="7" width="26" height="18" rx="2.5"/><path d="M3 12h26M7 20h6"/>');
+        }
+        if (name.includes("transfer")) {
+            return svg('<path d="M5 11h20l-5-5M27 21H7l5 5"/>');
+        }
+        if (name.includes("cheque")) {
+            return svg('<rect x="3" y="8" width="26" height="16" rx="2"/><path d="M7 14h10M7 19h6M20 19l5-5"/>');
+        }
+        if (name.includes("giro") || name.includes("banc") || row.type === "Bank") {
+            return svg('<path d="M4 12 16 5l12 7H4Z"/><path d="M7 13v9M12.5 13v9M19.5 13v9M25 13v9M4 25h24"/>');
+        }
+        return svg('<path d="M5 9h20a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5V9Z"/><path d="M5 9l16-4v4M21 17h3"/>');
     }
 
     async handlePaymentScreenAction(action, el) {
@@ -3730,31 +3786,63 @@ class LeafRestaurantPOS {
             return;
         }
         if (action === "pay-screen-mop") {
-            st.selectedMop = el.dataset.mop;
-            st.selectedLabel = el.dataset.mopLabel;
+            // A typed amount with no line selected becomes this payment; otherwise it takes the balance.
+            const typed = st.selectedIndex < 0 && st.tenderedBuffer ? this.roundMoney(Number(st.tenderedBuffer)) : null;
+            const amount = typed ?? this.paymentScreenSummary(st).remaining;
+            st.payments = [...(st.payments || []), {
+                mode_of_payment: el.dataset.mop,
+                label: el.dataset.mopLabel || el.dataset.mop,
+                amount,
+            }];
+            st.selectedIndex = st.payments.length - 1;
+            st.tenderedBuffer = "";
+            st.replaceOnType = true;
+            this.render();
+            return;
+        }
+        if (action === "pay-screen-select-line") {
+            if (el.closest("[data-action='pay-screen-remove-line']")) return;
+            st.selectedIndex = Number(el.dataset.index);
+            st.tenderedBuffer = "";
+            st.replaceOnType = true;
             this.render();
             return;
         }
         if (action === "pay-screen-key") {
-            const k = el.dataset.key;
+            // data-pay-key, not data-key: data-key buttons also drive the order line keypad.
+            const k = el.dataset.payKey;
+            if (k === "+/-") return;
+            // The first key after choosing a line replaces its amount, as on a cash register.
+            let buffer = st.replaceOnType ? "" : (st.tenderedBuffer || "");
+            st.replaceOnType = false;
             if (k === "BACK") {
-                st.tenderedBuffer = st.tenderedBuffer.slice(0, -1);
-            } else if (k === "+/-") {
-                return;
+                buffer = buffer.slice(0, -1);
             } else if (k === ".") {
-                if (!st.tenderedBuffer.includes(".")) {
-                    st.tenderedBuffer = (st.tenderedBuffer || "0") + ".";
-                }
-            } else {
-                st.tenderedBuffer += k;
+                if (!buffer.includes(".")) buffer = (buffer || "0") + ".";
+            } else if (!/\.\d{2}$/.test(buffer)) {
+                buffer += k;
             }
+            st.tenderedBuffer = buffer;
+            this.setSelectedPaymentAmount(st, Number(buffer || 0));
             this.render();
             return;
         }
         if (action === "pay-screen-add") {
             const addVal = Number(el.dataset.add || 0);
-            const curVal = st.tenderedBuffer ? Number(st.tenderedBuffer) : Math.max(0, this.getCheckoutPreviewTotal(st) - (st.giftCardAmount || 0));
-            st.tenderedBuffer = (curVal + addVal).toFixed(2);
+            const line = (st.payments || [])[st.selectedIndex];
+            const current = line ? Number(line.amount || 0) : Number(st.tenderedBuffer || 0);
+            st.tenderedBuffer = this.roundMoney(current + addVal).toFixed(2);
+            st.replaceOnType = false;
+            this.setSelectedPaymentAmount(st, Number(st.tenderedBuffer));
+            this.render();
+            return;
+        }
+        if (action === "pay-screen-remove-line") {
+            const index = Number(el.dataset.index);
+            st.payments = (st.payments || []).filter((_payment, idx) => idx !== index);
+            st.selectedIndex = st.payments.length - 1;
+            st.tenderedBuffer = "";
+            st.replaceOnType = true;
             this.render();
             return;
         }
@@ -3825,9 +3913,18 @@ class LeafRestaurantPOS {
         }
         if (action === "pay-screen-validate") {
             this.recalculateLocalTotals();
-            const grand = this.getCheckoutPreviewTotal(st);
-            const remaining = Math.max(0, this.roundMoney(grand - (st.giftCardAmount || 0)));
-            const tendered = st.tenderedBuffer ? Number(st.tenderedBuffer) : remaining;
+            const summary = this.paymentScreenSummary(st);
+            if (summary.remaining > 0) {
+                frappe.msgprint(`Falta cobrar ${this.formatMoney(summary.remaining)}. Agrega otro método de pago.`);
+                return;
+            }
+            if (summary.cashShortForChange) {
+                frappe.msgprint("Solo el efectivo puede dar cambio. Cobra con tarjeta o transferencia solo el saldo pendiente y el resto en efectivo.");
+                return;
+            }
+            const payments = (st.payments || [])
+                .filter(p => Number(p.amount || 0) > 0)
+                .map(p => ({ mode_of_payment: p.mode_of_payment, amount: this.roundMoney(p.amount) }));
             const res = await this.submitCheckout({
                 order_name: this.currentOrder.name,
                 customer: this.currentOrder.customer,
@@ -3839,7 +3936,7 @@ class LeafRestaurantPOS {
                 gift_card_code: st.giftCardCode || "",
                 gift_card_amount: st.giftCardAmount || 0,
                 loyalty_points: st.loyaltyPoints || 0,
-                payments: tendered > 0 ? [{ mode_of_payment: st.selectedMop || "Efectivo", amount: tendered }] : [],
+                payments,
             });
             if (!res) return;
 

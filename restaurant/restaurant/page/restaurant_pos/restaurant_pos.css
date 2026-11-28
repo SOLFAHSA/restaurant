@@ -3707,3 +3707,357 @@
     color: #cbd5e1;
 }
 
+
+/* Payment screen: payment methods on the left, payment lines and balance on the right. */
+.rpos-pay-screen {
+    --pay-navy: #002456;
+    --pay-green: #2f8500;
+    --pay-red: #c62828;
+    display: grid;
+    grid-template-columns: 440px 1fr;
+    height: calc(100vh - 64px);
+    background: #f7f8fa;
+}
+
+.rpos-pay-left {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px;
+    overflow-y: auto;
+}
+
+.rpos-pay-methods,
+.rpos-pay-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.rpos-pay-method {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-height: 64px;
+    padding: 0 22px;
+    background: #f1f2f4;
+    border: 1px solid #d7dbe0;
+    border-radius: 4px;
+    color: #1f2933;
+    font-size: 18px;
+    font-weight: 500;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.rpos-pay-method:hover {
+    background: #e8ecf2;
+    border-color: var(--pay-navy);
+}
+
+.rpos-pay-method-icon {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+    color: var(--pay-navy);
+}
+
+.rpos-pay-method-icon svg,
+.rpos-pay-action-btn svg {
+    width: 100%;
+    height: 100%;
+}
+
+.rpos-pay-actions-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.rpos-pay-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 50px;
+    padding: 0 14px;
+    background: #f1f2f4;
+    border: 1px solid #d7dbe0;
+    border-radius: 4px;
+    color: #1f2933;
+    font-size: 17px;
+    cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.rpos-pay-action-btn svg {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+}
+
+.rpos-pay-action-btn span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.rpos-pay-action-btn.is-on {
+    border-color: var(--pay-navy);
+}
+
+/* Optional checkout options: each one fills the row when it is alone, all with the same size. */
+.rpos-pay-extras {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px;
+}
+
+.rpos-pay-extra-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 44px;
+    padding: 0 12px;
+    background: #ffffff;
+    border: 1px solid #d7dbe0;
+    border-radius: 4px;
+    color: #1f2933;
+    font-size: 15px;
+    cursor: pointer;
+}
+
+.rpos-pay-extra-btn svg {
+    flex: 0 0 18px;
+    width: 18px;
+    height: 18px;
+    color: var(--pay-navy);
+}
+
+.rpos-pay-extra-btn:hover {
+    border-color: var(--pay-navy);
+}
+
+.rpos-pay-keypad {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0;
+    border: 1px solid #e2e5ea;
+}
+
+.rpos-pay-keypad .rpos-key {
+    height: 53px;
+    border-radius: 0;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+.rpos-pay-keypad .rpos-key.is-add {
+    background: #c3ecc6;
+    border-color: #a7dcab;
+    color: #1f3d22;
+}
+
+.rpos-pay-keypad .rpos-key.is-dot {
+    background: #f6d9cf;
+    border-color: #efc6b8;
+}
+
+.rpos-pay-keypad .rpos-key:disabled {
+    cursor: not-allowed;
+}
+
+.rpos-pay-footer-btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+}
+
+.rpos-pay-back-btn,
+.rpos-pay-validate-btn {
+    height: 68px;
+    border-radius: 4px;
+    font-size: 18px;
+    cursor: pointer;
+}
+
+.rpos-pay-back-btn {
+    background: #f1f2f4;
+    border: 1px solid #d7dbe0;
+    color: #1f2933;
+}
+
+.rpos-pay-validate-btn {
+    background: var(--pay-navy);
+    border: 1px solid var(--pay-navy);
+    color: #ffffff;
+    font-weight: 600;
+}
+
+.rpos-pay-validate-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.rpos-pay-right {
+    display: flex;
+    flex-direction: column;
+    padding: 40px 150px 16px;
+    min-width: 0;
+}
+
+.rpos-pay-right.is-empty {
+    justify-content: center;
+}
+
+.rpos-pay-total {
+    text-align: center;
+    font-size: 120px;
+    font-weight: 600;
+    line-height: 1.1;
+    color: #1f2933;
+    letter-spacing: -2px;
+}
+
+.rpos-pay-total-cur {
+    font-size: 70px;
+    color: #4b5563;
+    margin-right: 4px;
+}
+
+.rpos-pay-total-cents {
+    font-size: 90px;
+    color: #6b7280;
+}
+
+.rpos-pay-hint {
+    margin-top: 24px;
+    text-align: center;
+    color: #6b7280;
+    font-size: 15px;
+}
+
+.rpos-pay-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 40px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #dfe3e8;
+    overflow-y: auto;
+}
+
+.rpos-pay-line {
+    display: grid;
+    grid-template-columns: 1fr auto 44px;
+    align-items: center;
+    min-height: 64px;
+    padding: 0 8px 0 16px;
+    background: #f7f8fa;
+    border: 1px solid #dfe3e8;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 20px;
+    color: #1f2933;
+}
+
+.rpos-pay-line.is-selected {
+    background: #e8f0f9;
+    border-color: var(--pay-navy);
+}
+
+.rpos-pay-line-amount {
+    font-size: 20px;
+}
+
+.rpos-pay-cur {
+    font-size: 12px;
+    margin-right: 3px;
+    color: #4b5563;
+}
+
+.rpos-pay-cents {
+    font-size: 15px;
+    color: #6b7280;
+}
+
+.rpos-pay-line-remove {
+    width: 36px;
+    height: 36px;
+    margin-left: 8px;
+    border: 0;
+    background: transparent;
+    color: var(--pay-red);
+    font-size: 20px;
+    cursor: pointer;
+}
+
+.rpos-pay-warning {
+    margin-top: 12px;
+    padding: 10px 14px;
+    background: #fff4f4;
+    border: 1px solid #f3c2c2;
+    border-radius: 6px;
+    color: var(--pay-red);
+    font-size: 14px;
+}
+
+.rpos-pay-balance {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: auto;
+    padding: 18px 4px 4px;
+    border-top: 1px solid #dfe3e8;
+    font-size: 21px;
+}
+
+.rpos-pay-balance-amount {
+    font-size: 21px;
+    font-weight: 700;
+}
+
+.rpos-pay-balance.is-change {
+    color: var(--pay-green);
+}
+
+.rpos-pay-balance.is-due {
+    color: var(--pay-red);
+}
+
+.rpos-pay-balance.is-even {
+    color: var(--pay-navy);
+}
+
+@media (max-width: 1100px) {
+    .rpos-pay-screen {
+        grid-template-columns: 340px 1fr;
+    }
+
+    .rpos-pay-right {
+        padding: 24px 24px 12px;
+    }
+
+    .rpos-pay-total {
+        font-size: 72px;
+    }
+
+    .rpos-pay-total-cur {
+        font-size: 42px;
+    }
+
+    .rpos-pay-total-cents {
+        font-size: 54px;
+    }
+}
+
+@media (max-width: 760px) {
+    .rpos-pay-screen {
+        grid-template-columns: 1fr;
+        height: auto;
+    }
+}
