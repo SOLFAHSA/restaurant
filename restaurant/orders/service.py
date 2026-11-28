@@ -496,7 +496,10 @@ def authorize_reprint_command(order_name, supervisor_user=None, supervisor_pin=N
 
 @frappe.whitelist(methods=["POST"])
 def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None, email_id=None, mobile_no=None, address=None):
-    """Create or update a Customer with their fiscal RTN, email, phone, and address directly from the Restaurant POS."""
+    """Update an existing Customer's name, RTN, email, phone and address from the Restaurant POS.
+
+    New customers are created with the native Customer quick entry, which applies each role's permissions.
+    """
     _require_pos_user()
     if not user_can_invoice():
         frappe.throw(
@@ -510,51 +513,23 @@ def save_customer_with_rtn(customer_name, tax_id=None, customer_id=None, email_i
     clean_addr = cstr(address).strip()[:200]
     if not clean_name:
         frappe.throw(_("El nombre o razón social del cliente es obligatorio."))
+    if not customer_id or not frappe.db.exists("Customer", customer_id):
+        frappe.throw(_("Selecciona un cliente existente para editarlo."))
+    if customer_id.strip().upper() == "CONSUMIDOR FINAL":
+        frappe.throw(_("No puedes sobrescribir el cliente genérico CONSUMIDOR FINAL."), frappe.PermissionError)
 
     cust_meta = frappe.get_meta("Customer")
-    if customer_id and frappe.db.exists("Customer", customer_id):
-        if customer_id.strip().upper() == "CONSUMIDOR FINAL":
-            frappe.throw(_("No puedes sobrescribir el cliente genérico CONSUMIDOR FINAL."), frappe.PermissionError)
-        doc = frappe.get_doc("Customer", customer_id)
-        doc.check_permission("write")
-        doc.customer_name = clean_name
-        doc.tax_id = clean_rtn
-        if email_id is not None and cust_meta.has_field("email_id"):
-            doc.email_id = clean_email
-        if mobile_no is not None and cust_meta.has_field("mobile_no"):
-            doc.mobile_no = clean_phone
-        if address is not None and cust_meta.has_field("primary_address"):
-            doc.primary_address = clean_addr
-        doc.save()
-    else:
-        if not frappe.has_permission("Customer", "create"):
-            frappe.throw(_("No tienes permisos para registrar nuevos clientes."), frappe.PermissionError)
-        group = (
-            frappe.db.get_single_value("Selling Settings", "customer_group")
-            or frappe.db.get_value("Customer Group", {"is_group": 0}, "name")
-            or "All Customer Groups"
-        )
-        territory = (
-            frappe.db.get_single_value("Selling Settings", "territory")
-            or frappe.db.get_value("Territory", {"is_group": 0}, "name")
-            or "All Territories"
-        )
-        payload = {
-            "doctype": "Customer",
-            "customer_name": clean_name,
-            "customer_type": "Individual",
-            "customer_group": group,
-            "territory": territory,
-            "tax_id": clean_rtn,
-        }
-        if clean_email and cust_meta.has_field("email_id"):
-            payload["email_id"] = clean_email
-        if clean_phone and cust_meta.has_field("mobile_no"):
-            payload["mobile_no"] = clean_phone
-        if clean_addr and cust_meta.has_field("primary_address"):
-            payload["primary_address"] = clean_addr
-        doc = frappe.get_doc(payload)
-        doc.insert()
+    doc = frappe.get_doc("Customer", customer_id)
+    doc.check_permission("write")
+    doc.customer_name = clean_name
+    doc.tax_id = clean_rtn
+    if email_id is not None and cust_meta.has_field("email_id"):
+        doc.email_id = clean_email
+    if mobile_no is not None and cust_meta.has_field("mobile_no"):
+        doc.mobile_no = clean_phone
+    if address is not None and cust_meta.has_field("primary_address"):
+        doc.primary_address = clean_addr
+    doc.save()
 
     return {
         "name": doc.name,

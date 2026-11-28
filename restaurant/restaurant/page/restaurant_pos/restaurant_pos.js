@@ -3055,13 +3055,21 @@ class LeafRestaurantPOS {
         backdrop.querySelectorAll("[data-modal-close]").forEach(btn => btn.addEventListener("click", () => backdrop.remove()));
         document.body.appendChild(backdrop);
 
+        const selectCustomer = async (customer) => {
+            this.currentOrder.customer = customer.name;
+            this.currentOrder.customer_name = customer.customer_name;
+            this.currentOrder.tax_id = customer.tax_id || "";
+            this.render();
+            if (!(await this.persistCurrentOrderSilently())) return;
+            if (opts.openScheduleAfter) this.openScheduleModal();
+        };
+
         const renderBody = () => {
             const body = backdrop.querySelector("[data-cust-body]");
             if (editingCustomer) {
-                const isNew = !editingCustomer.name;
                 body.innerHTML = `
                     <div style="padding:18px;">
-                        <h4 style="margin:0 0 14px;font-size:15px;">${isNew ? "Crear nuevo cliente" : `Editar cliente · ${this.escape(editingCustomer.customer_name)}`}</h4>
+                        <h4 style="margin:0 0 14px;font-size:15px;">Editar cliente · ${this.escape(editingCustomer.customer_name)}</h4>
                         <div style="display:grid;grid-template-columns:1.2fr 1fr;gap:12px;">
                             <div class="rpos-field">
                                 <label>Nombre o Razón Social *</label>
@@ -3105,7 +3113,7 @@ class LeafRestaurantPOS {
                     const res = await frappe.call({
                         method: "restaurant.pos.save_customer_with_rtn",
                         args: {
-                            customer_id: editingCustomer.name || null,
+                            customer_id: editingCustomer.name,
                             customer_name: cName,
                             tax_id: body.querySelector("[data-edit-cust-rtn]").value.trim(),
                             address: body.querySelector("[data-edit-cust-address]").value.trim(),
@@ -3116,16 +3124,8 @@ class LeafRestaurantPOS {
                     const saved = res.message;
                     const idx = customers.findIndex(c => c.name === saved.name);
                     if (idx >= 0) customers[idx] = saved;
-                    else customers.unshift(saved);
-                    this.currentOrder.customer = saved.name;
-                    this.currentOrder.customer_name = saved.customer_name;
-                    this.currentOrder.tax_id = saved.tax_id || "";
                     backdrop.remove();
-                    this.render();
-                    if (!(await this.persistCurrentOrderSilently())) return;
-                    if (opts.openScheduleAfter) {
-                        this.openScheduleModal();
-                    }
+                    await selectCustomer(saved);
                 });
                 return;
             }
@@ -3155,15 +3155,8 @@ class LeafRestaurantPOS {
                     if (e.target.closest("[data-cust-edit]")) return;
                     const chosen = customers.find(c => c.name === row.dataset.custPick);
                     if (!chosen) return;
-                    this.currentOrder.customer = chosen.name;
-                    this.currentOrder.customer_name = chosen.customer_name;
-                    this.currentOrder.tax_id = chosen.tax_id || "";
                     backdrop.remove();
-                    this.render();
-                    if (!(await this.persistCurrentOrderSilently())) return;
-                    if (opts.openScheduleAfter) {
-                        this.openScheduleModal();
-                    }
+                    await selectCustomer(chosen);
                 });
             });
 
@@ -3181,9 +3174,19 @@ class LeafRestaurantPOS {
 
         renderBody();
 
-        backdrop.querySelector("[data-cust-create-btn]").addEventListener("click", () => {
-            editingCustomer = { customer_name: searchQuery.trim(), tax_id: "", address: "", email_id: "", mobile_no: "" };
-            renderBody();
+        const createBtn = backdrop.querySelector("[data-cust-create-btn]");
+        if (!frappe.model.can_create("Customer")) createBtn.remove();
+        else createBtn.addEventListener("click", () => {
+            // Reuse the native Customer quick entry; it applies the Customer permissions of each role.
+            backdrop.remove();
+            frappe.ui.form.make_quick_entry("Customer", async doc => {
+                const created = {
+                    name: doc.name, customer_name: doc.customer_name, tax_id: doc.tax_id || "",
+                    email_id: doc.email_id || "", mobile_no: doc.mobile_no || "",
+                };
+                if (!customers.some(c => c.name === created.name)) customers.unshift(created);
+                await selectCustomer(created);
+            }, null, { customer_name: searchQuery.trim() });
         });
 
         backdrop.querySelector("[data-cust-search-inp]").addEventListener("input", e => {
